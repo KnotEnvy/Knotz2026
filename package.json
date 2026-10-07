@@ -1,0 +1,16 @@
+{
+  "name": "2026-storm-atlas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/preview.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  }
+}

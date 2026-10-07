@@ -1,0 +1,22 @@
+node_modules/
+.DS_Store
+*.log
+/dist/
+/artifacts/
+/releases/
+/workbench.html
+/compare.html
+/progress.json
+/findings.md
+# Historical local QA scripts use this machine's browser/runtime and captures.
+/scripts/*
+!/scripts/build.mjs
+!/scripts/preview.mjs
+.codex/
+.agents/
+.aws/
+.ssh/
+.env
+.env.*
+*.pem
+*.key
