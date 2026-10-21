@@ -105,6 +105,10 @@ export class HUD {
     this.time = 0;
     this.banner = "";
     this.bannerTime = 0;
+    // Sector, flagship, phase and extend moments are drawn by Sequences (src/sequences.js).
+    // Their banner text is still kept here for the phone flight-signal readout.
+    this.bannerSequenced = false;
+    this.deferSequencedBanners = true;
     this.encounterName = "";
     this.encounterTime = 0;
     this.lastMode = "";
@@ -120,33 +124,55 @@ export class HUD {
     try { this.hi = Number(localStorage.getItem("2026-high-score")) || 0; } catch (_) {}
   }
 
+  saveHighScore(score = this.hi) {
+    this.hi = Math.max(this.hi, Number(score) || 0);
+    try {
+      this.hi = Math.max(this.hi, Number(localStorage.getItem("2026-high-score")) || 0);
+      localStorage.setItem("2026-high-score", String(this.hi));
+    } catch (_) {}
+    this.saveClock = 0;
+  }
+
   draw(game, dt = 1 / 60, ctx = this.canvas?.getContext("2d")) {
     if (!ctx || !game) return;
     this.time += clamp(Number(dt) || 1 / 60, 0, 0.1);
     this.saveClock += clamp(Number(dt) || 1 / 60, 0, 0.1);
     const score = Math.max(0, Math.floor(Number(game.score) || 0));
-    if (score > this.hi) this.hi = score;
-    if (this.saveClock > 2.5 && this.hi > 0) {
-      this.saveClock = 0;
-      try { localStorage.setItem("2026-high-score", String(this.hi)); } catch (_) {}
+    if (!game.practiceStage && score > this.hi) this.hi = score;
+    if (!game.practiceStage && this.saveClock > 2.5 && this.hi > 0) {
+      this.saveHighScore();
     }
     if (game.mode !== this.lastMode) {
       this.lastMode = game.mode;
       if (game.mode === "playing" && game.stage && Number(game.stageTime || 0) < 3) {
         this.banner = "SECTOR " + String(game.stage).padStart(2, "0");
-        this.bannerTime = 2.3;
+        this.bannerTime = 2.3; this.bannerSequenced = true;
       }
     }
     for (const event of game.events || []) {
+      if (["stage", "bossEnter", "bossPhase", "extend", "reactorOpen", "reactorBreak", "lanceLock", "lanceCancel", "bossGuard", "bossGuardEnd"].includes(event.type)) {
+        this.bannerSequenced = event.type === "stage" || event.type === "bossEnter" || event.type === "bossPhase" || event.type === "extend";
+      }
       if (event.type === "stage" && Number(game.stageTime || 0) < 3) {
         this.banner = "SECTOR " + String(game.stage || 1).padStart(2, "0");
         this.bannerTime = 2.6;
       } else if (event.type === "bossEnter" && Number(game.boss?.age || 0) < 3) {
         this.banner = "HOSTILE FLAGSHIP";
         this.bannerTime = 2.3;
+      } else if (event.type === "bossDown") {
+        // Reactor, lance and armor callouts go stale once the flagship is gone.
+        if (!this.bannerSequenced) this.bannerTime = 0;
       } else if (event.type === "bossPhase") {
         this.banner = "PATTERN SHIFT";
         this.bannerTime = 1.2;
+      } else if(event.type==='reactorOpen'){
+        this.banner=event.value<0?'LEFT REACTOR / BREAK FOR COVER':'RIGHT REACTOR / CUT SPIRAL';this.bannerTime=2.3;
+      } else if(event.type==='reactorBreak'){
+        this.banner=event.value<0?'LEFT COVER / 3.2s':'RIGHT SPIRAL OFFLINE';this.bannerTime=2;
+      } else if(event.type==='lanceLock'){
+        this.banner='LANCE LOCKED / LEAVE THE LANE';this.bannerTime=.85;
+      } else if(event.type==='lanceCancel'){
+        this.banner='LANCE VENTED';this.bannerTime=1;
       } else if (event.type === "bossGuard") {
         this.banner = "ARMOR CYCLING";
         this.bannerTime = 1.1;
@@ -192,10 +218,14 @@ export class HUD {
     const sx = (this.canvas?.width || W) / W;
     const sy = (this.canvas?.height || H) / H;
     ctx.scale(sx, sy);
-    if (game.mode === "playing" || game.mode === "paused") this.drawStatus(ctx, game);
-    if (game.mode === "playing" && Number(game.player?.hp || 0) <= 1) this.drawCritical(ctx, game);
-    if (this.encounterTime > 0 && game.mode === "playing" && !game.boss) this.drawEncounter(ctx);
-    if (this.bannerTime > 0 && game.mode === "playing") this.drawBanner(ctx);
+    if (!this.compact&&(game.mode === "playing" || game.mode === "paused")) this.drawStatus(ctx, game);
+    const critical=Number(game.player?.hp||0)<=1;
+    if (game.mode === "playing"&&critical)this.drawCritical(ctx,game);
+    if(!this.compact&&game.mode==='playing'&&!critical){
+      const deferred=this.deferSequencedBanners&&this.bannerSequenced;
+      if(this.bannerTime>0&&!deferred)this.drawBanner(ctx);
+      else if(this.encounterTime>0&&!game.boss)this.drawEncounter(ctx);
+    }
 
     ctx.restore();
     if (outputCtx) { outputCtx.drawImage(this.layer, 0, 0); this.layerReady = true; }
@@ -210,19 +240,21 @@ export class HUD {
     text(ctx, "HI " + String(Math.floor(Math.max(game.highScore || 0, this.hi))).padStart(8, "0"), 27, 82, 10, COLORS.gold, 700, "left", 1.2);
     rule(ctx, 225, 21, 225, 84);
     rule(ctx, 334, 21, 334, 84);
-    text(ctx, "SECTOR", 280, 27, 10, COLORS.muted, 700, "center", 2);
+    text(ctx, game.practiceStage?"DRILL":"SECTOR", 280, 27, 10, COLORS.muted, 700, "center", 2);
     text(ctx, String(game.stage || 1).padStart(2, "0"), 280, 59, 32, COLORS.cyan, 800, "center");
     text(ctx, "LIVES", 352, 28, 10, COLORS.muted, 700, "left", 1.4);
     for (let i = 0; i < 4; i++) iconPlane(ctx, 434 + i * 24, 28, 0.75, i < (player.lives || 0));
-    text(ctx, "HULL", 352, 48, 10, COLORS.muted, 700, "left", 1.4);
+    text(ctx, player.maxShield?"HULL / S":"HULL", 352, 48, player.maxShield?8:10, COLORS.muted, 700, "left", 1.1);
     const maxHull = Math.max(1, Math.min(4, Number(player.maxHp) || 3));
     const hull = clamp(Number(player.hp) || 0, 0, maxHull);
     for (let i = 0; i < maxHull; i++) {
-      const x = 427 + i * 25;
+      const x = 427 + i * (player.maxShield?19:25);
       ctx.fillStyle = i < hull ? (hull <= 1 ? COLORS.coral : COLORS.cyan) : "rgba(255,119,95,.18)";
-      ctx.fillRect(x, 45, 19, 6);
-      if (i < hull) rule(ctx, x, 44, x + 19, 44, "rgba(231,249,244,.7)");
+      const width=player.maxShield?14:19;
+      ctx.fillRect(x,45,width,6);
+      if (i < hull) rule(ctx,x,44,x+width,44,"rgba(231,249,244,.7)");
     }
+    if(player.maxShield)text(ctx,String(player.shield)+"/"+player.maxShield,514,48,10,COLORS.cyan,800,'center');
     text(ctx, "BOMBS", 352, 70, 10, COLORS.muted, 700, "left", 1.4);
     for (let i = 0; i < 4; i++) iconBomb(ctx, 428 + i * 25, 70, i < (player.bombs || 0));
 
@@ -241,9 +273,9 @@ export class HUD {
       }
       rule(ctx, 277, 109, 277, 131);
       const combo = Math.max(0, Math.floor(game.combo || 0));
-      text(ctx, "CHAIN", 291, 120, 10, COLORS.muted, 700, "left", 1.2);
-      text(ctx, String(combo).padStart(3, "0"), 361, 120, 16, combo > 0 ? COLORS.cyan : COLORS.muted, 800);
-      text(ctx, "×" + (1 + Math.min(9, Math.floor(combo / 10))), 507, 120, 14, COLORS.gold, 800, "right");
+      text(ctx, "COMBO", 291, 120, 10, COLORS.muted, 700, "left", 1.2);
+      text(ctx, Math.max(1,Number(game.combo)||1).toFixed(1) + "×", 367, 120, 17, COLORS.cyan, 800);
+      text(ctx, "MAX 8×", 507, 120, 10, COLORS.gold, 800, "right");
       this.drawProgress(ctx, game);
     }
     this.drawBottomRail(ctx, game);
@@ -264,7 +296,7 @@ export class HUD {
     text(ctx, bossName, 25, y + 10, 10, COLORS.coral, 800, "left", 1.2);
     const guardLeft = Math.max(0, (Number(boss.guardUntil) || 0) - (Number(boss.age) || 0));
     const centerLabel = boss.guard ? "ARMOR CYCLING / " + guardLeft.toFixed(1) + "s" :
-      "P" + Math.max(0, Number(this.lastPower) || 0) + " / " + Math.max(0, Math.floor(this.lastCombo || 0)) + " CHAIN";
+      "LV " + Math.max(0, Number(this.lastPower) || 0) + " / " + Math.max(1, Number(this.lastCombo)||1).toFixed(1) + "×";
     text(ctx, centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
     text(ctx, "PHASE " + String(boss.phase || 1), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
     const ratio = clamp((boss.hp || 0) / Math.max(1, boss.maxHp || 1), 0, 1);
@@ -332,22 +364,22 @@ export class HUD {
     const alpha = clamp(this.bannerTime, 0, 1) * clamp((2.6 - this.bannerTime) * 4, 0, 1);
     ctx.save();
     ctx.globalAlpha = alpha;
-    const y = 229;
+    const y = 148;
     const gradient = ctx.createLinearGradient(0, y, W, y);
     gradient.addColorStop(0, "rgba(6, 22, 35, 0)");
     gradient.addColorStop(.2, "rgba(6, 22, 35, .85)");
     gradient.addColorStop(.8, "rgba(6, 22, 35, .85)");
     gradient.addColorStop(1, "rgba(6, 22, 35, 0)");
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, y, W, 68);
+    ctx.fillRect(0, y, W, 26);
     rule(ctx, 76, y + 3, 464, y + 3, COLORS.cyan, 1);
-    rule(ctx, 76, y + 65, 464, y + 65, COLORS.cyan, 1);
-    text(ctx, this.banner, W / 2, y + 35, 23, COLORS.pale, 800, "center", 3.2);
+    rule(ctx, 76, y + 25, 464, y + 25, COLORS.cyan, 1);
+    text(ctx, this.banner, W / 2, y + 14, 12, COLORS.pale, 800, "center", 1.5);
     ctx.restore();
   }
 
   drawCritical(ctx, game) {
-    const pulse = 0.5 + 0.5 * Math.sin(this.time * 6.5);
+    const pulse = this.reducedEffects ? 0.5 : 0.5 + 0.5 * Math.sin(this.time * 6.5);
     const alpha = 0.11 + pulse * 0.09;
     const edge = ctx.createRadialGradient(270, 460, 240, 270, 460, 560);
     edge.addColorStop(0, "rgba(233, 88, 66, 0)");
@@ -357,6 +389,7 @@ export class HUD {
     ctx.strokeStyle = "rgba(255, 114, 83, " + (0.38 + pulse * 0.44) + ")";
     ctx.lineWidth = 4;
     ctx.strokeRect(4, 4, W - 8, H - 8);
+    if(this.compact)return;
     ctx.fillStyle = "rgba(70, 12, 17, .86)";
     ctx.fillRect(175, 148, 190, 25);
     text(ctx, "HULL CRITICAL / EVADE", 270, 161, 11, COLORS.coral, 900, "center", 1.15);

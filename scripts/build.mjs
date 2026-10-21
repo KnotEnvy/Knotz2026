@@ -16,10 +16,36 @@ const runtimeFiles = [
   'src/ui.js',
   'src/audio.js',
   'src/background.js',
+  'src/art.js',
+  'src/settings.js',
+  'src/progress.js',
+  'src/ships.js',
+  'src/timeline.js',
+  'src/frontend.js',
+  'src/pause.js',
+  'src/sequences.js',
+  'src/cinema.js',
+  'src/ambience.js',
+  'src/sfx.js',
+  'src/music.js',
+  'src/soundscape.js',
+  'css/ambience.css',
+  'css/title.css',
+  'css/pause.css',
+  'css/end.css',
+  'assets/aircraft-atlas.webp',
+  'assets/pacific-coast.webp',
+  'assets/storm-harbor.webp',
+  'assets/crown-abyss.webp',
+  'assets/enemy-atlas.webp',
+  'assets/brand/icon.svg',
+  'assets/brand/icon-192.png',
+  'assets/brand/apple-touch-icon.png',
+  'assets/brand/og-image.png',
 ];
 const allowedFiles = new Set(runtimeFiles);
 const sources = new Map();
-for (const file of runtimeFiles) sources.set(file, await readFile(join(projectRoot, file), 'utf8'));
+for (const file of runtimeFiles) sources.set(file, await readFile(join(projectRoot, file), /\.(webp|png)$/.test(file) ? undefined : 'utf8'));
 
 function stripMarkedBlock(source, startMarker, endMarker, label) {
   const start = source.indexOf(startMarker);
@@ -38,7 +64,7 @@ main = stripMarkedBlock(main, '// DEV REVIEW HOOKS BEGIN', '// DEV REVIEW HOOKS 
 const signature = 'function endSortie(summary, fixture=false){';
 if (!main.includes(signature)) throw new Error('Unexpected endSortie signature.');
 main = main.replace(signature, 'function endSortie(summary){');
-if (/window\.__|__showEndFixture|fixtureNotice|PREVIEW FIXTURE|DEV REVIEW HOOKS|DEV FIXTURE/.test(main + html)) {
+if (/window\.__|__showEndFixture|fixtureNotice|\bfixture\b|PREVIEW FIXTURE|DEV REVIEW HOOKS|DEV FIXTURE/.test(main + html)) {
   throw new Error('Development fixture hooks remain in the public entry.');
 }
 sources.set('index.html', html);
@@ -75,10 +101,13 @@ for (const match of html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
   if (/^(?:data:|#)/i.test(ref)) continue;
   if (!allowedFiles.has(resolveRuntimeRef(ref, 'index.html'))) throw new Error('HTML asset is not allowlisted: ' + ref);
 }
-for (const match of sources.get('style.css').matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/gi)) {
-  const ref = match[1].trim();
-  if (/^(?:data:|#)/i.test(ref)) continue;
-  if (!allowedFiles.has(resolveRuntimeRef(ref, 'style.css'))) throw new Error('CSS asset is not allowlisted: ' + ref);
+for (const [file, contents] of sources) {
+  if (!file.endsWith('.css')) continue;
+  for (const match of contents.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/gi)) {
+    const ref = match[1].trim();
+    if (/^(?:data:|#)/i.test(ref)) continue;
+    if (!allowedFiles.has(resolveRuntimeRef(ref, file))) throw new Error('CSS asset is not allowlisted: ' + file + ' -> ' + ref);
+  }
 }
 
 await rm(distRoot, { recursive: true, force: true });

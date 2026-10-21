@@ -1,0 +1,235 @@
+/* Pause / holding-pattern screen. Loaded after style.css. */
+#pauseScreen.hold-screen{padding:clamp(10px,2.2vw,28px)}
+
+/* Backdrop over the frozen playfield: tint, vignette, scanlines and a slow scan band. */
+.hold-backdrop{overflow:hidden;background:radial-gradient(ellipse 70% 80% at 50% 42%,rgba(8,30,39,.5),rgba(2,9,14,.88) 78%),rgba(3,12,19,.42);backdrop-filter:blur(6px) saturate(.7)}
+.hold-backdrop:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(122,216,205,.04) 0 1px,transparent 1px 3px)}
+.hold-backdrop:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(243,187,112,.05),transparent 18% 82%,rgba(243,187,112,.05)),repeating-linear-gradient(90deg,transparent 0 calc(12.5% - 1px),rgba(174,216,204,.035) calc(12.5% - 1px) 12.5%)}
+.hold-scan{position:absolute;left:0;right:0;top:0;height:24%;background:linear-gradient(180deg,transparent,rgba(122,216,205,.05) 72%,rgba(122,216,205,.11));transform:translateY(-100%);animation:holdScan 8s linear infinite}
+@keyframes holdScan{to{transform:translateY(520%)}}
+
+/* Panel. */
+#pauseScreen .hold-panel{width:min(1140px,100%);max-height:100%;overflow:auto;overscroll-behavior:contain;display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);gap:clamp(18px,2.6vw,36px);align-items:start;padding:clamp(22px,2.6vw,34px) clamp(22px,3vw,40px);background:linear-gradient(150deg,rgba(21,47,57,.96),rgba(8,25,33,.97) 58%,rgba(5,17,24,.98));border:1px solid rgba(243,187,112,.42);box-shadow:0 30px 90px rgba(0,0,0,.62),inset 0 1px 0 rgba(248,245,233,.05);scrollbar-width:thin;scrollbar-color:rgba(243,187,112,.4) transparent}
+.hold-bracket{position:absolute;width:16px;height:16px;border:0 solid var(--gold);opacity:.75;pointer-events:none}
+.hold-bracket-tl{display:none}
+.hold-bracket-tr{top:8px;right:8px;border-width:1px 1px 0 0}
+.hold-bracket-bl{bottom:8px;left:8px;border-width:0 0 1px 1px}
+.hold-bracket-br{bottom:8px;right:8px;border-width:0 1px 1px 0}
+.hold-main,.hold-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.hold-head{order:1}.hold-snapshot{order:2}.hold-actions{order:3}
+.hold-scope{order:1}.hold-intel{order:2}.hold-route{order:3}
+
+/* Heading. */
+.hold-kicker{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.hold-live{display:inline-flex;align-items:center;gap:7px;padding:4px 9px 4px 7px;border:1px solid rgba(122,216,205,.42);color:var(--cyan);font-size:8px;letter-spacing:.24em}
+.hold-live i{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:holdBlink 1.7s ease-in-out infinite}
+@keyframes holdBlink{50%{opacity:.25}}
+#pauseScreen .hold-panel h2{margin:14px 0;font-size:clamp(40px,4.4vw,62px)}
+.hold-status{display:flex;flex-wrap:wrap;align-items:center;gap:7px 12px;margin:0 0 12px;color:var(--mist);font-size:10px;font-weight:800;letter-spacing:.17em}
+.hold-status b{color:var(--gold)}
+.hold-status span{display:inline-flex;align-items:center;gap:12px}
+.hold-status span:before{content:"";width:14px;height:1px;background:rgba(168,189,186,.45)}
+.hold-line{max-width:450px;margin:0;color:#abc4c1;font-family:Georgia,serif;font-size:16px;line-height:1.45}
+#pauseScreen[data-condition="critical"] .hold-line{color:#f2b8a6}
+
+/* Actions: resume is the dominant control. */
+#pauseScreen .hold-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
+#pauseScreen .hold-actions .action-button{grid-column:1/-1;min-width:0;min-height:70px;box-shadow:0 12px 34px rgba(243,187,112,.16)}
+#pauseScreen .hold-actions .action-button span:last-child{font-size:14px}
+#pauseScreen .hold-actions .outlined-button{min-width:0;white-space:normal;line-height:1.25}
+#pauseScreen .hold-actions .text-button{justify-self:start;align-self:center;padding:10px 2px;text-align:left;white-space:normal}
+#retryPauseButton:hover,#retryPauseButton:focus-visible{border-color:rgba(233,112,87,.75);color:#f8d6c9}
+.hold-hint{grid-column:1/-1;margin-top:2px}
+
+/* Shared block chrome. */
+.hold-block{position:relative;margin:0;padding:14px 16px 16px;border:1px solid rgba(176,220,211,.17);background:linear-gradient(180deg,rgba(6,22,30,.74),rgba(4,15,21,.62))}
+.hold-block:before{content:"";position:absolute;left:-1px;top:-1px;width:16px;height:16px;border-left:1px solid var(--gold);border-top:1px solid var(--gold);opacity:.75}
+.hold-label{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid rgba(176,220,211,.13);color:#7fa3a5;font-size:9px;font-weight:800;letter-spacing:.2em}
+.hold-label span:last-child{color:var(--paper);text-align:right}
+#holdRecord.hold-pace{color:var(--gold)}
+
+/* Snapshot. */
+.hold-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px 14px;margin:0}
+.hold-stat{min-width:0}
+.hold-stat-score{grid-column:span 2}
+.hold-stat dt{margin-bottom:6px;color:#7fa3a5;font-size:8px;font-weight:800;letter-spacing:.2em}
+.hold-stat dd{display:flex;flex-direction:column;gap:6px;margin:0;color:var(--white);font-size:17px;font-weight:900;letter-spacing:.05em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hold-stat dd small{color:#6f8f92;font-size:8px;font-weight:800;letter-spacing:.18em}
+.hold-stat-score dd{font-size:clamp(25px,2.5vw,33px);letter-spacing:.03em}
+.hold-pips{display:flex;align-items:center;gap:4px;min-height:9px}
+.hold-pips i{flex:none;width:12px;height:5px;border:1px solid rgba(168,189,186,.3);background:rgba(168,189,186,.12)}
+.hold-pips i.on{border-color:var(--cyan);background:var(--cyan);box-shadow:0 0 6px rgba(122,216,205,.4)}
+.hold-pips-power i{width:10px;height:8px}
+.hold-pips-power i.on{border-color:var(--gold);background:var(--gold);box-shadow:0 0 6px rgba(243,187,112,.4)}
+.hold-pips-power i.locked{border-style:dashed;background:transparent;opacity:.45}
+.hold-pips-lives i{width:11px;height:10px;border:0;background:rgba(168,189,186,.2);clip-path:polygon(50% 0,100% 100%,50% 74%,0 100%)}
+.hold-pips-lives i.on{background:var(--gold);box-shadow:none}
+.hold-pips-special i{width:7px;height:7px;margin:0 1px;transform:rotate(45deg)}
+.hold-pips-special i.on{border-color:var(--gold);background:var(--gold);box-shadow:0 0 6px rgba(243,187,112,.4)}
+.hold-pips-shield i.on{border-color:#9fd4f2;background:#9fd4f2;box-shadow:0 0 6px rgba(159,212,242,.4)}
+.hold-meter{position:relative;display:block;height:5px;overflow:hidden;background:rgba(168,189,186,.14)}
+.hold-meter b{position:absolute;inset:0;transform-origin:left;transform:scaleX(var(--fill,0));background:linear-gradient(90deg,#c98d4b,var(--gold) 70%,#ffe2b6)}
+.hold-stat .hold-meter{margin-top:2px}
+.hold-stat .hold-meter:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(248,245,233,.55)}
+
+/* Flagship intel / next contact. */
+.hold-intel{border-left:3px solid var(--gold)}
+.hold-intel:before{display:none}
+.hold-intel[data-kind="boss"]{border-left-color:var(--hot);background:linear-gradient(100deg,rgba(92,30,24,.38),rgba(4,15,21,.64) 58%)}
+.hold-intel[data-kind="clear"]{border-left-color:var(--cyan);background:linear-gradient(100deg,rgba(18,68,66,.34),rgba(4,15,21,.64) 58%)}
+.hold-intel-name{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;margin:0 0 11px}
+.hold-intel-name strong{color:var(--white);font-size:clamp(22px,2.2vw,30px);font-weight:900;letter-spacing:.04em;line-height:1}
+.hold-intel-name span{color:#86a7a9;font-size:9px;font-weight:800;letter-spacing:.18em}
+.hold-intel-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;margin:0 0 12px}
+.hold-intel-bar .hold-meter{height:7px}
+.hold-intel-bar .hold-meter b{background:linear-gradient(90deg,var(--hot),#f29a76 55%,var(--gold))}
+.hold-intel-bar>b{color:#f6c9b4;font-size:10px;font-weight:900;letter-spacing:.16em}
+.hold-tip{margin:0;color:#b4cbc7;font-family:Georgia,serif;font-size:14.5px;line-height:1.5}
+.hold-tip b{display:block;margin-bottom:5px;color:var(--gold);font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:900;letter-spacing:.2em}
+.hold-intel[data-kind="boss"] .hold-tip b{color:#f39a80}
+.hold-intel[data-kind="clear"] .hold-tip b{color:var(--cyan)}
+
+/* Tactical scope and airframe. */
+.hold-scope-body{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:center;gap:16px}
+.hold-radar canvas{width:100%;max-width:300px;height:auto;aspect-ratio:1;margin:0 auto}
+.hold-airframe{display:flex;flex-direction:column;gap:8px;min-width:0}
+.hold-craft{position:relative;overflow:hidden;border:1px solid rgba(122,216,205,.2);background:radial-gradient(circle at 50% 50%,rgba(122,216,205,.09),transparent 70%)}
+.hold-craft canvas{width:100%;max-width:210px;height:auto;aspect-ratio:1;margin:0 auto}
+.hold-stat-wake[data-charged="yes"] dt,.hold-stat-wake[data-charged="yes"] dd>span,.hold-stat-power[data-max="yes"] dt{color:var(--gold)}
+.hold-stat dt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hold-craft:after{content:"";position:absolute;left:0;right:0;top:0;height:18%;background:linear-gradient(180deg,transparent,rgba(122,216,205,.16));transform:translateY(-100%);animation:holdCraftScan 3.6s linear infinite;pointer-events:none}
+@keyframes holdCraftScan{to{transform:translateY(560%)}}
+.hold-craft:before{content:"";position:absolute;inset:0;opacity:0;box-shadow:inset 0 0 26px rgba(233,112,87,.6);pointer-events:none}
+.hold-airframe[data-condition="damaged"] .hold-craft{border-color:rgba(243,187,112,.42)}
+.hold-airframe[data-condition="critical"] .hold-craft{border-color:rgba(233,112,87,.7)}
+.hold-airframe[data-condition="critical"] .hold-craft:before{animation:holdAlarm 1.15s ease-in-out infinite alternate}
+@keyframes holdAlarm{from{opacity:.25}to{opacity:1}}
+.hold-craft-name{display:flex;flex-direction:column;gap:4px;margin:2px 0 0}
+.hold-craft-name b{color:var(--white);font-size:15px;font-weight:900;letter-spacing:.1em}
+.hold-craft-name span{color:#7fa3a5;font-size:8px;font-weight:800;letter-spacing:.18em}
+.hold-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;margin:0;color:#7fa3a5;font-size:8px;font-weight:800;letter-spacing:.2em}
+.hold-row>span{min-width:46px}
+.hold-pips-hull i,.hold-pips-shield i{flex:0 1 12px;min-width:5px}
+.hold-row .hold-pips{min-width:0;overflow:hidden}
+.hold-row>b{color:var(--paper);font-size:10px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+.hold-condition b{color:var(--cyan)}
+.hold-airframe[data-condition="damaged"] .hold-condition b{color:var(--gold)}
+.hold-airframe[data-condition="critical"] .hold-condition b,.hold-airframe[data-condition="critical"] #holdHull{color:var(--hot)}
+.hold-airframe[data-condition="critical"] .hold-pips-hull i.on{border-color:var(--hot);background:var(--hot);box-shadow:0 0 6px rgba(233,112,87,.5)}
+
+/* Operation route. */
+.hold-track{position:relative;height:24px;margin:2px 0 8px}
+.hold-track:before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed rgba(168,189,186,.34)}
+.hold-track-fill{position:absolute;left:0;top:50%;width:100%;height:2px;margin-top:-1px;transform-origin:left;transform:scaleX(var(--route,0));background:linear-gradient(90deg,rgba(243,187,112,.2),var(--gold))}
+.hold-node{position:absolute;top:50%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;transform:rotate(45deg);border:1px solid rgba(168,189,186,.55);background:#081b24}
+.hold-node[data-node="1"]{left:16.667%}.hold-node[data-node="2"]{left:50%}.hold-node[data-node="3"]{left:83.333%}
+.hold-node[data-state="cleared"]{border-color:var(--gold);background:var(--gold)}
+.hold-node[data-state="current"]{border-color:var(--cyan)}
+.hold-node[data-state="engaged"]{border-color:var(--hot);background:rgba(233,112,87,.4);box-shadow:0 0 0 4px rgba(233,112,87,.14)}
+.hold-node[data-state="off"]{opacity:.3}
+.hold-track-marker{position:absolute;top:50%;left:calc(var(--route,0) * 100%);width:15px;height:13px;margin:-6.5px 0 0 -7px;background:var(--white);clip-path:polygon(100% 50%,0 0,26% 50%,0 100%);filter:drop-shadow(0 0 4px rgba(243,187,112,.9))}
+.hold-nodes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0;padding:0;list-style:none;text-align:center}
+.hold-nodes li{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+.hold-nodes b{color:#7fa3a5;font-size:9px;letter-spacing:.2em}
+.hold-nodes strong{color:var(--paper);font-size:10px;font-weight:900;letter-spacing:.12em}
+.hold-nodes span{color:#86a7a9;font-size:8px;font-weight:700;letter-spacing:.16em}
+.hold-nodes em{margin-top:2px;color:#6f8f92;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.2em}
+.hold-nodes li[data-state="cleared"] em{color:var(--gold)}
+.hold-nodes li[data-state="current"] em{color:var(--cyan)}
+.hold-nodes li[data-state="engaged"] em{color:var(--hot)}
+.hold-nodes li[data-state="engaged"] strong,.hold-nodes li[data-state="current"] strong{color:var(--white)}
+.hold-nodes li[data-state="off"]{opacity:.38}
+
+/* Entrance. Sections settle in a short stagger each time the screen opens. */
+@keyframes holdPanelIn{from{opacity:0;transform:translateY(14px) scale(.985)}}
+@keyframes holdIn{from{opacity:0;transform:translateY(9px)}}
+#pauseScreen .hold-panel{animation:holdPanelIn .3s cubic-bezier(.2,.7,.2,1) both}
+.hold-head,.hold-actions,.hold-block{animation:holdIn .42s cubic-bezier(.2,.7,.2,1) both}
+.hold-actions{animation-delay:.05s}.hold-scope{animation-delay:.08s}.hold-snapshot{animation-delay:.11s}.hold-intel{animation-delay:.15s}.hold-route{animation-delay:.2s}
+
+/* Reduced effects option: keep the screen still and steady. */
+.hold-reduced .hold-scan{display:none}
+.hold-reduced .hold-live i,.hold-reduced .hold-craft:after{animation:none}
+.hold-reduced .hold-airframe[data-condition="critical"] .hold-craft:before{animation:none;opacity:.8}
+
+/* Narrow and portrait: one column, resume first, then what matters next. */
+@media (max-width:600px),(max-width:860px) and (orientation:portrait){
+ #pauseScreen .hold-panel{width:min(620px,100%);grid-template-columns:minmax(0,1fr);gap:16px}
+ .hold-actions{order:2}.hold-snapshot{order:3}
+ .hold-intel{order:1}.hold-route{order:2}.hold-scope{order:3}
+ .hold-main,.hold-side{gap:16px}
+}
+@media (max-width:740px){
+ #pauseScreen.hold-screen{padding:10px}
+ #pauseScreen .hold-panel{padding:20px 18px 22px}
+ #pauseScreen .hold-panel h2{margin:12px 0;font-size:40px}
+ .hold-line{font-size:15px}
+}
+@media (max-width:520px){
+ .hold-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #holdClock{flex-basis:100%}
+ #holdClock:before{display:none}
+ .hold-scope-body{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px}
+ .hold-block{padding:12px 13px 14px}
+ .hold-tip{font-size:14px}
+ .hold-nodes strong{font-size:9px;letter-spacing:.08em}
+}
+@media (max-width:360px){
+ #pauseScreen .hold-panel h2{font-size:34px}
+ .hold-kicker>span:first-child{font-size:9px;letter-spacing:.14em}
+ #pauseScreen .hold-actions .outlined-button{padding:10px 10px;font-size:10px;letter-spacing:.1em}
+ .hold-scope-body{grid-template-columns:minmax(0,1fr)}
+ .hold-airframe{display:grid;grid-template-columns:96px minmax(0,1fr);gap:6px 12px;align-items:center}
+ .hold-airframe .hold-craft{grid-row:span 4}
+}
+
+/* Short landscape (phones on their side, short desktop windows): condensed two columns. */
+@media (max-height:620px) and (orientation:landscape){
+ #pauseScreen .hold-panel{gap:14px 22px;padding:14px 20px 16px}
+ .hold-main,.hold-side{gap:11px}
+ #pauseScreen .hold-panel h2{margin:6px 0 8px;font-size:clamp(28px,4.2vw,40px)}
+ .hold-line{display:none}
+ .hold-status{margin:0}
+ #pauseScreen .hold-actions{gap:8px}
+ #pauseScreen .hold-actions .action-button{min-height:52px;padding:9px 16px}
+ #pauseScreen .hold-actions .outlined-button{min-height:40px;padding:8px 12px}
+ #pauseScreen .hold-actions .text-button{padding:6px 2px}
+ .hold-block{padding:10px 13px 12px}
+ .hold-label{margin-bottom:9px;padding-bottom:6px}
+ .hold-stats{gap:9px 12px}
+ .hold-stat dd{font-size:15px;gap:5px}
+ .hold-stat-score dd{font-size:24px}
+ .hold-intel{order:1}.hold-scope{order:2}.hold-route{order:3}
+ .hold-intel-name{margin-bottom:8px}
+ .hold-intel-name strong{font-size:22px}
+ .hold-intel-bar{margin-bottom:8px}
+ .hold-tip{font-size:13px;line-height:1.42}
+ .hold-radar canvas{max-width:200px}
+ .hold-scope-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ .hold-craft{display:none}
+}
+/* Short but wide windows: three columns so everything fits without scrolling. */
+@media (max-height:620px) and (orientation:landscape) and (min-width:1100px){
+ #pauseScreen .hold-panel{width:min(1240px,100%);grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr) minmax(0,1fr);grid-template-areas:"head snap scope" "actions intel scope" "actions intel route";grid-template-rows:auto auto 1fr;gap:12px 20px}
+ .hold-main,.hold-side{display:contents}
+ .hold-head{grid-area:head}.hold-actions{grid-area:actions;align-self:start}.hold-snapshot{grid-area:snap}
+ .hold-intel{grid-area:intel;align-self:start}.hold-scope{grid-area:scope}.hold-route{grid-area:route;align-self:end}
+ #pauseScreen .hold-panel h2{font-size:38px}
+ .hold-line{display:block;font-size:14px}
+ .hold-scope-body{grid-template-columns:minmax(0,1fr);justify-items:center}
+ .hold-radar canvas{max-width:210px}
+ .hold-airframe{width:100%}
+}
+/* Compact phones in landscape: use the whole screen above the site header. */
+@media (max-height:540px) and (orientation:landscape){
+ .compact-controls #pauseScreen.hold-screen{inset:0;z-index:30;padding:8px}
+ .compact-controls #pauseScreen .hold-panel{max-height:100%}
+ .hold-bracket{display:none}
+}
+
+@media (prefers-reduced-motion:reduce){
+ .hold-scan{display:none}
+ #pauseScreen .hold-panel,.hold-head,.hold-actions,.hold-block{animation:none}
+ .hold-live i,.hold-craft:after,.hold-airframe[data-condition="critical"] .hold-craft:before{animation:none}
+ .hold-airframe[data-condition="critical"] .hold-craft:before{opacity:.8}
+}

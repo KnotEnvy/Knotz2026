@@ -36,7 +36,7 @@ const STAGE_BEATS = [null,
 export class Game {
   constructor() { this.width = 540; this.height = 900; this.best = 0; this.shipId="kestrel"; this.reset(); }
   reset() {
-    this.mode = "title"; this.time = 0; this.stage = 1; this.stageTime = 0;
+    this.mode = "title"; this.practiceStage=0; this.time = 0; this.stage = 1; this.stageTime = 0;
     this.scroll = 0; this.score = 0; this.combo = 1; this.graze = 0; this._nextExtend = 0;
     this.shake = 0; this.flash = 0; this.wave = 0; this.wakeConversions = 0;
     this.stageGoal = [0, 62, 73, 82];
@@ -48,7 +48,7 @@ export class Game {
       focus:false,invuln:0,roll:0,rollCooldown:0,rollX:0,rollY:-1,rollCharged:false,wake:0,firePulse:0,trail:[]};
     this.enemies=[]; this.bullets=[]; this.shots=[]; this.pickups=[]; this.particles=[];
     this.stats={kills:0,grazes:0,shotsFired:0,shotsHit:0,pickups:0,powerPeak:1,
-      bombsUsed:0,rolls:0,conversions:0,hitsTaken:0,livesLost:0,bossesDefeated:0};
+      bombsUsed:0,rolls:0,conversions:0,hitsTaken:0,livesLost:0,bossesDefeated:0,reactorsBroken:0};
     this.summary=null;
     this.boss=null; this.events=[]; this._seed=20261942; this._acc=0;
     this._beatIndex=0; this._laneIndex=0; this._transition=0; this._fireClock=0; this._comboClock=0;
@@ -75,6 +75,8 @@ export class Game {
   _event(type,x,y,value) { this.events.push({type,x,y,value}); }
   _awardScore(points) {
     this.score += points;
+    if(this.practiceStage)return;
+    this.best = Math.max(this.best, this.score);
     while(this._powerScoreIndex<POWER_MILESTONES.length && this.score>=POWER_MILESTONES[this._powerScoreIndex]) {
       if(!this._increasePower())break;
       this._powerScoreIndex++;
@@ -108,6 +110,13 @@ export class Game {
     return true;
   }
   _start() { const best=this.best,id=this.shipId; this.reset(); this.shipId=id; this.best=best; this.mode="playing"; this._event("stage",270,170,1); }
+  startDrill(stage) {
+    stage=Math.max(1,Math.min(3,Math.floor(Number(stage)||1)));
+    this._start();this.practiceStage=stage;this.stage=stage;this.stageTime=this.stageGoal[stage];
+    const p=this.player;p.level=stage+2;p.power=p.level;p.drones=p.shipId==="wraith"?Math.floor(p.level/2):0;
+    p.shield=p.maxShield;p.invuln=2;this.stats.powerPeak=p.level;
+    this.events=[];this._spawnBoss();return true;
+  }
   update(dt,input={}) {
     dt=this._clamp(Number.isFinite(dt)?dt:0,0,0.08);
     this.events=[];
@@ -159,14 +168,23 @@ export class Game {
         this._laneIndex++;
       }
     }
-    this._updateEnemies(h); this._updateBullets(h); this._updateShots(h);
+    if(this.mode!=='playing')return;
+    this._updateEnemies(h); this._updateBullets(h); this._applyReactorCover(); this._updateShots(h);
     this._updatePickups(h); this._updateParticles(h); this._collide(); this._cleanup();
   }
   _movePlayer(h,input) {
     const p=this.player; p.focus=!!input.focus;
+    const oldX=p.x,oldY=p.y;
     const edge=p.shipId==="wraith"?62:p.shipId==="manta"?52:46;
     let dx=Number(!!input.right)-Number(!!input.left),dy=Number(!!input.down)-Number(!!input.up);
-    const len=Math.hypot(dx,dy); if (len) { dx/=len; dy/=len; }
+    const len=Math.hypot(dx,dy);
+    if (len) { dx/=len; dy/=len; }
+    else {
+      dx=this._clamp(Number(input.moveX)||0,-1,1);
+      dy=this._clamp(Number(input.moveY)||0,-1,1);
+      const analogLength=Math.hypot(dx,dy);
+      if(analogLength>1){dx/=analogLength;dy/=analogLength;}
+    }
     if (p.roll>0) { p.x+=p.rollX*740*h; p.y+=p.rollY*740*h; }
     else if (input.pointerActive&&Number.isFinite(input.pointerX)&&Number.isFinite(input.pointerY)) {
       const tx=this._clamp(input.pointerX,edge,540-edge),ty=this._clamp(input.pointerY,230,820);
@@ -176,6 +194,8 @@ export class Game {
       p.x+=(tx-p.x)*t; p.y+=(ty-p.y)*t;
     } else { const speed=p.shipId==="manta"?(p.focus?170:325):p.shipId==="wraith"?(p.focus?205:405):(p.focus?190:360); p.x+=dx*speed*h; p.y+=dy*speed*h; }
     p.x=this._clamp(p.x,edge,540-edge); p.y=this._clamp(p.y,230,820);
+    if(Math.hypot(p.x-oldX,p.y-oldY)>.01){p.headingX=p.x-oldX;p.headingY=p.y-oldY;}
+    p.bank=(p.bank||0)+(this._clamp((p.x-oldX)/(h*360),-1,1)-(p.bank||0))*Math.min(1,h*10);
     p.trail.push({x:p.x,y:p.y,life:.3,focus:p.focus});
     if (p.trail.length>20) p.trail.shift();
     for (const q of p.trail) q.life-=h;
@@ -186,6 +206,11 @@ export class Game {
   _roll(input) {
     const p=this.player; if (p.rollCooldown>0||p.roll>0) return;
     let dx=Number(!!input.right)-Number(!!input.left),dy=Number(!!input.down)-Number(!!input.up);
+    if(!dx&&!dy){dx=Number(input.moveX)||0;dy=Number(input.moveY)||0;}
+    if(!dx&&!dy&&input.pointerActive){
+      dx=(Number(input.pointerX)||p.x)-p.x;dy=(Number(input.pointerY)||p.y)-p.y;
+      if(Math.hypot(dx,dy)<1){dx=p.headingX||0;dy=p.headingY||0;}
+    }
     const len=Math.hypot(dx,dy); if (len<.1) {dx=0;dy=-1;} else {dx/=len;dy/=len;}
     const charged=p.wake>=.5;
     if(charged)p.wake-=.5;
@@ -201,9 +226,10 @@ export class Game {
     p.bombs--;this.stats.bombsUsed++;
     p.invuln=Math.max(p.invuln,2.4);this.shake=special==="storm"?18:15;this.flash=.85;
     const erased=this.bullets.length;
-    for(const b of this.bullets) this._particle(b.x,b.y,0,0,.45,5,
-      special==="storm"?"cyan":"gold","spark");
+    const specialColor=special==="barrier"?"cyan":special==="storm"?"magenta":"gold";
+    for(const b of this.bullets) this._particle(b.x,b.y,0,0,.28,3,specialColor,"spark");
     this.bullets.length=0;
+    if(this.boss?.lance){this.boss.lance.cancelled=true;this.boss.lance.active=false;this._event('lanceCancel',this.boss.lance.x,this.boss.lance.y);}
     // The Manta trades damage for restored armor. The Wraith converts the
     // whole field into score; the Kestrel retains the high-impact nova.
     if(special==="barrier") {
@@ -222,8 +248,8 @@ export class Game {
       this._damageEnemy(e,e.type==="boss"?bossDamage:damage);e.flash=1;
       if(e.hp<=0)this._killEnemy(e,true);
     }
-    this._burst(p.x,p.y,special==="barrier"?65:100,
-      special==="storm"?"cyan":"gold",special==="barrier"?320:580,"bomb");
+    this._burst(p.x,p.y,special==="barrier"?20:special==="storm"?36:48,
+      specialColor,special==="barrier"?220:special==="storm"?440:540,"bomb");
     this._event("bomb",p.x,p.y,special);
     this._event("special",p.x,p.y,special);
   }
@@ -368,12 +394,12 @@ export class Game {
     const speed=138+this.stage*11;
     const next=this._clamp(gap+(gap<270?90:-90),95,445);
     for(let row=0;row<2;row++) {
-      const opening=row?next:gap,y=row?130:255;
+      const opening=row?next:gap,y=row?-165:-40;
       for(let x=24;x<=516;x+=28)
         if(Math.abs(x-opening)>68)
           this._bullet(x,y,Math.PI/2,speed,color,5.2);
     }
-    this._event("lane",gap,255,next);
+    this.events.push({type:"lane",x:gap,y:-40,value:next,speed,rows:[{x:gap,y:-40},{x:next,y:-165}]});
   }
   _spawnDrift() {
     const left=this._range(75,175),right=540-left;
@@ -427,6 +453,22 @@ export class Game {
           e.guard=false;e.guardUntil=0;
           this._event("bossGuardEnd",e.x,e.y,3);
         }
+        if(this.stage===2&&e.phase>=2){
+          if(e.reactor?.phase!==e.phase){
+            const side=e.phase===2?-1:1,maxHp=e.phase===2?120:160;
+            e.reactor={id:-e.id*10-e.phase,phase:e.phase,side,hp:maxHp,maxHp,r:22,opensAt:e.age+.9};
+            this._event('reactorOpen',e.x,e.y,side);
+          }
+          const r=e.reactor,angle=e.angle||0;
+          // The arm extends into a side position during the opening cue.
+          // Holding the central firing line must not also collect both targets.
+          const extension=1-(1-this._clamp((e.age-r.opensAt+.9)/.9,0,1))**3;
+          const wingX=e.x+r.side*126*Math.cos(angle)-24*Math.sin(angle);
+          const wingY=e.y+r.side*126*Math.sin(angle)+24*Math.cos(angle);
+          r.x=wingX+((r.side<0?108:432)-wingX)*extension;
+          r.y=wingY+(e.y+58-wingY)*extension;
+        }
+        if(this.stage===3&&e.phase>=2)this._updateBossLance(e);
         if(e.age>2.8&&e.age>=e.fireAt) {
           this._bossFire(e);
           e.fireAt=e.age+(e.phase===3 ? (this.stage===1 ? 0.52 : this.stage===2 ? 0.48 : 0.42) : e.phase===2 ? 0.58 : 0.78);
@@ -441,6 +483,19 @@ export class Game {
         }
       }
     }
+  }
+  _updateBossLance(boss) {
+    let l=boss.lance;
+    if(!l||l.phase!==boss.phase||boss.age>=l.nextAt){
+      const startsAt=boss.age+.35;
+      l=boss.lance={phase:boss.phase,x:this._clamp(this.player.x,64,476),y:boss.y+110,width:48,
+        startsAt,locksAt:startsAt+.65,firesAt:startsAt+1.5,endsAt:startsAt+1.95,nextAt:startsAt+(boss.phase===3?3.5:4.1)};
+    }
+    l.y=boss.y+110;
+    if(boss.age<l.locksAt)l.x=this._clamp(this.player.x,64,476);
+    if(!l.cancelled&&boss.age>=l.locksAt&&!l.locked){l.locked=true;this._event('lanceLock',l.x,l.y);}
+    if(!l.cancelled&&boss.age>=l.firesAt&&!l.fired){l.fired=true;this._event('lanceFire',l.x,l.y);}
+    l.active=!l.cancelled&&boss.age>=l.firesAt&&boss.age<l.endsAt;
   }
   _enemyFire(e,p) {
     const speed=160+this.stage*18;
@@ -490,8 +545,10 @@ export class Game {
         this._radial(e.x,e.y+38,11,speed-25,-angle,"amber",4.4,Math.PI*.12,Math.PI*.88);
       } else {
         this._radial(e.x,e.y+35,21,speed+14,sway,"amber",4.5,Math.PI*.08,Math.PI*.92);
-        if(salvo%2===0)for(const side of [-1,1])
+        if(salvo%2===0)for(const side of [-1,1]){
+          if(side===1&&e.reactor?.phase===3&&e.reactor.broken)continue;
           this._radial(e.x+side*58,e.y+24,12,speed,angle*side,"cyan",4.7);
+        }
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,5,.12,speed+80,"red",4.8);
       }
     } else {
@@ -501,17 +558,17 @@ export class Game {
         this._radial(e.x,e.y+38,23,speed,Math.sin(e.age*.5)*.13,"amber",4.8,Math.PI*.08,Math.PI*.92);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,7,.13,speed+75,"red",5);
       } else if(phase===2) {
-        this._radial(e.x-60,e.y+24,17,speed,angle,"magenta",4.5);
-        this._radial(e.x+60,e.y+24,17,speed,-angle,"cyan",4.5);
+        this._radial(e.x-60,e.y+24,14,speed,angle,"magenta",4.5);
+        this._radial(e.x+60,e.y+24,14,speed,-angle,"cyan",4.5);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,5,.11,speed+82,"red",5);
       } else {
-        this._radial(e.x,e.y+38,24,speed+20,sway,"magenta",4.6,Math.PI*.06,Math.PI*.94);
-        this._radial(e.x,e.y+38,24,speed-28,-sway+.05,"amber",4.4,Math.PI*.06,Math.PI*.94);
+        this._radial(e.x,e.y+38,19,speed+20,sway,"magenta",4.6,Math.PI*.06,Math.PI*.94);
+        this._radial(e.x,e.y+38,19,speed-28,-sway+.05,"amber",4.4,Math.PI*.06,Math.PI*.94);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,7,.105,speed+95,"cyan",4.5);
       }
     }
     this._burst(e.x-58,e.y+24,3,"gold",55,"muzzle");
-    this._burst(e.x+58,e.y+24,3,"gold",55,"muzzle");
+    if(!(stage===2&&phase===3&&e.reactor?.broken))this._burst(e.x+58,e.y+24,3,"gold",55,"muzzle");
     this._event("bossShot",e.x,e.y);
   }
   _damageEnemy(e,amount) {
@@ -528,6 +585,21 @@ export class Game {
       this._event("bossGuard",e.x,e.y,e.phase);
     }
     e.hp=Math.max(floor,attempted);
+  }
+  _breakReactor(boss) {
+    const r=boss.reactor;if(!r||r.broken)return;
+    r.hp=0;r.broken=true;this.stats.reactorsBroken++;
+    boss.cover={x:r.x,y:r.y,until:boss.age+3.2,side:r.side,width:88};
+    const previousWake=this.player.wake;this.player.wake=Math.min(1,previousWake+.2);this._awardScore(1000);
+    if(previousWake<.5&&this.player.wake>=.5)this._event('wakeReady',this.player.x,this.player.y,this.player.wake);
+    this._burst(r.x,r.y,24,'gold',190,'hit');
+    this._event('reactorBreak',r.x,r.y,r.side);
+    this._applyReactorCover();
+  }
+  _applyReactorCover() {
+    const boss=this.boss,cover=boss?.cover;
+    if(!cover||boss.age>=cover.until)return;
+    for(const bullet of this.bullets)if(!bullet.dead&&bullet.y>=cover.y-24&&Math.abs(bullet.x-cover.x)<cover.width/2)bullet.dead=true;
   }
   _aimed(x,y,tx,ty,speed,kind,r=5) {
     this._bullet(x,y,Math.atan2(ty-y,tx-x),speed,kind,r);
@@ -611,6 +683,17 @@ export class Game {
       if(shot.dead)continue;
       for(const e of this.enemies) {
         if(e.dead||e.y< -70||shot.hitIds?.includes(e.id))continue;
+        const reactor=e.reactor;
+        if(reactor&&!reactor.broken&&e.age>=reactor.opensAt&&!shot.hitIds?.includes(reactor.id)&&Math.hypot(shot.x-reactor.x,shot.y-reactor.y)<reactor.r+shot.r){
+          if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
+          reactor.hp-=shot.damage;
+          if(shot.kind==='pierce'){shot.hitIds.push(reactor.id);if(--shot.pierceRemaining<=0)shot.dead=true;}
+          else shot.dead=true;
+          if(this._hitAudioClock<=0){this._event('bossCoreHit',reactor.x,reactor.y,'reactor');this._event('hit',reactor.x,reactor.y,'reactor');this._hitAudioClock=.065;}
+          if(reactor.hp<=0)this._breakReactor(e);
+          if(shot.dead)break;
+          continue;
+        }
         const dx=shot.x-e.x,dy=shot.y-e.y;
         const hit=e.type==="boss" ? dx*dx/(98*98)+dy*dy/(55*55)<1 :
           dx*dx+dy*dy<(shot.r+e.r*.78)**2;
@@ -682,6 +765,7 @@ export class Game {
       const hitRadius=p.r+b.r*.68;
       if(d2<hitRadius*hitRadius&&p.invuln<=0) {
         b.dead=true;this._hurtPlayer(b.x,b.y);
+        if(this.mode==='gameover')return;
       } else if(!b.grazed&&d2<(p.r+b.r+23)**2) {
         b.grazed=true;this.graze++;this.stats.grazes++;
         this._awardScore(Math.ceil(25*this.combo));
@@ -695,13 +779,19 @@ export class Game {
     }
     if(p.invuln<=0) {
       for(const e of this.enemies) {
+        if(e.dead)continue;
         const dx=e.x-p.x,dy=e.y-p.y;
         if(dx*dx+dy*dy<(p.r+e.r*.66)**2) {
           this._hurtPlayer(p.x,p.y);
+          if(this.mode==='gameover')return;
           if(e.type!=="boss") {e.hp-=80;if(e.hp<=0)this._killEnemy(e);}
           break;
         }
       }
+    }
+    const lance=this.boss?.lance;
+    if(lance?.active&&!this.boss.dead&&p.invuln<=0&&Math.abs(p.x-lance.x)<lance.width/2+p.r&&p.y+p.r>lance.y){
+      this._hurtPlayer(lance.x,p.y);if(this.mode==='gameover')return;
     }
     for(const item of this.pickups) {
       const dx=item.x-p.x,dy=item.y-p.y;
@@ -737,7 +827,7 @@ export class Game {
     if(p.hp<=0) {
       p.lives--;this.stats.livesLost++;this._event("lifeLost",p.x,p.y,p.lives);
       if(p.lives<=0) {
-        this.mode="gameover";this.best=Math.max(this.best,this.score);
+        this.mode="gameover";if(!this.practiceStage)this.best=Math.max(this.best,this.score);
         this._finishRun("defeat");
         this._event("gameover",p.x,p.y,this.score);
       } else {
@@ -762,19 +852,21 @@ export class Game {
       this.stats.kills++;
       this.combo=Math.min(8,this.combo+(e.type==="mini"?.45:.13));
       this._comboClock=4;this._awardScore(Math.round(e.value*this.combo));
-      this._burst(e.x,e.y,e.type==="mini"?52:e.type==="bomber"||e.type==="carrier"?36:24,
+      this._burst(e.x,e.y,e.type==="mini"?32:e.type==="bomber"||e.type==="carrier"?16:8,
         e.type==="ace"?"cyan":"amber",e.type==="mini"?220:130,"explode");
-      this._particle(e.x,e.y,0,0,.42,e.type==="mini"?10:5,e.type==="ace"?"cyan":"amber","ring");
       this.shake=Math.max(this.shake,e.type==="mini"?7:e.type==="bomber"?4:2);
       if(e.drop)this._drop(e.x,e.y,e.drop);
       else if(this._rand()<(e.type==="carrier"?.6:e.type==="mini"?.45:.045))
         this._drop(e.x,e.y,this._rand()<.68?"power":"shield");
       this._event("enemyDown",e.x,e.y,e.type);
     }
-    this._event("explode",e.x,e.y,e.type);
-    if(!bomb&&this.score>this.best)this.best=this.score;
+    this._event("explode",e.x,e.y,e.type);this.events[this.events.length-1].angle=e.angle||0;
+    if(!this.practiceStage&&!bomb&&this.score>this.best)this.best=this.score;
   }
   _advanceStage() {
+    if(this.practiceStage){
+      this.mode="victory";this._finishRun("victory");this._event("victory",270,320,this.score);return;
+    }
     if(this.stage>=3) {
       this.mode="victory";
       this.score+=this.player.lives*5000+this.player.bombs*1500+this.player.hp*1000;
@@ -798,11 +890,12 @@ export class Game {
       Math.min(10,accuracy*12)+Math.min(8,p.lives*2)-
       Math.min(24,s.hitsTaken*.65)-s.livesLost*2;
     const grade=merit>=84?"S":merit>=68?"A":merit>=50?"B":merit>=32?"C":"D";
-    this.summary={outcome,shipId:this.shipId,score:this.score,grade,stage:this.stage,
+    this.summary={outcome,shipId:this.shipId,score:this.score,grade,stage:this.stage,livesRemaining:p.lives,
+      practiceStage:this.practiceStage,bombsRemaining:p.bombs,
       time:this.time,kills:s.kills,grazes:s.grazes,shotsFired:s.shotsFired,
       shotsHit:s.shotsHit,accuracy,pickups:s.pickups,powerPeak:s.powerPeak,
       bombsUsed:s.bombsUsed,rolls:s.rolls,conversions:s.conversions,
-      hitsTaken:s.hitsTaken,livesLost:s.livesLost,bossesDefeated:s.bossesDefeated};
+      hitsTaken:s.hitsTaken,livesLost:s.livesLost,bossesDefeated:s.bossesDefeated,reactorsBroken:s.reactorsBroken};
     this._event("summary",270,320,grade);
     this.events[this.events.length-1].summary=this.summary;
   }
@@ -817,7 +910,7 @@ export class Game {
     write=0;
     for(let read=0;read<this.bullets.length;read++) {
       const b=this.bullets[read];
-      if(!b.dead&&b.x> -35&&b.x<575&&b.y> -45&&b.y<945)this.bullets[write++]=b;
+      if(!b.dead&&b.x> -35&&b.x<575&&b.y> -180&&b.y<945)this.bullets[write++]=b;
     }
     this.bullets.length=write;
 

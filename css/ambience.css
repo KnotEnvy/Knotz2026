@@ -1,0 +1,235 @@
+/* Page ambience: site backdrop, masthead, side panels. Loaded after style.css.
+   Driven by body[data-screen|data-sector|data-threat|data-flagship|data-interlude|data-meter|data-reduced-fx]
+   written by src/ambience.js. Animations use transform and opacity only. */
+
+/* ---------- Global atmosphere behind the play screen ---------- */
+.console-atmosphere{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;opacity:0;visibility:hidden;contain:strict;background:#071720;transition:opacity .9s ease,visibility 0s linear .9s}
+body[data-screen="play"] .console-atmosphere,body[data-screen="pause"] .console-atmosphere{opacity:1;visibility:visible;transition:opacity .9s ease,visibility 0s}
+.compact-controls .console-atmosphere{display:none}
+.console-atmosphere i{position:absolute;display:block}
+body:not(.compact-controls)[data-screen="play"] .play-screen,body:not(.compact-controls)[data-screen="pause"] .play-screen{background:transparent}
+
+.atmo-sector{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity 1.8s ease,visibility 0s linear 1.8s}
+.atmo-sector i{animation-play-state:paused}
+body:not([data-sector]) .atmo-s1,body[data-sector="1"] .atmo-s1,body[data-sector="2"] .atmo-s2,body[data-sector="3"] .atmo-s3{opacity:1;visibility:visible;transition:opacity 1.8s ease,visibility 0s}
+body:not([data-sector]) .atmo-s1 i,body[data-sector="1"] .atmo-s1 i,body[data-sector="2"] .atmo-s2 i,body[data-sector="3"] .atmo-s3 i{animation-play-state:running}
+
+/* 01 / The Shallows: teal daylight, drifting cloud shadow, sea glints. */
+.atmo-s1{background:radial-gradient(ellipse 70% 55% at 50% -8%,#22545b 0%,#123640 42%,transparent 78%),radial-gradient(ellipse 80% 50% at 50% 115%,rgba(32,104,104,.42),transparent 70%),linear-gradient(180deg,#0b2731,#07171f 70%,#08202a)}
+.atmo-sun{inset:-24% auto auto -16%;width:80vw;height:86vh;background:radial-gradient(closest-side,rgba(255,212,150,.3),rgba(243,187,112,.1) 45%,transparent 74%);animation:atmoBreathe 16s ease-in-out infinite alternate}
+.atmo-sun:after{content:"";position:absolute;inset:0 -40% -40% 0;background:repeating-linear-gradient(118deg,transparent 0 46px,rgba(255,220,164,.06) 46px 104px,transparent 104px 150px);-webkit-mask-image:radial-gradient(ellipse at 18% 18%,#000,transparent 62%);mask-image:radial-gradient(ellipse at 18% 18%,#000,transparent 62%)}
+.atmo-shadows{top:0;bottom:0;left:0;width:200vw;background:radial-gradient(ellipse 13% 22% at 18% 34%,rgba(1,9,13,.36),transparent 72%),radial-gradient(ellipse 18% 26% at 62% 72%,rgba(1,9,13,.3),transparent 72%),radial-gradient(ellipse 10% 15% at 86% 18%,rgba(1,9,13,.28),transparent 72%),radial-gradient(ellipse 14% 12% at 40% 92%,rgba(1,9,13,.25),transparent 72%);background-size:100vw 100%;animation:atmoDriftX 150s linear infinite}
+.atmo-glints{left:0;right:0;top:46%;bottom:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='120'%3E%3Cg stroke='rgb(255,236,196)' stroke-width='1' stroke-linecap='round'%3E%3Cline x1='141' y1='68' x2='148' y2='68' stroke-opacity='0.33'/%3E%3Cline x1='79' y1='52' x2='84' y2='52' stroke-opacity='0.58'/%3E%3Cline x1='102' y1='10' x2='107' y2='10' stroke-opacity='0.36'/%3E%3Cline x1='137' y1='7' x2='143' y2='7' stroke-opacity='0.71'/%3E%3Cline x1='69' y1='90' x2='73' y2='90' stroke-opacity='0.64'/%3E%3Cline x1='130' y1='17' x2='137' y2='17' stroke-opacity='0.68'/%3E%3Cline x1='78' y1='113' x2='82' y2='113' stroke-opacity='0.71'/%3E%3Cline x1='60' y1='51' x2='66' y2='51' stroke-opacity='0.29'/%3E%3Cline x1='48' y1='42' x2='52' y2='42' stroke-opacity='0.52'/%3E%3C/g%3E%3C/svg%3E");background-size:160px 120px;opacity:.28;-webkit-mask-image:linear-gradient(180deg,transparent,#000 40%);mask-image:linear-gradient(180deg,transparent,#000 40%);animation:atmoTwinkle 3.8s ease-in-out infinite alternate}
+
+/* 02 / Storm Wall: slate murk, two rain sheets, lightning. */
+.atmo-s2{background:radial-gradient(ellipse 80% 60% at 50% -10%,#2b3d47 0%,#1a2a33 40%,transparent 80%),linear-gradient(180deg,#141f26,#0b151b 55%,#081117)}
+.atmo-murk{top:0;bottom:0;left:0;width:200vw;background:radial-gradient(ellipse 22% 24% at 14% 20%,rgba(2,6,9,.55),transparent 70%),radial-gradient(ellipse 26% 20% at 52% 8%,rgba(3,8,11,.6),transparent 72%),radial-gradient(ellipse 20% 30% at 82% 46%,rgba(2,6,9,.45),transparent 70%),radial-gradient(ellipse 30% 18% at 34% 84%,rgba(2,6,9,.4),transparent 72%);background-size:100vw 100%;animation:atmoDriftX 64s linear infinite}
+.atmo-rain{left:0;bottom:0;background-repeat:repeat}
+.atmo-rain-far{top:-540px;right:-180px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cg stroke='rgb(205,222,232)' stroke-width='1' stroke-linecap='round'%3E%3Cline x1='21' y1='90' x2='16' y2='106' stroke-opacity='0.36'/%3E%3Cline x1='18' y1='40' x2='13' y2='57' stroke-opacity='0.30'/%3E%3Cline x1='141' y1='99' x2='135' y2='116' stroke-opacity='0.34'/%3E%3Cline x1='135' y1='106' x2='131' y2='119' stroke-opacity='0.31'/%3E%3Cline x1='20' y1='147' x2='15' y2='162' stroke-opacity='0.35'/%3E%3Cline x1='123' y1='122' x2='119' y2='135' stroke-opacity='0.25'/%3E%3Cline x1='176' y1='167' x2='170' y2='186' stroke-opacity='0.38'/%3E%3Cline x1='176' y1='-13' x2='170' y2='6' stroke-opacity='0.38'/%3E%3Cline x1='92' y1='14' x2='88' y2='28' stroke-opacity='0.30'/%3E%3Cline x1='53' y1='82' x2='46' y2='101' stroke-opacity='0.33'/%3E%3Cline x1='104' y1='4' x2='98' y2='22' stroke-opacity='0.27'/%3E%3Cline x1='76' y1='72' x2='71' y2='88' stroke-opacity='0.29'/%3E%3Cline x1='21' y1='91' x2='15' y2='109' stroke-opacity='0.31'/%3E%3Cline x1='88' y1='165' x2='84' y2='178' stroke-opacity='0.28'/%3E%3Cline x1='167' y1='86' x2='161' y2='102' stroke-opacity='0.21'/%3E%3Cline x1='40' y1='23' x2='37' y2='35' stroke-opacity='0.33'/%3E%3Cline x1='160' y1='18' x2='154' y2='35' stroke-opacity='0.29'/%3E%3C/g%3E%3C/svg%3E");background-size:180px 180px;opacity:.55;animation:atmoRainFar 1.55s linear infinite}
+.atmo-rain-near{top:-780px;right:-260px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cg stroke='rgb(205,222,232)' stroke-width='1.3' stroke-linecap='round'%3E%3Cline x1='125' y1='60' x2='113' y2='95' stroke-opacity='0.35'/%3E%3Cline x1='119' y1='122' x2='107' y2='158' stroke-opacity='0.42'/%3E%3Cline x1='142' y1='146' x2='131' y2='178' stroke-opacity='0.29'/%3E%3Cline x1='208' y1='130' x2='198' y2='159' stroke-opacity='0.40'/%3E%3Cline x1='113' y1='77' x2='104' y2='102' stroke-opacity='0.24'/%3E%3Cline x1='170' y1='155' x2='161' y2='184' stroke-opacity='0.33'/%3E%3Cline x1='127' y1='240' x2='119' y2='265' stroke-opacity='0.32'/%3E%3Cline x1='127' y1='-20' x2='119' y2='5' stroke-opacity='0.32'/%3E%3Cline x1='133' y1='215' x2='121' y2='249' stroke-opacity='0.34'/%3E%3Cline x1='236' y1='216' x2='227' y2='242' stroke-opacity='0.40'/%3E%3C/g%3E%3C/svg%3E");background-size:260px 260px;opacity:.5;animation:atmoRainNear 1.05s linear infinite}
+
+/* 03 / The Crown: abyssal crimson-violet, slow maelstrom, rising embers. */
+.atmo-s3{background:radial-gradient(ellipse 60% 50% at 50% 42%,#2c1029 0%,#170b1b 45%,transparent 82%),linear-gradient(180deg,#0e0912,#0a070e 60%,#120812)}
+.atmo-abyss{left:-10%;right:-10%;bottom:-30%;height:70%;background:radial-gradient(ellipse at 50% 100%,rgba(196,50,82,.34),rgba(110,34,120,.14) 45%,transparent 72%);animation:atmoBreathe 7s ease-in-out infinite alternate}
+.atmo-vortex{left:50%;top:46%;width:150vmax;height:150vmax;margin:-75vmax 0 0 -75vmax;background:conic-gradient(from 0deg,transparent 0 6%,rgba(173,46,78,.2) 12%,transparent 22%,rgba(104,42,140,.18) 34%,transparent 44%,rgba(173,46,78,.16) 58%,transparent 68%,rgba(104,42,140,.16) 80%,transparent 90%);-webkit-mask-image:radial-gradient(circle,transparent 8%,#000 26%,#000 40%,transparent 66%);mask-image:radial-gradient(circle,transparent 8%,#000 26%,#000 40%,transparent 66%);animation:atmoSpin 150s linear infinite}
+.atmo-embers{left:0;right:0;top:0;bottom:-220px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cg fill='#ff9a6a'%3E%3Ccircle cx='22' cy='152' r='1.6' fill-opacity='0.56'/%3E%3Ccircle cx='100' cy='212' r='1.8' fill-opacity='0.76'/%3E%3Ccircle cx='105' cy='14' r='1.0' fill-opacity='0.55'/%3E%3Ccircle cx='21' cy='164' r='1.2' fill-opacity='0.52'/%3E%3Ccircle cx='3' cy='0' r='1.3' fill-opacity='0.81'/%3E%3Ccircle cx='3' cy='220' r='1.3' fill-opacity='0.81'/%3E%3Ccircle cx='18' cy='175' r='1.0' fill-opacity='0.62'/%3E%3Ccircle cx='165' cy='210' r='1.4' fill-opacity='0.63'/%3E%3Ccircle cx='34' cy='69' r='1.3' fill-opacity='0.71'/%3E%3Ccircle cx='209' cy='108' r='1.5' fill-opacity='0.33'/%3E%3Ccircle cx='49' cy='129' r='1.8' fill-opacity='0.78'/%3E%3Ccircle cx='111' cy='19' r='1.4' fill-opacity='0.81'/%3E%3Ccircle cx='172' cy='201' r='1.0' fill-opacity='0.50'/%3E%3Ccircle cx='178' cy='114' r='0.9' fill-opacity='0.26'/%3E%3Ccircle cx='23' cy='195' r='0.8' fill-opacity='0.46'/%3E%3Ccircle cx='78' cy='169' r='0.7' fill-opacity='0.56'/%3E%3Ccircle cx='72' cy='67' r='1.1' fill-opacity='0.32'/%3E%3C/g%3E%3C/svg%3E");background-size:220px 220px;opacity:.5;animation:atmoRise 13s linear infinite}
+
+/* Lightning, written per frame by ambience.js from lightningAt(). */
+.atmo-flash{inset:0;opacity:0;will-change:opacity;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='460' viewBox='0 0 140 460'%3E%3Cg fill='none' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpolyline points='70,0 55,30 36,67 30,102 30,126 27,149 20,172 34,204 22,229 42,266 37,302 20,348 20,390 20,416 34,445' stroke='rgb(170,205,255)' stroke-opacity='.35' stroke-width='9'/%3E%3Cpolyline points='30,126 39,150 53,171 67,188 74,207 90,229' stroke='rgb(170,205,255)' stroke-opacity='.25' stroke-width='6'/%3E%3Cpolyline points='70,0 55,30 36,67 30,102 30,126 27,149 20,172 34,204 22,229 42,266 37,302 20,348 20,390 20,416 34,445' stroke='rgb(245,250,255)' stroke-width='2.2'/%3E%3Cpolyline points='30,126 39,150 53,171 67,188 74,207 90,229' stroke='rgb(235,244,255)' stroke-opacity='.8' stroke-width='1.3'/%3E%3C/g%3E%3C/svg%3E") calc(var(--lx,50%) - 9vh) -2vh/auto 58vh no-repeat,radial-gradient(ellipse 34% 62% at var(--lx,50%) 0%,rgba(226,238,255,.92),rgba(160,194,226,.38) 42%,transparent 78%),linear-gradient(180deg,rgba(196,218,240,.3),rgba(150,180,206,.1) 55%,transparent)}
+body[data-sector="3"] .atmo-flash{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='460' viewBox='0 0 140 460'%3E%3Cg fill='none' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpolyline points='70,0 55,30 36,67 30,102 30,126 27,149 20,172 34,204 22,229 42,266 37,302 20,348 20,390 20,416 34,445' stroke='rgb(255,140,170)' stroke-opacity='.35' stroke-width='9'/%3E%3Cpolyline points='30,126 39,150 53,171 67,188 74,207 90,229' stroke='rgb(255,140,170)' stroke-opacity='.25' stroke-width='6'/%3E%3Cpolyline points='70,0 55,30 36,67 30,102 30,126 27,149 20,172 34,204 22,229 42,266 37,302 20,348 20,390 20,416 34,445' stroke='rgb(255,236,240)' stroke-width='2.2'/%3E%3Cpolyline points='30,126 39,150 53,171 67,188 74,207 90,229' stroke='rgb(255,214,224)' stroke-opacity='.8' stroke-width='1.3'/%3E%3C/g%3E%3C/svg%3E") calc(var(--lx,50%) - 9vh) -2vh/auto 58vh no-repeat,radial-gradient(ellipse 34% 62% at var(--lx,50%) 0%,rgba(255,170,182,.8),rgba(196,74,126,.3) 42%,transparent 78%),linear-gradient(180deg,rgba(236,124,156,.22),rgba(150,60,110,.08) 55%,transparent)}
+/* Sector-clear interlude: a warm wash rising from below. */
+.atmo-interlude{inset:0;opacity:0;background:radial-gradient(ellipse 70% 60% at 50% 110%,rgba(243,187,112,.32),transparent 70%),linear-gradient(0deg,rgba(243,187,112,.12),transparent 60%)}
+body[data-interlude] .atmo-interlude{animation:atmoInterlude 3.5s ease-out forwards}
+/* Threat edge light: amber pulse for the warning, steady crimson for a flagship, fast red at critical hull. */
+.atmo-alert{inset:0;opacity:0;transition:opacity .6s ease;background:radial-gradient(ellipse 72% 70% at 50% 50%,transparent 58%,rgba(233,96,64,.34) 100%)}
+body[data-threat="warning"] .atmo-alert{background:radial-gradient(ellipse 72% 70% at 50% 50%,transparent 56%,rgba(255,176,84,.36) 100%);animation:atmoPulse .8s ease-in-out infinite alternate}
+body[data-threat="boss"] .atmo-alert{opacity:.5;animation:atmoBossBreathe 3.2s ease-in-out infinite alternate}
+body[data-threat="critical"] .atmo-alert{background:radial-gradient(ellipse 72% 70% at 50% 50%,transparent 50%,rgba(255,66,52,.46) 100%);animation:atmoPulse .55s ease-in-out infinite alternate}
+.atmo-vignette{inset:0;background:radial-gradient(ellipse 85% 80% at 50% 48%,transparent 52%,rgba(2,8,12,.62) 100%)}
+
+@keyframes atmoBreathe{from{opacity:.65}to{opacity:1}}
+@keyframes atmoTwinkle{from{opacity:.12;transform:translate3d(0,0,0)}to{opacity:.34;transform:translate3d(-18px,0,0)}}
+@keyframes atmoDriftX{to{transform:translate3d(-100vw,0,0)}}
+@keyframes atmoRainFar{to{transform:translate3d(-180px,540px,0)}}
+@keyframes atmoRainNear{to{transform:translate3d(-260px,780px,0)}}
+@keyframes atmoSpin{to{transform:rotate(1turn)}}
+@keyframes atmoRise{to{transform:translate3d(0,-220px,0)}}
+@keyframes atmoInterlude{0%{opacity:0}14%{opacity:1}100%{opacity:0}}
+@keyframes atmoPulse{from{opacity:.25}to{opacity:.9}}
+@keyframes atmoBossBreathe{from{opacity:.32}to{opacity:.62}}
+
+/* Holding pattern: the world outside freezes with the playfield. */
+body[data-screen="pause"] .console-atmosphere i{animation-play-state:paused!important}
+
+/* ---------- Masthead live status ---------- */
+@media(min-width:1101px){.mast-center{display:flex;flex-direction:column;align-items:center;gap:8px}}
+.mast-status{display:flex;align-items:center;gap:9px;color:#557579;font-size:8px;letter-spacing:.24em;line-height:1}
+.mast-status b{font-weight:800;color:#7f9fa2}
+.mast-status em{font-style:normal;color:#3d5a5f}
+#consoleState{color:var(--cyan)}
+#consoleClock{font-variant-numeric:tabular-nums;min-width:12.5em}
+.live-dot{display:inline-block;width:6px;height:6px;flex:none;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px rgba(122,216,205,.7)}
+body[data-screen="play"] .mast-status .live-dot{background:var(--hot);box-shadow:0 0 9px rgba(233,112,87,.85);animation:liveBlink 1.6s steps(1,end) infinite}
+body[data-screen="play"] #consoleState{color:#ffb39f}
+body[data-screen="pause"] #consoleState{color:var(--gold)}
+.signal-bars{display:inline-flex;align-items:flex-end;gap:2px;height:10px}
+.signal-bars i{display:block;width:3px;background:var(--cyan);opacity:.95;transition:opacity .25s,background .25s}
+.signal-bars i:nth-child(1){height:3px}.signal-bars i:nth-child(2){height:5px}.signal-bars i:nth-child(3){height:7px}.signal-bars i:nth-child(4){height:10px}
+.signal-bars[data-level="3"] i:nth-child(n+4),.signal-bars[data-level="2"] i:nth-child(n+3),.signal-bars[data-level="1"] i:nth-child(n+2),.signal-bars[data-level="0"] i{opacity:.16}
+.signal-bars[data-level="2"] i,.signal-bars[data-level="1"] i{background:var(--gold)}
+@keyframes liveBlink{0%{opacity:1}50%{opacity:.25}}
+
+/* ---------- Side panels as instrument modules ---------- */
+.console-module{position:relative;padding:20px 20px 22px;background:linear-gradient(180deg,rgba(6,24,31,.66),rgba(5,17,23,.42));border:1px solid rgba(176,220,211,.13);box-shadow:inset 0 1px 0 rgba(214,236,229,.04)}
+.console-module:before,.console-module:after{content:"";position:absolute;width:12px;height:12px;border-color:rgba(243,187,112,.7);border-style:solid;pointer-events:none}
+.console-module:before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+.console-module:after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+body[data-threat="boss"] .console-module:before,body[data-threat="boss"] .console-module:after{border-color:rgba(233,112,87,.85)}
+body[data-threat="critical"] .console-module:before,body[data-threat="critical"] .console-module:after{border-color:#ff6a55}
+.console-module .section-kicker{display:flex;align-items:center;gap:8px}
+.console-module .panel-rule{margin:15px 0}
+.console-module .live-dot{background:var(--hot);box-shadow:0 0 8px rgba(233,112,87,.8);animation:liveBlink 1.6s steps(1,end) infinite}
+.left-panel.console-module h2{margin:14px 0 12px;font-size:clamp(30px,2.7vw,46px)}
+.left-panel .briefing-copy{margin:0 0 16px;font-size:14px;line-height:1.5}
+.console-module .flight-data{margin-bottom:11px;gap:4px}
+.console-module .flight-data strong{font-size:11px}
+#consoleWeather{color:#bcd3cf}
+body[data-sector="2"] #consoleWeather{color:#c9d9e6}
+body[data-sector="3"] #consoleWeather{color:#ffb5a5}
+
+/* Operation route */
+.console-route{display:flex;align-items:center;gap:6px}
+.console-route span{display:flex;flex-direction:column;align-items:center;gap:5px;color:#5d7f84}
+.console-route span b{display:grid;place-items:center;width:24px;height:24px;border:1px solid rgba(176,220,211,.3);font-size:9px;letter-spacing:.08em;font-weight:800;color:#7c9da0;background:rgba(6,22,28,.6)}
+.console-route span small{font-size:6.5px;font-weight:800;letter-spacing:.16em;white-space:nowrap}
+.console-route>i{flex:1;height:1px;margin-top:-11px;background:repeating-linear-gradient(90deg,rgba(176,220,211,.35) 0 3px,transparent 3px 6px)}
+.console-route span[data-state="clear"] b{border-color:rgba(243,187,112,.6);color:var(--ink);background:var(--gold)}
+.console-route span[data-state="clear"] small{color:#c69a62}
+.console-route span[data-state="active"] b{border-color:var(--cyan);color:var(--white);background:rgba(43,108,110,.55);box-shadow:0 0 12px rgba(122,216,205,.45)}
+.console-route span[data-state="active"] small{color:var(--cyan)}
+body[data-threat="boss"] .console-route span[data-state="active"] b{border-color:var(--hot);background:rgba(120,40,34,.6);box-shadow:0 0 12px rgba(233,112,87,.55)}
+
+/* Tactical log */
+.tac-log .section-kicker{color:#86a7a9}
+.tac-log ol{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:6px;min-height:92px}
+.tac-log li{display:flex;gap:9px;color:#a9c4c0;font-size:8.5px;font-weight:800;letter-spacing:.11em;line-height:1.35}
+.tac-log li time{flex:none;color:#5f8085;font-variant-numeric:tabular-nums}
+.tac-log li:first-child{animation:logIn .45s ease-out both}
+.tac-log li:nth-child(2){opacity:.82}.tac-log li:nth-child(3){opacity:.64}.tac-log li:nth-child(4){opacity:.48}.tac-log li:nth-child(5){opacity:.32}
+.tac-log li[data-tone="hot"]{color:#ff9b84}
+.tac-log li[data-tone="warn"]{color:#ffcd88}
+.tac-log li[data-tone="gold"]{color:var(--gold)}
+.tac-log li[data-tone="cool"]{color:#9fe3d9}
+@keyframes logIn{from{opacity:0;transform:translate3d(-8px,0,0)}to{opacity:1;transform:none}}
+
+/* Radar and attitude */
+.console-scope{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin:6px 0 12px}
+.radar,.attitude{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px}
+.radar canvas{width:136px;height:136px;border-radius:50%;box-shadow:0 0 0 1px rgba(122,216,205,.22),0 0 24px rgba(122,216,205,.08)}
+.radar small,.attitude small{color:#5f8085;font-size:7px;font-weight:800;letter-spacing:.2em}
+body[data-threat="boss"] .radar canvas,body[data-threat="critical"] .radar canvas{box-shadow:0 0 0 1px rgba(233,112,87,.45),0 0 24px rgba(233,112,87,.16)}
+.attitude{width:68px}
+.attitude:before{content:"";display:block;width:66px;height:66px}
+.attitude>div,.attitude>i{position:absolute;left:1px;top:0}
+.attitude{--sky:#2f6d79;--sky2:#173d47;--ground:#5b4128;--ground2:#2e2116}
+body[data-sector="2"] .attitude{--sky:#4a5f6a;--sky2:#24343c}
+body[data-sector="3"] .attitude{--sky:#5a2a4c;--sky2:#2a1328;--ground:#3e1f22;--ground2:#1b0d10}
+.attitude-ball{width:66px;height:66px;border-radius:50%;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(214,236,229,.25),inset 0 0 14px rgba(0,0,0,.55)}
+.attitude-ball{transition:transform .08s linear;background:linear-gradient(180deg,var(--sky2),var(--sky) 50%,var(--ground) 50%,var(--ground2))}
+.attitude-ball i{position:absolute;left:18px;right:18px;top:13px;bottom:13px;background:repeating-linear-gradient(180deg,transparent 0 7px,rgba(240,244,232,.45) 7px 8px);-webkit-mask-image:linear-gradient(90deg,transparent,#000 30%,#000 70%,transparent);mask-image:linear-gradient(90deg,transparent,#000 30%,#000 70%,transparent)}
+.attitude-wings{width:66px;height:66px;background:linear-gradient(var(--gold),var(--gold)) 50% 50%/4px 4px no-repeat,linear-gradient(var(--gold),var(--gold)) 13px 32px/14px 2px no-repeat,linear-gradient(var(--gold),var(--gold)) 39px 32px/14px 2px no-repeat;border-radius:50%;box-shadow:0 0 0 1px rgba(122,216,205,.25)}
+
+/* Telemetry */
+.telemetry{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin:0 0 4px;background:rgba(176,220,211,.12);border:1px solid rgba(176,220,211,.12)}
+.telemetry span{display:flex;flex-direction:column;gap:4px;padding:7px 8px;background:rgba(5,18,24,.82);color:#5f8085;font-size:7px;font-weight:800;letter-spacing:.2em}
+.telemetry b{color:#d9e7e0;font-size:13px;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums}
+
+/* Threat */
+.threat-stat{position:relative;margin:14px 0 12px}
+.threat-stat strong{transition:color .4s}
+.threat-bars{position:absolute;right:0;bottom:6px;display:flex;gap:3px}
+.threat-bars b{display:block;width:5px;height:14px;background:rgba(176,220,211,.14);transform:skewX(-14deg)}
+body[data-threat] .threat-bars b:nth-child(1){background:var(--cyan)}
+body[data-threat="warning"] .threat-bars b:nth-child(-n+2){background:#ffc06c}
+body[data-threat="boss"] .threat-bars b:nth-child(-n+3){background:var(--hot)}
+body[data-threat="critical"] .threat-bars b{background:#ff5b49;animation:atmoPulse .5s ease-in-out infinite alternate}
+body[data-threat="warning"] #threatReadout{color:#ffcf8c}
+body[data-threat="boss"] #threatReadout,body[data-threat="critical"] #threatReadout{color:#ff9a82}
+
+/* Route / flagship meter */
+.console-meter{margin:0 0 6px}
+.meter-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;color:#6e9498;font-size:8px;font-weight:800;letter-spacing:.16em}
+.meter-head b{color:var(--paper);font-variant-numeric:tabular-nums}
+.meter-track{position:relative;height:5px;overflow:hidden;background:rgba(176,220,211,.12)}
+.meter-track:after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(5,16,22,.9) calc(10% - 1px) 10%)}
+.meter-track i{position:absolute;inset:0;transform-origin:0 50%;transform:scaleX(0);background:linear-gradient(90deg,#3f9e98,var(--cyan) 70%,#d8fff6);transition:transform .25s linear}
+body[data-meter="boss"] .meter-track i{background:linear-gradient(90deg,#9a3326,var(--hot) 70%,#ffc2a8)}
+body[data-meter="boss"] .meter-head b{color:#ffab95}
+body[data-meter="clear"] .meter-track i{background:linear-gradient(90deg,#b98546,var(--gold) 70%,#fff0cf)}
+.stat-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat-pair .aside-stat{margin:13px 0 0}
+.stat-pair .aside-stat strong{font-size:19px;font-variant-numeric:tabular-nums}
+.control-grid{display:grid;grid-template-columns:1fr 1fr;column-gap:10px}
+.control-grid .control-row{min-height:22px;gap:8px;font-size:8px;letter-spacing:.11em;white-space:nowrap}
+.control-grid .control-row kbd{min-width:36px}
+.right-panel .aside-note{margin:10px 0 0;font-size:8px}
+
+/* ---------- Game frame decoration ---------- */
+.frame-topline .ft-live{display:inline-flex;align-items:center;gap:5px;font-weight:inherit}
+.frame-topline .ft-live i{display:block;width:5px;height:5px;border-radius:50%;background:var(--hot);animation:liveBlink 1.6s steps(1,end) infinite}
+body[data-threat="warning"] .frame-topline{background:rgba(54,36,10,.9);color:#ffd28e}
+body[data-threat="boss"] .frame-topline{color:#ffb09c}
+.game-corner{transition:border-color .4s}
+.top-left{transform-origin:0 0}.top-right{transform-origin:100% 0}.bottom-left{transform-origin:0 100%}.bottom-right{transform-origin:100% 100%}
+body[data-threat="warning"] .game-corner{border-color:#ffc56b;animation:cornerPulse .8s ease-in-out infinite alternate}
+body[data-threat="boss"] .game-corner{border-color:var(--hot)}
+body[data-threat="critical"] .game-corner{border-color:#ff5b49;animation:cornerPulse .5s ease-in-out infinite alternate}
+@keyframes cornerPulse{from{transform:scale(1)}to{transform:scale(1.6)}}
+body:not(.compact-controls) .game-stack{position:relative}
+body:not(.compact-controls) .game-stack:before{content:"";position:absolute;left:-8px;right:-8px;top:-8px;bottom:-8px;z-index:-1;pointer-events:none;opacity:0;transition:opacity .7s ease;box-shadow:0 0 54px 10px var(--frame-glow,rgba(122,216,205,.3))}
+body[data-flagship] .game-stack:before{--frame-glow:rgba(233,112,87,.34);opacity:1;animation:atmoBossBreathe 3.2s ease-in-out infinite alternate}
+body[data-threat="warning"] .game-stack:before{--frame-glow:rgba(255,184,92,.36);opacity:1;animation:atmoPulse .8s ease-in-out infinite alternate}
+body[data-threat="critical"] .game-stack:before{--frame-glow:rgba(255,72,56,.42);opacity:1;animation:atmoPulse .55s ease-in-out infinite alternate}
+body[data-interlude] .game-stack:before{--frame-glow:rgba(243,187,112,.42);animation:atmoInterlude 3.5s ease-out forwards}
+
+/* ---------- Footer ---------- */
+.site-footer{position:relative;z-index:1}
+.footer-ticker{color:#4c6c71;letter-spacing:.22em;font-variant-numeric:tabular-nums;white-space:nowrap}
+body[data-screen="play"] .footer-ticker{color:#77a7a4}
+@media(max-width:1100px){.footer-ticker{display:none}}
+
+/* ---------- Short desktop screens (laptops around 768-860px tall) ---------- */
+@media (min-width:741px) and (max-height:860px){
+  .console-module{padding:16px 18px 16px}
+  .left-panel.console-module h2{margin:10px 0 10px;font-size:clamp(28px,2.4vw,40px)}
+  .left-panel .briefing-copy{margin-bottom:12px;font-size:13px}
+  .console-module .panel-rule{margin:11px 0}
+  .console-module .flight-data{margin-bottom:8px}
+  .tac-log ol{min-height:74px;margin-bottom:12px}
+  .tac-log li:nth-child(n+5){display:none}
+  .console-scope{margin:2px 0 8px}
+  .threat-stat{margin:10px 0 9px}
+  .stat-pair .aside-stat{margin-top:9px}
+}
+@media (min-width:741px) and (max-height:760px){
+  .left-panel .briefing-copy,.right-panel .aside-note{display:none}
+}
+
+/* ---------- Comfort settings ---------- */
+body[data-reduced-fx] .console-atmosphere i,body[data-reduced-fx] .game-corner,body[data-reduced-fx] .game-stack:before,body[data-reduced-fx] .threat-bars b,body[data-reduced-fx] .live-dot,body[data-reduced-fx] .ft-live i,body[data-reduced-fx] .tac-log li{animation:none!important}
+body[data-reduced-fx] .atmo-flash,body[data-reduced-fx] .atmo-interlude{display:none!important}
+body[data-reduced-fx][data-threat="warning"] .atmo-alert,body[data-reduced-fx][data-threat="critical"] .atmo-alert{opacity:.45}
+body[data-reduced-fx][data-threat] .game-stack:before{opacity:.7}
+body[data-reduced-fx] .attitude-ball{transition:none}
+@media (prefers-reduced-motion:reduce){
+  .console-atmosphere i,.game-corner,.game-stack:before,.threat-bars b,.live-dot,.ft-live i,.tac-log li,.attitude-ball{animation:none!important;transition:none!important}
+  .atmo-flash,.atmo-interlude{display:none!important}
+  body[data-threat="warning"] .atmo-alert,body[data-threat="critical"] .atmo-alert{opacity:.45}
+  body[data-threat] .game-stack:before{opacity:.7}
+}
+/* Mid widths: size the playfield column to the playfield itself so no gap opens before the instruments panel. */
+@media (min-width:741px) and (max-width:1100px){.play-screen{grid-template-columns:auto minmax(165px,280px)}}
+/* Lite backdrop (set by ambience.js when play frames run slow): hold the continuous drift still
+   and drop the moving rain sheets. Flashes, alerts and the interlude wash stay. */
+body[data-backdrop="lite"] .console-atmosphere .atmo-sector i{animation-play-state:paused!important}
+body[data-backdrop="lite"] .atmo-rain{display:none}
