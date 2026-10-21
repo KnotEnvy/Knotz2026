@@ -8,9 +8,17 @@
     "start": "node server.mjs",
     "build": "node scripts/build.mjs",
     "preview": "node scripts/preview.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "qa": "node qa/browser.mjs",
+    "qa:audio": "node qa/audio.mjs",
+    "qa:career": "node qa/career.mjs",
+    "qa:reactors": "node qa/reactors.mjs",
+    "qa:lance": "node qa/lance.mjs"
   },
   "engines": {
     "node": ">=20.11.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }

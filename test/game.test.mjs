@@ -11,6 +11,23 @@ const step = (game, frames, input = {}) => {
   for (let i = 0; i < frames; i++) game.update(1/60, input);
 };
 
+test('an enemy destroyed by a shot cannot damage the player in that collision tick', () => {
+  const game=new Game();start(game);
+  const p=game.player,e=game._enemy('scout',p.x,p.y,{fireAt:99});e.y=p.y;e.hp=1;
+  game.shots.push({x:e.x,y:e.y,vx:0,vy:0,r:4,damage:10,kind:'shot',age:0});
+  const hp=p.hp;game._collide();
+  assert.equal(e.dead,true);assert.equal(game.stats.kills,1);assert.equal(p.hp,hp);
+});
+
+test('analog input preserves stick magnitude, caps diagonals and aims a roll', () => {
+  const slow=new Game(),fast=new Game();start(slow);start(fast);
+  step(slow,15,{moveX:.25});step(fast,15,{moveX:1});
+  assert.ok(Math.abs((fast.player.x-270)/(slow.player.x-270)-4)<.01);
+  const diagonal=new Game();start(diagonal);step(diagonal,15,{moveX:1,moveY:1});
+  assert.ok(Math.abs(Math.hypot(diagonal.player.x-270,diagonal.player.y-750)-(fast.player.x-270))<.1);
+  slow._roll({moveX:-.5,moveY:.5});assert.ok(slow.player.rollX<0&&slow.player.rollY>0);
+});
+
 test('movement is responsive and focus gives precise control', () => {
   const normal = new Game(); start(normal);
   step(normal, 30, { right: true });
@@ -160,27 +177,27 @@ test('boss phase transitions clear old fire and announce a new pattern before sh
 test('authored lane sweep visibly opens one corridor, then moves it a reachable distance', () => {
   const game = new Game(); start(game);
   game._spawnLaneSweep(150);
-  const first = game.bullets.filter(b => b.y === 255);
-  const second = game.bullets.filter(b => b.y === 130);
+  const first = game.bullets.filter(b => b.y === -40);
+  const second = game.bullets.filter(b => b.y === -165);
   assert.ok(first.length >= 12 && second.length >= 12, 'two rows should announce the sweep');
   assert.ok(first.every(b => Math.abs(b.x - 150) > 68));
   assert.ok(second.every(b => Math.abs(b.x - 240) > 68));
   assert.ok(first.some(b => Math.abs(b.x - 270) < 15), 'holding the centre is pressured');
-  assert.ok((750 - 255) / first[0].vy > 3, 'the lead row gives several seconds of warning');
+  assert.ok((230 - first[0].y) / first[0].vy > 1.5, 'even the highest legal player position gets reaction time');
 });
 
 test('a bottom-lane pilot can dodge the staggered sweep, while holding centre takes a hit', () => {
   const idle = new Game(); start(idle);
   idle._beatIndex = 99; idle._laneIndex = 99;
   idle._spawnLaneSweep(150);
-  step(idle, 220);
+  step(idle, 340);
   assert.ok(idle.player.hp < 4, 'stationary centre should not be a permanent safe lane');
 
   const moving = new Game(); start(moving);
   moving._beatIndex = 99; moving._laneIndex = 99;
   moving.player.x = 150;
   moving._spawnLaneSweep(150);
-  step(moving, 220);
+  step(moving, 340);
   step(moving, 15, { right: true });
   step(moving, 60);
   assert.equal(moving.player.hp, 4, 'crossing to the announced second gap should remain survivable');
@@ -579,4 +596,36 @@ test('missile reacquisition handles missing, dead, and equidistant targets stabl
   tied._enemy('bomber',290,400,{fireAt:99,vy:0});
   tied._updateShots(0.01);
   assert.equal(tiedMissile.targetId,earlier.id,'equal distances keep enemy array order');
+});
+
+test('lane warning cannot overlap any legal player position in its spawn tick',()=>{
+ for(const y of [230,255,400,750,820]){
+  const game=new Game();start(game);game.player.x=388;game.player.y=y;
+  game._spawnLaneSweep(150);game._collide();assert.equal(game.player.hp,4);
+  assert.ok(game.bullets.every(b=>b.y<0));
+ }
+});
+test('a pointer roll follows drag direction and retains the last moving heading',()=>{
+ const game=new Game();start(game);const p=game.player;
+ game._roll({pointerActive:true,pointerX:p.x+120,pointerY:p.y});assert.equal(p.rollX,1);assert.equal(p.rollY,0);
+ p.roll=0;p.rollCooldown=0;p.headingX=-2;p.headingY=0;
+ game._roll({pointerActive:true,pointerX:p.x,pointerY:p.y});assert.equal(p.rollX,-1);
+});
+test('defeat freezes scoring, grazing and pickup rewards in the terminal collision pass',()=>{
+ const game=new Game();start(game);const p=game.player;p.hp=1;p.lives=1;
+ game.bullets.push({x:p.x,y:p.y,vx:0,vy:0,r:5,kind:'red',grazed:false},{x:p.x+22,y:p.y,vx:0,vy:0,r:5,kind:'red',grazed:false});
+ game.pickups.push({x:p.x,y:p.y,r:16,type:'shield'});game._collide();
+ assert.equal(game.mode,'gameover');assert.equal(game.score,game.summary.score);assert.equal(game.stats.grazes,0);assert.equal(game.stats.pickups,0);assert.equal(p.hp,0);
+});
+
+test('lane effects receive the exact bullet origins and speed for synchronized markers',()=>{
+ const game=new Game();start(game);game._spawnLaneSweep(150);
+ const event=game.events.find(e=>e.type==='lane');assert.equal(event.speed,149);
+ assert.deepEqual(event.rows,[{x:150,y:-40},{x:240,y:-165}]);
+ for(const row of event.rows)assert.ok(game.bullets.some(b=>b.y===row.y&&b.vy===event.speed));
+});
+test('victory finalizes before a leftover pickup can change the result',()=>{
+ const game=new Game();start(game);game.stage=3;game._transition=.001;
+ const p=game.player;p.hp=2;game.pickups.push({x:p.x,y:p.y,r:16,type:'shield',age:0,vy:0});
+ game.update(1/60,{});assert.equal(game.mode,'victory');assert.equal(game.stats.pickups,0);assert.equal(p.hp,2);assert.equal(game.summary.score,game.score);
 });

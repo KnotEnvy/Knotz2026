@@ -1,0 +1,157 @@
+/* End-of-sortie cinematic and flight record. Loaded after style.css. */
+.end-screen{--mast:76px;--bar:clamp(40px,9.5vh,88px);--ease:cubic-bezier(.16,.84,.24,1);background:#02070b}
+@media(max-width:740px){.end-screen{--mast:58px;--bar:clamp(34px,7vh,56px)}}
+
+/* Cinematic plate: full frame during the curtain, shaded once the record arrives. */
+.end-shade{opacity:1;transition:opacity 1s ease .15s;background:linear-gradient(90deg,rgba(3,11,16,.96) 0%,rgba(4,15,22,.88) 30%,rgba(5,19,27,.5) 52%,rgba(5,19,27,.08) 70%,rgba(5,19,27,0) 82%)}
+.end-screen.lost .end-shade{background:linear-gradient(90deg,rgba(3,7,11,.96) 0%,rgba(4,9,14,.88) 30%,rgba(5,11,17,.5) 52%,rgba(5,11,17,.08) 70%,rgba(5,11,17,0) 82%)}
+.end-screen.cinema-intro .end-shade{opacity:0;transition-delay:0s}
+
+/* Letterbox bars. The top bar (timecode) sits outside the live region. */
+.letterbox{position:fixed;left:0;right:0;z-index:5;height:var(--bar);display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 clamp(18px,4vw,70px);background:#010306;color:#6f8b8f;font-size:9px;font-weight:800;letter-spacing:.22em;pointer-events:none;transition:transform .8s cubic-bezier(.7,0,.2,1)}
+.letterbox-top{top:var(--mast);transform:translateY(calc(-100% - var(--mast)));z-index:6;box-shadow:0 1px 0 rgba(176,220,211,.08)}
+.letterbox-bottom{bottom:0;transform:translateY(101%);justify-content:flex-end;box-shadow:0 -1px 0 rgba(176,220,211,.08)}
+.letterbox-top i{font-style:normal;color:var(--gold);padding:0 6px}
+.rec-mark{display:flex;align-items:center;gap:10px;color:#a9bfbd;font-variant-numeric:tabular-nums}
+.rec-mark i{width:7px;height:7px;border-radius:50%;background:var(--hot);box-shadow:0 0 10px rgba(233,112,87,.8);animation:rec-blink 1.1s steps(2,jump-none) infinite}
+.rec-mark b{font-weight:800;min-width:9.5ch;text-align:right}
+.end-screen.cinema-intro .letterbox{transform:none;transition:transform .9s var(--ease)}
+@starting-style{
+  .end-screen.cinema-intro .letterbox-top{transform:translateY(calc(-100% - var(--mast)))}
+  .end-screen.cinema-intro .letterbox-bottom{transform:translateY(101%)}
+}
+.curtain-progress{position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,rgba(243,187,112,.2),var(--gold));transform-origin:left;transform:scaleX(0)}
+.end-screen.lost .curtain-progress{background:linear-gradient(90deg,rgba(233,112,87,.2),var(--hot))}
+.end-screen.cinema-intro .curtain-progress{animation:curtain-progress 2.6s linear both}
+
+/* Curtain: transparent, so the cinematic plays full frame behind a lower-third title card. */
+.end-curtain{display:block;opacity:1;background:none;transition:visibility 0s linear .85s}
+.end-screen.lost .end-curtain{background:none}
+.end-screen.cinema-intro .end-curtain{visibility:visible;transition:none}
+.end-curtain:before{content:none}
+.end-curtain:after{content:"";position:absolute;left:0;right:0;top:auto;bottom:0;height:62%;background:linear-gradient(0deg,rgba(1,5,9,.82),rgba(1,5,9,.42) 45%,rgba(1,5,9,0));box-shadow:none;animation:none;transform:none;opacity:0;transition:opacity .6s ease}
+.end-screen.cinema-intro .end-curtain:after{opacity:1}
+.end-curtain-card{position:absolute;z-index:1;left:clamp(24px,7vw,120px);right:clamp(24px,6vw,110px);bottom:calc(var(--bar) + clamp(26px,7vh,84px));display:flex;align-items:flex-start;gap:clamp(14px,1.6vw,26px);opacity:0;transform:translateY(-10px);transition:opacity .45s ease,transform .6s ease}
+.end-screen.cinema-intro .end-curtain-card{opacity:1;transform:none;transition:none}
+.end-curtain-mark{flex:none;width:26px;height:26px;margin-top:4px;border-width:1.5px;box-shadow:0 0 22px rgba(242,193,119,.35);animation:none}
+.end-curtain-mark:before{height:38px}.end-curtain-mark:after{width:38px}
+.end-screen.cinema-intro .end-curtain-mark{animation:curtain-mark 1.2s var(--ease) .1s both}
+.end-curtain-copy{align-items:flex-start;text-align:left;gap:12px;animation:none}
+.end-curtain-copy span{display:flex;align-items:center;gap:14px;color:var(--gold);font-size:10px;letter-spacing:.32em}
+.end-curtain-copy span:after{content:"";width:clamp(40px,8vw,120px);height:1px;background:currentColor;opacity:.55}
+.end-screen.lost .end-curtain-copy span{color:var(--hot)}
+.end-curtain-copy strong{max-width:min(92vw,1180px);font-size:clamp(40px,6.6vw,118px);line-height:.9;letter-spacing:-.045em;text-shadow:0 10px 50px rgba(0,0,0,.6),0 0 1px rgba(0,0,0,.6)}
+.end-curtain-copy small{color:#d8cdb8;font-size:10px;letter-spacing:.3em}
+.end-screen.lost .end-curtain-copy small{color:#e2b2a4}
+.end-screen.cinema-intro .end-curtain-copy span{animation:curtain-rise .8s var(--ease) .15s both}
+.end-screen.cinema-intro .end-curtain-copy strong{animation:curtain-title 1.15s var(--ease) .3s both}
+.end-screen.cinema-intro .end-curtain-copy small{animation:curtain-rise .8s var(--ease) .9s both}
+.end-curtain-skip{position:relative;right:auto;bottom:auto;pointer-events:auto;padding:10px 14px;background:rgba(10,24,30,.7);border-color:rgba(239,227,194,.32);font-size:9px}
+
+/* Flight record reveal. */
+.end-content{transition:opacity .5s ease,transform .7s var(--ease)}
+.end-screen.record-in #endEyebrow{animation:rec-slide .7s var(--ease) .05s both}
+.end-screen.record-in #endHeading{animation:rec-wipe 1s var(--ease) .12s both}
+.end-screen.record-in .end-narrative{animation:rec-rise .7s var(--ease) .3s both}
+.end-screen.record-in .results-grid{animation:rec-rise .6s var(--ease) .34s both}
+.end-screen.record-in .results-grid>div{animation:rec-rise .6s var(--ease) both}
+.end-screen.record-in .results-grid>div:nth-child(1){animation-delay:.38s}
+.end-screen.record-in .results-grid>div:nth-child(2){animation-delay:.45s}
+.end-screen.record-in .results-grid>div:nth-child(3){animation-delay:.52s}
+.end-screen.record-in .results-grid>div:nth-child(4){animation-delay:.59s}
+.end-screen.record-in .medal{animation:rec-medal .6s var(--ease) calc(.95s + var(--i,0) * .1s) both}
+.end-screen.record-in .flight-debrief{animation:rec-rise .7s var(--ease) .7s both}
+.end-screen.record-in .end-actions{animation:rec-rise .7s var(--ease) .85s both}
+
+.results-grid strong{font-variant-numeric:tabular-nums}
+.score-cell{position:relative}
+.score-cell strong{color:var(--white)}
+.best-flag{display:inline-block;margin-left:6px;padding:2px 5px 1px;background:var(--gold);color:#1b1307;font-style:normal;font-size:7px;letter-spacing:.14em;vertical-align:1px}
+.best-flag[hidden]{display:none}
+.score-cell:has(.best-flag:not([hidden])){box-shadow:inset 0 -2px 0 var(--gold)}
+.score-cell:has(.best-flag:not([hidden])) strong{color:var(--gold)}
+.end-screen.record-in .best-flag{animation:best-flag 1.6s ease 1.7s both}
+
+/* Grade stamp. */
+.grade-lockup{display:grid;grid-template-areas:"label" "grade";justify-items:center;row-gap:8px}
+.grade-lockup span{grid-area:label}
+.grade-lockup strong{grid-area:grade;position:relative;display:grid;place-items:center;width:126px;height:126px;font-size:84px;letter-spacing:-.04em;transform:rotate(-7deg);text-shadow:0 0 28px rgba(243,187,112,.28)}
+.grade-lockup strong:before{content:"";position:absolute;inset:0;border:2px solid currentColor;border-radius:50%;box-shadow:inset 0 0 0 5px rgba(7,24,32,.6),inset 0 0 0 6px currentColor;opacity:.7}
+.grade-lockup strong:after{content:"";position:absolute;inset:-12px;border:1px dashed currentColor;border-radius:50%;opacity:.28}
+.grade-ring{grid-area:grade;align-self:center;width:126px;height:126px;border-radius:50%;border:2px solid currentColor;opacity:0;pointer-events:none}
+.end-screen:not(.lost) .grade-lockup[data-grade="s"]{color:#fff0c8}
+.end-screen:not(.lost) .grade-lockup[data-grade="s"] strong{text-shadow:0 0 22px rgba(255,214,150,.75),0 0 60px rgba(243,187,112,.45)}
+.end-screen:not(.lost) .grade-lockup[data-grade="b"]{color:var(--cyan)}
+.end-screen:not(.lost) .grade-lockup[data-grade="b"] strong{text-shadow:0 0 28px rgba(122,216,205,.3)}
+.end-screen:not(.lost) .grade-lockup[data-grade="c"]{color:var(--mist)}
+.end-screen:not(.lost) .grade-lockup[data-grade="c"] strong{text-shadow:none}
+.end-screen:not(.lost) .grade-lockup[data-grade="d"]{color:var(--hot)}
+.end-screen.record-in .grade-lockup span{animation:rec-rise .5s var(--ease) .45s both}
+.end-screen.record-in .grade-lockup strong{animation:grade-stamp .62s cubic-bezier(.3,1.5,.5,1) .55s both}
+.end-screen.record-in .grade-ring{animation:grade-burst .9s ease-out .68s both}
+
+/* Commendation ribbons. */
+.medal-row{width:min(700px,100%);margin:14px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.medal-row[hidden]{display:none}
+.medal{--c1:var(--gold);--c2:#5a3a1c;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;row-gap:3px;align-items:center;padding:8px 13px 8px 9px;border:1px solid rgba(176,220,211,.2);background:rgba(6,24,33,.9)}
+.medal i{grid-row:1 / span 2;width:15px;height:30px;background:linear-gradient(90deg,var(--c1) 0 30%,var(--c2) 30% 42%,var(--c1) 42% 58%,var(--c2) 58% 70%,var(--c1) 70%);clip-path:polygon(0 0,100% 0,100% 100%,50% 80%,0 100%)}
+.medal b{color:var(--paper);font-size:10px;font-weight:900;letter-spacing:.17em;line-height:1}
+.medal small{color:#89a8a7;font-size:8px;font-weight:800;letter-spacing:.15em;line-height:1}
+.medal-cyan{--c1:var(--cyan);--c2:#174249}
+.medal-paper{--c1:var(--paper);--c2:#3d4c50}
+.medal-hot{--c1:var(--hot);--c2:#4c1d18}
+.medal-gold{border-color:rgba(243,187,112,.38)}
+
+@keyframes rec-blink{to{opacity:.15}}
+@keyframes curtain-progress{to{transform:scaleX(1)}}
+@keyframes curtain-mark{from{opacity:0;transform:rotate(-40deg) scale(.4)}to{opacity:1;transform:rotate(45deg) scale(1)}}
+@keyframes curtain-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes curtain-title{from{opacity:0;letter-spacing:.14em;clip-path:inset(-60% 100% -60% -10%)}to{opacity:1;letter-spacing:-.045em;clip-path:inset(-60% -30% -60% -10%)}}
+@keyframes rec-slide{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+@keyframes rec-wipe{from{opacity:0;clip-path:inset(-10% 100% -15% -4%);transform:translateX(-12px)}to{opacity:1;clip-path:inset(-10% -12% -15% -4%);transform:none}}
+@keyframes rec-rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes rec-medal{from{opacity:0;transform:translateY(10px) scale(.92)}to{opacity:1;transform:none}}
+@keyframes grade-stamp{0%{opacity:0;transform:rotate(-24deg) scale(2.5)}62%{opacity:1;transform:rotate(-5deg) scale(.92)}100%{opacity:1;transform:rotate(-7deg) scale(1)}}
+@keyframes grade-burst{0%{opacity:.85;transform:scale(.7)}100%{opacity:0;transform:scale(1.9)}}
+@keyframes best-flag{0%,100%{box-shadow:0 0 0 0 rgba(243,187,112,0)}30%{box-shadow:0 0 0 6px rgba(243,187,112,.25)}}
+
+@media(max-width:740px){
+  .end-shade,.end-screen.lost .end-shade{background:linear-gradient(0deg,rgba(3,11,16,.97) 0%,rgba(4,15,22,.9) 50%,rgba(5,19,27,.45) 74%,rgba(5,19,27,.08) 100%)}
+  .letterbox{padding:0 14px;font-size:8px;letter-spacing:.18em}
+  .letterbox-top>span:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .end-curtain-card{left:20px;right:16px;bottom:calc(var(--bar) + 30px);gap:12px}
+  .end-curtain-mark{width:18px;height:18px}.end-curtain-mark:before{height:26px}.end-curtain-mark:after{width:26px}
+  .end-curtain-copy strong{font-size:clamp(34px,11vw,64px)}
+  .end-curtain-copy span{font-size:8px;letter-spacing:.24em}
+  .end-curtain-copy small{font-size:8px;letter-spacing:.22em;line-height:1.6}
+  .grade-lockup strong{width:96px;height:96px;font-size:62px}
+  .grade-ring{width:96px;height:96px}
+  .medal-row{gap:6px}
+  .medal{padding:7px 10px 7px 8px}
+}
+@media(max-width:440px){
+  .grade-lockup{grid-template-areas:"grade label";grid-template-columns:auto 1fr;justify-items:start;align-items:center;column-gap:14px}
+  .grade-lockup strong{width:58px;height:58px;font-size:40px}
+  .grade-lockup strong:after{inset:-7px}
+  .grade-ring{width:58px;height:58px}
+  .medal b{font-size:9px}
+}
+@media (max-height:540px) and (orientation:landscape){
+  .end-curtain-card{bottom:calc(var(--bar) + 18px)}
+  .end-curtain-copy strong{font-size:clamp(34px,7vw,64px)}
+  .grade-lockup strong{width:84px;height:84px;font-size:54px}
+  .grade-ring{width:84px;height:84px}
+}
+@media (prefers-reduced-motion:reduce){
+  .end-screen .letterbox,.end-screen .end-curtain-card,.end-screen .end-shade,.end-curtain:after{transition:none}
+  .end-screen *,.end-screen *:before,.end-screen *:after{animation:none!important}
+  .end-screen.cinema-intro .curtain-progress{transform:scaleX(1)}
+}
+/* Portrait phones crop the 16:9 plate; keep each scene's subject in frame. */
+@media(max-width:740px) and (orientation:portrait){
+  .end-screen[data-scene="victory"]>canvas,.end-screen[data-scene="defeat"]>canvas{object-position:84% center}
+  .end-screen[data-scene="range"]>canvas{object-position:74% center}
+}
+/* Let the NEW BEST tag wrap under the label without overlapping it in narrow cells. */
+.score-cell>span{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px;line-height:1.35}
+.score-cell>span .best-flag{margin-left:0;vertical-align:0}

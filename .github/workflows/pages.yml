@@ -31,6 +31,10 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
+      - name: Install QA dependencies
+        run: npm ci
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
       - name: Check JavaScript syntax
         run: |
           for file in src/*.js scripts/*.mjs server.mjs; do
@@ -40,6 +44,14 @@ jobs:
         run: npm test
       - name: Build public game
         run: npm run build
+      - name: Smoke-test the public build
+        run: |
+          PORT=4176 node scripts/preview.mjs &
+          GAME_URL=http://127.0.0.1:4176/ npm run qa
+          GAME_URL=http://127.0.0.1:4176/ QA_AUDIO_RECORD=0 npm run qa:audio
+          GAME_URL=http://127.0.0.1:4176/ npm run qa:career
+          GAME_URL=http://127.0.0.1:4176/ npm run qa:reactors
+          GAME_URL=http://127.0.0.1:4176/ npm run qa:lance
       - name: Upload game for Pages
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
