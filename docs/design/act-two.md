@@ -337,7 +337,7 @@ The simulation owns state. Everyone else reads it. Builders may extend this cont
 
 **Bullets:** sector 4 uses `kind:"void"` for some turret and boss patterns. Act II raises the bullet cap to 900.
 
-**HP:** an Act II curve, tuned so the power-25 reference kit clears sector-4 popcorn instantly. Hulls take about 4–8 s of focused fire (as built: destroyer 4–9 s, cruiser 7–14 s; see "Simulation notes (sector 4)"). LEVIATHAN takes about 60–80 s with the reference kit.
+**HP:** an Act II curve, tuned so the power-25 reference kit clears sector-4 popcorn instantly. Hulls take about 4–8 s of focused fire (as built in round 2: destroyer 4–9 s, cruiser 7–18 s; see "Simulation notes (sector 4, round 2)"). LEVIATHAN takes about 60–80 s with the reference kit.
 
 **Flagship LEVIATHAN** (`this.boss`, `stage === 4`)
 - `boss.name = "LEVIATHAN"`.
@@ -360,8 +360,10 @@ The simulation owns state. Everyone else reads it. Builders may extend this cont
 - `broadside {value: side}`
 - `coreExposed`
 - `actTwo`
+- `flakEat {x, y, value: count}` (round 2): Kestrel flak shots ate `count` ordinary enemy bullets this frame. Coalesced to one event per frame; `x, y` is the first eat.
 
 Existing boss events (`bossEnter`, `bossPhase`, `bossGuard`, `bossShot`, `bossDown`) carry `stage === 4` as before.
+- Round 2: LEVIATHAN's `bossDown {x, y, value: 4}` also carries `w, h, angle, broadside, core`: the hull's last pose. Presentation can draw a sinking LEVIATHAN after `boss` is null (the event fires in the same frame `boss` becomes null). Earlier flagships keep the plain event.
 
 **Presentation and world**
 - `SECTOR_NAMES[4] = "IRON MONSOON"`, `FLAGSHIP_NAMES[4] = "LEVIATHAN"`, `FLAGSHIP_CLASSES[4] = "SUPER-DREADNOUGHT"`, plus coordinates and tagline from above.
@@ -398,7 +400,8 @@ Refinements made while building the sector-4 simulation. Every field and event i
 - Mines carry `fuse` (counts down); enemy torpedoes carry `heading` and `speed`. Hull turrets carry `aim` (radians, slewing toward the player at 2.6 rad/s).
 - Pickups now carry a unique `id` (so `scavenger.targetPickupId` can point at one).
 - Flak turret shells are ordinary bullets with `fuse` and `burst`. When the fuse runs out they turn into a ring.
-- `game.threat` (0–1.25): the Act II rank (see below). `game.bulletCap` reports the live cap (700, or 900 in Act II).
+- `game.threat` (0–0.88 since round 2; was 0–1.25): the Act II rank (see below). `game.bulletCap` reports the live cap (700, or 900 in Act II).
+- Round 2: `player.r` (hurtbox) is 7 for Kestrel and Wraith, 9 for Manta, in every sector. `stats.flakEats` counts bullets eaten by Kestrel flak.
 
 **Extra event fields**
 - `squadronEnter` also carries `path` and `side`; `x, y` is the entry point (clamped to the field).
@@ -408,23 +411,25 @@ Refinements made while building the sector-4 simulation. Every field and event i
 
 **Behaviour**
 - Surface ships (hulls, hull turrets, gunboats) never hurt on contact. A shot over a live turret hits the turret, and a shot flying up a live turret's column passes over the hull to reach it. LEVIATHAN's body still hurts on contact, like the earlier flagships.
-- Scavengers hunt for up to 8–11 s, sniping only while they have no salvage target. They steal any salvage older than 0.4 s, then flee upward. Shot down, they drop the salvage back with `salvage: true` and at least 5 s of life. In the sector, a scatter calls 2 scavengers 1.1 s later. LEVIATHAN phase 3 launches 2 every 3.8 s while salvage floats. At most 4 are alive at once.
-- Interceptors fly scripted paths: `loop` (dive, 1.5 loops, climb out), `rise` (from below the field up a side lane, drifting toward the centre) and `sweep` (across on a dipping arc). Squads have 5–6 craft, staggered 0.17–0.2 s. Each craft fires two short aimed bursts per pass; a low-threat ship meets only the second.
+- Scavengers hunt for up to 8–11 s, sniping only while they have no salvage target. They steal any salvage older than 0.4 s, then flee upward. Shot down, they drop the salvage back with `salvage: true` and at least 5 s of life. In the sector, a scatter calls 2 scavengers 0.6 s later (round 2; was 1.1 s). If the ship was kitted when it scattered (threat ≥ 0.5), they cut in from both side edges level with the salvage; a ship that was already stripped meets them diving from the top corners. They fly at 330 px/s toward salvage (round 2; was 285). LEVIATHAN phase 3 launches 2 every 3.8 s while salvage floats. At most 4 are alive at once.
+- Interceptors fly scripted paths: `loop` (dive, 1.5 loops, climb out), `rise` (from below the field up a side lane, drifting toward the centre) and `sweep` (across on a dipping arc). Squads have 5–6 craft, staggered 0.17–0.2 s. Each craft fires an entry burst and a mid-path burst; a low-threat ship (threat < 0.3) meets only the mid-path burst. Round 2 adds the kitted-ship bursts in "Simulation notes (sector 4, round 2)".
 - The Act II interlude after the Crown (campaign only) is 6.5 s. Drills never play it.
 
 **Threat rank (Act II is "aware of the arsenal").** Without this, density cannot make a full kit sweat. A power-25 kit deletes every source before it fires (peak 116 bullets), while the same density kills a bare ship.
-- `threat = clamp((arsenal − 6) / 44, 0, 1.25)`. It rises at 0.15/s and falls at 0.35/s.
-  - A bare ship sits at 0; the reference kit at about 0.9; Crown-arrival kits at 1.25.
+- Round 2 curve: `threat = 0.88 × tanh(max(0, arsenal − 6) / 37)`. It rises at 0.15/s and falls at 0.35/s. A non-finite arsenal gives threat 0.
+  - A bare ship sits at 0; a power-12 mid kit (power 12, 2 escorts, sidewinder 1, signature 1, shield 1) at about 0.25; the reference kit at 0.69; Crown-arrival kits at 0.85–0.87. Kits keep growing through the sector, so a reference kit ends it near 0.8.
+  - Round 1 used `clamp((arsenal − 6) / 44, 0, 1.25)`. That put the reference kit at 0.89 and every Crown-arrival kit at the 1.25 cap, and in-sector drops pinned all kitted play at the cap by about 75 s, so the rank was effectively binary.
   - Each sector opens on a power trip, and a scatter eases the pressure while the pilot rebuilds.
-- Act II enemy cooldowns are multiplied by `1.8 / (1 + 1.61 × threat)`: 1.8 at threat 0, about 0.73 for the reference kit and 0.69 at threat 1. Bullet speed is multiplied by `1 + 0.1 × threat`.
-- Volleys grow with threat:
-  - interceptor bursts 1→4 rounds;
+- Act II enemy cooldowns are multiplied by `_pace() = 1.8 / (1 + 1.61t + 0.66t²)`: 1.8 at threat 0, 1.17 at 0.3, about 0.74 for the reference kit and 0.62 for an arrival kit. (Round 1's `1.8 / (1 + 1.61t)` gave 0.74 for the reference kit and 0.60 at its 1.25 cap; the round-1 note that said "0.69 at threat 1" was wrong.) Bullet speed is multiplied by `1 + 0.1t + 0.05t²` (+12% at the top).
+- Volleys grow with threat. The share `v = min(1, threat / 0.75)` is full from about a power-30 full kit upward:
+  - interceptor bursts 1→4 rounds (`1 + round(3v)`);
   - gunboat bursts 2→4 volleys;
-  - triple turrets 3→5 ways above 0.6;
+  - triple turrets 3→5 ways above 0.55;
   - fan turrets 9→12 bullets;
   - flak rings 10→15;
-  - mine rings 12→18.
-- LEVIATHAN's own guns use a milder `1.35 / (1 + 0.45 × threat)`. The second broadside row needs threat > 0.8, and the 5-way void spread needs > 0.7.
+  - mine rings 12→18;
+  - cruiser void batteries 3→5 ways above 0.65.
+- LEVIATHAN's own guns use a milder `_bossPace() = 1.35 / (1 + 0.45t + 0.2t²)`: 1.35 bare, 0.96 for the reference kit, 0.88 at the top. The second broadside row and the 5-way void spread need threat > 0.6. That keeps the round-1 pattern for the reference kit; round 1's gates were 0.8 and 0.7 on the old curve.
 - **Rescue drops.** Squadron leads, gunboats and one torpedo per LEVIATHAN salvo carry a power level only while `threat < 0.5`, so a stripped ship can rebuild without feeding a full kit's snowball.
 - **Void awareness.** While the ship flies 2+ orbitals or a live reflector, the last round of each interceptor burst and every third gunboat or turret volley is `void`. Without this, a Wraith arrival kit scattered 1.5 times on average, against 9 for Kestrel.
 
@@ -432,7 +437,7 @@ Refinements made while building the sector-4 simulation. Every field and event i
 - Act II HP (×1.35 per later Act II sector):
   - interceptor 55, scavenger 45, torpedo 42, mine 120, gunboat 900;
   - destroyer 5,600 with 3 turrets of 1,100;
-  - cruiser 9,000 with 6 turrets of 1,250.
+  - cruiser 9,000 with 6 turrets of 1,600 (round 2; was 1,250).
 - LEVIATHAN:
   - core 145,000 HP; 4 deck turrets of 1,800 HP (triple, fan, flak, broadside); each turret drops power plus a ladder item and scores 3,000.
   - Learn windows 24 / 46 / 68 s. `BOSS_GUARD_PAR[4] = 0.016`, which is the reference kit's share per second. Guard K is 20 for this boss (2.6 for the others), because its per-second share is small.
@@ -444,7 +449,7 @@ Refinements made while building the sector-4 simulation. Every field and event i
 | Crown arrival | 63.5 s | 56.7 s | 59.9 s |
 | Bare (power 2) | 193 s | 193 s | 182 s |
 
-  Bare is 2.7–2.8× the reference. Without drops, a bare ship takes about 360 s.
+  Bare is 2.7–2.8× the reference. Without drops, a bare ship takes about 360 s. Round 2 numbers are in "Simulation notes (sector 4, round 2)".
 - **Balance bot.** A dodging pilot with human limits: reaction latency, attention, re-plan interval and aim noise. The "average" pilot (0.3 s latency) is calibrated to the round-3 mortal dodger: a bare Kestrel scatters 3–10 times in sector 1. With a Crown kit, neither pilot scatters in sector 3.
 
   Sector 4 plus LEVIATHAN, 6 seeds per row:
@@ -464,6 +469,130 @@ Refinements made while building the sector-4 simulation. Every field and event i
   - Kestrel is the hardest ship in Act II. It has the largest hitbox of the fast ships and no defensive signature. At power 2, its three parallel streams make a 16 px column with no homing, so a bare Kestrel cannot clear Act II sources: 0 of 12 bare runs cleared.
   - Kestrel arriving with a full kit clears, but sweats hardest (9–10 scatters).
   - Wraith's orbitals still make it the safest ship.
+
+### Simulation notes (sector 4, round 2)
+
+Round-2 balance pass after the four round-1 judges. The owner's goal: sector 4 makes even a fully equipped fighter sweat, sectors 1–3 stay warm-ups, and popcorn still melts.
+
+**Kestrel ("Hellfire Wings" screen and hurtbox)**
+- In its first 0.3 s of flight (about 230 px from the wing), each Kestrel flak shot eats one ordinary enemy bullet on contact and is spent. It never eats `void` rounds. Each frame emits one coalesced `flakEat {value: count}`; `stats.flakEats` counts them.
+  - The range is a tuning choice. A screen over the whole flight made Kestrel the safest ship (1.3 scatters with the reference kit). With no eat at all it averaged 8.8 scatters.
+- The Kestrel hurtbox is 7 (was 8), the same as Wraith, in every sector.
+- Mortal sector-1 dodger (round-3 bot, 10 seeds, no lives refill): Kestrel clears sector 1 in 9/10 runs (was 2/10). The hurtbox alone gives 7/10 and the flak eat alone 6/10. Manta (10/10) and Wraith (2/10) are unchanged.
+- In sector 3, the Crown-kit calibration bot still takes 0–2 sector hits and never scatters, so the warm-up stays a warm-up.
+
+**Threat rank.** This round's curve, pace and gates are in "Simulation notes (sector 4)" above. Measured over good-pilot runs (8 seeds), mean / maximum through the sector:
+- reference kit 0.69–0.72 / 0.82;
+- Crown arrival 0.82–0.84 / 0.87;
+- mid kit 0.49–0.51 / 0.71;
+- bare 0.00–0.19 / 0.03–0.50.
+
+A first scatter with the reference kit drops threat from 0.82 to 0.44 two seconds later, which is about 50% slower fire, mostly during the 2 s invulnerability. Recovered salvage brings it back to 0.69 by five seconds. That's a breather, not a mercy button.
+
+**Sector separation (kitted Manta and Wraith)**
+- Against a full kit, interceptors live about 0.3 s once visible. Half died before their entry burst and almost none reached a second, so per-craft extra volleys alone changed nothing.
+- At threat ≥ 0.65 (`SECOND_BURST_THREAT`):
+  - interceptors fire their entry burst as soon as they clear the field edge, as up to three narrow 3-way rounds (0.07 rad apart);
+  - interceptors that survive add a third burst 0.85 s after the mid-path burst;
+  - gunboats add a re-aimed 2-volley follow-up burst 0.9 s after each burst.
+  - The pincer squadrons are interceptors, so they get all of this.
+- Cruiser turrets have 1,600 HP (was 1,250). Torpedo pairs start at 3.5 s and repeat every 3.2 s (was 4.5 s / 4.4 s).
+- Variants tried and dropped, all within seed noise:
+  - more void rounds in interceptor bursts;
+  - a third lane row;
+  - a 3-volley gunboat follow-up;
+  - a cruiser void follow-up;
+  - gunboat streams that lead the target.
+
+**Weak kits against hulls.** Hull turrets (including LEVIATHAN's deck turrets) take ×1.5 damage while threat < 0.3. With drops removed:
+- bare destroyer turrets fall in 11.8 s for Kestrel (was 17.5), 45.8 s for Manta (was 68.5) and 6.2 s for Wraith (was 9.1);
+- bare cruiser turrets fall in 34.8 s for Kestrel (was 40.5) and 26.8 s for Wraith (was 31.0). Bare Manta still cannot silence the cruiser alone (about 44 DPS); in real runs its rescue drops grow it first.
+
+**Scavengers and mines**
+- The call-in comes 0.6 s after a scatter, and scavengers fly at 330 px/s toward salvage.
+- A kitted scatter (threat ≥ 0.5) brings the pair in from the side edges, level with the salvage cloud (its mean height − 40, clamped to 140–720); otherwise they dive from the top corners.
+- Forced mid-sector scatter, good pilot, reference kit (16 scatters per ship), per scatter:
+
+| Ship | Steals | Escapes | Shot back | Levels recovered |
+| --- | --- | --- | --- | --- |
+| Kestrel | 1.38 | 0.38 | 1.00 | 31.1 |
+| Manta | 1.50 | 0.00 | 1.50 | 28.9 |
+| Wraith | 1.56 | 0.19 | 1.38 | 28.6 |
+
+  Round 1 gave 0 steals and about 32–33 levels recovered. With the round-2 call-in but the old top-corner dive, steals stayed at 0–0.06.
+- Mine fuses are 3.5–5.0 s (was 5.2–7.4 s). Kitted ships still shoot almost every mine (0–1.6 bursts per run). Mid kits now meet 1–7 bursts per run and bare kits 10–17.
+
+**Pacing and presentation payloads**
+- The opening squadron enters at 2.5 s (was 0.8 s), so the 3.4 s intro card no longer hides it. The opening is re-spaced: `loopR` 4.9, `riseL` 7.2, `sweepL` 9.5, destroyer 12 (was 3.6 / 6.4 / 9 / 11.5).
+  - Delaying only `loopL` made the first two squads arrive almost together. A weak ship then took its first hit at about 5 s and missed the opening rescue drops (the average Kestrel's mid kit fell to 5/12 clears).
+- Void rounds are never smaller than r 5 (`_bullet` clamps them; interceptor voids were 4.4).
+- LEVIATHAN sways ±20 px (was ±34). Bow, stern and the 22 px broadside extension stay inside 0–540. `w`/`h` stay 210×80, matching the drawing.
+- LEVIATHAN's `bossDown` carries its last pose (see the contract's "New events").
+
+**LEVIATHAN kill times** (invulnerable tracker, shooting turrets first):
+
+| Kit | Kestrel | Manta | Wraith |
+| --- | --- | --- | --- |
+| Reference | 68.0 s | 67.2 s | 67.8 s |
+| Crown arrival | 63.5 s | 56.7 s | 59.9 s |
+| Mid (P12) | 108.7 s | 99.8 s | 102.1 s |
+| Bare | 183 s (was 193) | 179 s (was 193) | 173 s (was 182) |
+
+- Bare deck-turret clearing takes 26–36 s (was 36–51 s), because of the weak-kit turret bonus.
+- A test now pins Crown-arrival kills at 52–72 s.
+
+**Balance bot, sector 4 plus LEVIATHAN** (`/tmp/s4-iter-sim`, the round-1 dodging bot, seeds 0, 5, 6, 7, 8, 9, 99, 1234):
+- Hits include shield hits.
+- Steals include phase-3 steals.
+- Phase times are means over clearing runs.
+
+| Pilot | Ship | Kit | Clears | Sector hits | Scatters (sector + boss) | Steals | Mine bursts | LEVIATHAN phases 1/2/3 (s, clears) | Threat, sector (mean / max) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Good | Kestrel | Reference | 8/8 | 4.9 | 5.6 (0.8 + 4.9) | 1.6 | 0.0 | 28.5 / 26.9 / 34.3 | 0.72 / 0.82 |
+| Good | Kestrel | Crown arrival | 8/8 | 3.9 | 4.1 (0.5 + 3.6) | 0.6 | 0.0 | 22.3 / 24.6 / 30.4 | 0.82 / 0.87 |
+| Good | Kestrel | Mid (P12) | 8/8 | 6.0 | 7.8 (1.4 + 6.4) | 2.6 | 2.3 | 30.8 / 32.3 / 55.4 | 0.51 / 0.71 |
+| Good | Kestrel | Bare | 1/8 | 10.6 | 14.6 (9.0 + 5.6) | 2.4 | 17.4 | 42.1 / 39.0 / 58.5 | 0.01 / 0.10 |
+| Good | Manta | Reference | 7/8 | 6.1 | 7.4 (0.5 + 6.9) | 0.5 | 0.1 | 23.4 / 23.3 / 29.4 | 0.72 / 0.81 |
+| Good | Manta | Crown arrival | 8/8 | 6.3 | 6.6 (0.4 + 6.3) | 1.4 | 0.0 | 20.5 / 20.4 / 28.4 | 0.83 / 0.88 |
+| Good | Manta | Mid (P12) | 5/8 | 6.3 | 13.4 (1.4 + 12.0) | 1.8 | 0.9 | 32.1 / 31.3 / 53.0 | 0.50 / 0.70 |
+| Good | Manta | Bare | 3/8 | 10.4 | 14.1 (3.9 + 10.3) | 2.1 | 9.5 | 30.0 / 21.9 / 32.3 | 0.19 / 0.50 |
+| Good | Wraith | Reference | 6/8 | 6.3 | 8.0 (1.4 + 6.6) | 2.0 | 0.8 | 23.6 / 22.7 / 32.1 | 0.69 / 0.79 |
+| Good | Wraith | Crown arrival | 8/8 | 3.8 | 3.5 (0.3 + 3.3) | 0.5 | 0.0 | 20.5 / 19.4 / 21.4 | 0.84 / 0.87 |
+| Good | Wraith | Mid (P12) | 8/8 | 5.1 | 6.9 (1.3 + 5.6) | 2.8 | 3.4 | 25.9 / 27.3 / 43.3 | 0.49 / 0.70 |
+| Good | Wraith | Bare | 2/8 | 9.9 | 18.0 (7.5 + 10.5) | 4.4 | 12.4 | 29.6 / 38.5 / 56.5 | 0.10 / 0.44 |
+| Average | Kestrel | Reference | 7/8 | 4.9 | 7.8 (0.9 + 6.9) | 3.0 | 0.6 | 24.1 / 21.7 / 49.6 | 0.70 / 0.80 |
+| Average | Kestrel | Crown arrival | 8/8 | 4.6 | 6.3 (0.8 + 5.5) | 1.9 | 0.0 | 26.5 / 24.6 / 34.5 | 0.82 / 0.87 |
+| Average | Kestrel | Mid (P12) | 6/8 | 8.4 | 13.3 (3.8 + 9.5) | 6.6 | 6.5 | 37.5 / 34.1 / 49.9 | 0.41 / 0.62 |
+| Average | Kestrel | Bare | 0/8 | 12.1 | 13.0 (11.8 + 1.3) | 2.8 | 16.4 | — | 0.00 / 0.03 |
+| Average | Manta | Reference | 6/8 | 8.1 | 11.0 (1.6 + 9.4) | 2.1 | 0.1 | 26.0 / 29.5 / 42.5 | 0.70 / 0.79 |
+| Average | Manta | Crown arrival | 8/8 | 6.8 | 6.9 (0.6 + 6.3) | 0.9 | 0.3 | 20.8 / 23.4 / 30.4 | 0.81 / 0.88 |
+| Average | Manta | Mid (P12) | 5/8 | 7.9 | 13.0 (1.6 + 11.4) | 1.6 | 0.8 | 28.0 / 36.3 / 58.8 | 0.52 / 0.71 |
+| Average | Manta | Bare | 2/8 | 11.0 | 17.6 (4.9 + 12.8) | 3.9 | 12.4 | 35.3 / 45.8 / 82.2 | 0.16 / 0.44 |
+| Average | Wraith | Reference | 8/8 | 7.4 | 7.9 (2.1 + 5.8) | 3.4 | 1.6 | 29.6 / 27.3 / 38.5 | 0.66 / 0.79 |
+| Average | Wraith | Crown arrival | 6/8 | 7.9 | 10.4 (3.0 + 7.4) | 2.6 | 0.3 | 23.2 / 22.3 / 32.8 | 0.78 / 0.87 |
+| Average | Wraith | Mid (P12) | 5/8 | 7.3 | 12.3 (2.8 + 9.5) | 4.6 | 3.5 | 25.1 / 26.7 / 42.5 | 0.48 / 0.69 |
+| Average | Wraith | Bare | 0/8 | 11.8 | 18.5 (9.4 + 9.1) | 2.8 | 11.6 | — | 0.08 / 0.34 |
+
+With 16 seeds, good pilots with the reference kit clear 16/16 (Kestrel), 14/16 (Manta) and 14/16 (Wraith), with sector hits of 4.9 / 6.1 / 5.4 and scatters of 4.8 / 8.1 / 6.8. With Crown-arrival kits they clear 15–16/16, with 4.1–6.8 sector hits.
+
+Round 1, same bot and seeds, for comparison:
+
+| Pilot, kit | Kestrel (clears, sector hits, scatters) | Manta | Wraith |
+| --- | --- | --- | --- |
+| Good, reference | 7/8, 2.8, 6.5 | 8/8, 4.5, 5.6 | 8/8, 3.3, 3.1 |
+| Good, Crown arrival | 8/8, 5.1, 8.4 | 8/8, 4.6, 4.8 | 8/8, 2.3, 3.6 |
+| Good, mid | 6/8, 6.9, 12.8 | 7/8, 3.0, 5.5 | 8/8, 4.6, 4.8 |
+| Good, bare | 0/8 | 8/8 | 3/8 |
+| Average, reference | 5/8, 4.4, 12.0 | 7/8, 5.1, 7.1 | 8/8, 2.0, 3.3 |
+| Average, Crown arrival | 4/8, 6.6, 12.8 | 8/8, 4.9, 6.0 | 8/8, 1.8, 2.8 |
+| Average, mid | 0/8 | 6/8 | 7/8 |
+
+- Peak enemy bullets are now 101–129 (round 1: 87–128). Kitted ships still wipe 93–100% of squadrons, so popcorn still melts.
+
+**Known costs for the judges**
+- Bare Manta got harder: the good pilot clears 3/8 (round 1: 8/8; 6/12 on 12 seeds), because of shorter mine fuses, steals and the denser opening. Bare Kestrel stays near hopeless (1/8). Bare Wraith is about where it was (2/8; round 1 3/8).
+- With Crown-arrival kits, Manta and Wraith now take 3.8–7.9 sector hits (round 1: 1.8–4.9), and the average Wraith clears 6/8 (round 1: 8/8). That is the intended "sweat", but it is also the largest felt change.
+- The rank (0–0.88) is no longer comparable with round-1 values. Anything keyed to the old 1.25 cap must use the new gates.
 
 ### Sector 5: SKYFORGE (planned, not built yet)
 

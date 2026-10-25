@@ -486,7 +486,7 @@ test('a kitted ship meets interceptor entry bursts at the field edge as 3-way ro
     return { entry, entryY, maxFired, total: bullets.n, threat: game.threat };
   };
   const kitted = pass(REFERENCE);
-  assert.equal(kitted.entry, 12, 'four 3-way rounds on entry');
+  assert.equal(kitted.entry, 9, 'three 3-way rounds on entry');
   assert.ok(kitted.entryY < 40, 'the entry burst fires as the craft clears the edge: y ' + kitted.entryY);
   assert.equal(kitted.maxFired, 3, 'a third burst follows the mid-path burst');
   const stripped = pass(BARE);

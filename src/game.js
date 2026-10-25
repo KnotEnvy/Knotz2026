@@ -999,8 +999,8 @@ export class Game {
       // mid-path (e.fired counts them). A low-threat ship (bare or stripped)
       // only meets the mid-path burst. A kitted ship (SECOND_BURST_THREAT)
       // meets the entry burst as soon as the craft clears the edge (popcorn
-      // dies within ~0.3 s of a full kit), as narrow 3-way rounds, and a third
-      // burst 0.85 s after the second.
+      // dies within ~0.3 s of a full kit), as up to three narrow 3-way rounds,
+      // and a third burst 0.85 s after the second.
       if(e.fired===0&&this.threat<LOW_THREAT)e.fired=1;
       const early=this.threat>=SECOND_BURST_THREAT;
       const trigger=e.fired===0?(e.path==="rise"?y<p.y-170&&y<600:e.path==="loop"?y>(early?20:40):early?x>0&&x<540:x>40&&x<500):
@@ -1008,6 +1008,7 @@ export class Game {
         e.fired===2&&e.extraAt>0&&e.age>=e.extraAt;
       if(trigger&&!e.hidden&&y>20&&y<p.y-120) {
         e.fired++;e.burstLeft=1+Math.round(3*this._volley());e.burstClock=0;e.wide=e.fired===1&&early;
+        if(e.wide)e.burstLeft=Math.min(3,e.burstLeft);
         e.extraAt=e.fired===2&&this.threat>=SECOND_BURST_THREAT?e.age+.85:0;
       }
       if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
