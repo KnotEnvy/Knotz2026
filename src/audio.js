@@ -433,8 +433,9 @@ export class AudioEngine {
 
   _dispatch(events, game) {
     this.sfx?.beginBatch(events);
-    let used = 0;
+    let used = 0, recovered = false;
     for (const event of events) {
+      if(event?.type==='salvageRecover'){if(recovered)continue;recovered=true;}
       if (PRIORITY_EVENTS.has(event?.type) && used++ < PRIORITY_LIMIT) this.playEvent(event, game);
     }
     for (const event of events) {

@@ -532,6 +532,7 @@ function readoutsFromGame(dt){
       equipment.innerHTML='<span id="mobileEquipmentText"></span><label>R <progress id="mobileReflector" max="6" value="0" aria-label="Reflector seconds"></progress></label>';
       $('mobileBossRow').before(equipment);
     }
+    equipment.hidden=!(p.escorts||p.sidewinder||p.signature||p.shield||p.reflector>0);
     setText('mobileEquipmentText','E '+(p.escorts||0)+' · M '+(p.sidewinder||0)+' · ★ '+(p.signature||0)+' · S '+(p.shield||0));
     $('mobileReflector').value=p.reflector||0;
     equipment.classList.toggle('reflector-low',p.reflector>0&&p.reflector<2);
@@ -543,7 +544,8 @@ function readoutsFromGame(dt){
     const objective=coverLeft>0?'COVER '+coverLeft.toFixed(1)+'s':reactor&&!reactor.broken?(reactor.side<0?'LEFT REACTOR / BREAK FOR COVER':'RIGHT REACTOR / CUT SPIRAL'):reactor?.phase===3&&reactor.broken?'RIGHT SPIRAL OFFLINE':null;
     const l=game.boss?.lance,age=game.boss?.age,lanceCue=l&&!l.cancelled&&age>=l.startsAt&&age<l.endsAt?
       l.active?'LANCE FIRING / KEEP CLEAR':l.locked?'LANCE LOCKED / LEAVE THE LANE':'LANCE TRACKING / BAIT THEN MOVE':null;
-    setText('flightSignal',lanceCue?(p.hp<=1?'CRITICAL / ':'')+lanceCue:p.hp<=1?'HULL CRITICAL / EVADE':hud.bannerTime>0?hud.banner:objective|| (hud.encounterTime>0?hud.encounterName:'DRAG TO MOVE & FIRE'));
+    const salvageCue=hud.scatterTime>0?'ARSENAL LOST / '+(hud.salvageCount||0)+' IN FIELD':hud.recoverTime>0?'RECOVERED +'+hud.recovered:hud.salvageCount?'RECOVER SALVAGE / '+hud.salvageCount:null;
+    setText('flightSignal',salvageCue|| (lanceCue?(p.hp<=1?'CRITICAL / ':'')+lanceCue:p.hp<=1?'HULL CRITICAL / EVADE':hud.bannerTime>0?hud.banner:objective|| (hud.encounterTime>0?hud.encounterName:'DRAG TO MOVE & FIRE')));
     $('mobileBossRow').hidden=!game.boss;
     if(game.boss){setText('mobileBossName',game.boss.name+' / PHASE '+game.boss.phase);$('mobileBoss').value=100*game.boss.hp/game.boss.maxHp;}
   }

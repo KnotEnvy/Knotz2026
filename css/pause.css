@@ -233,3 +233,9 @@
  .hold-live i,.hold-craft:after,.hold-airframe[data-condition="critical"] .hold-craft:before{animation:none}
  .hold-airframe[data-condition="critical"] .hold-craft:before{opacity:.8}
 }
+
+/* Eight stream tiers, followed by uncapped overdrive and the recovered kit. */
+.hold-equipment{margin:12px 0 0;padding-top:10px;border-top:1px solid var(--line);color:#d6eae5;font:700 11px/1.4 monospace;letter-spacing:.04em}
+.hold-pips-power{gap:3px}
+.hold-pips-power i{width:7px}
+#holdPowerLabel{white-space:normal;letter-spacing:.1em}

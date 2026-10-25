@@ -173,7 +173,7 @@ export class Sequences {
       for (let i = 0; i < batch.length; i++) {
         if (batch[i]?.type !== 'extend') continue;
         const prev = batch[i - 1];
-        const reward = prev?.type === 'pickup' && ['life', 'shield', 'bomb'].includes(prev.value) ? prev.value : 'score';
+        const reward = ['pickup','salvageRecover'].includes(prev?.type) && ['life', 'shield', 'bomb'].includes(prev.value) ? prev.value : 'score';
         this.extendFx = { t: 0, value: Number(batch[i].value) || 0, reward };
       }
     }

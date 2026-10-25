@@ -353,11 +353,12 @@ export class PausePanel {
     const pace = !drill && best > 0 && score > best;
     setText(record, drill ? 'UNRANKED DRILL' : pace ? 'NEW BEST PACE' : sorties || best ? ship.name + ' BEST / ' + pad(best, 8) : 'FIRST SORTIE');
     record?.classList.toggle('hold-pace', pace);
-    const level = clamp(whole(p.level) || 1, 1, 5), cap = stage === 1 ? 3 : stage === 2 ? 4 : 5;
+    const level = Math.max(1, whole(p.level) || 1);
     setText($('holdPower'), 'LV ' + level);
-    setText($('holdPowerLabel'), level >= cap ? (cap < 5 ? 'POWER / CAP' : 'POWER / MAX') : 'POWER');
-    setData($('holdPowerStat'), 'max', level >= cap ? 'yes' : 'no');
-    pips($('holdPowerPips'), 5, level, cap);
+    setText($('holdPowerLabel'), level > 8 ? 'POWER / OVERDRIVE' : 'POWER');
+    setData($('holdPowerStat'), 'max', level > 8 ? 'yes' : 'no');
+    pips($('holdPowerPips'), 8, Math.min(8, level), 8);
+    setText($('holdEquipment'), 'E '+whole(p.escorts)+' · M '+whole(p.sidewinder)+' · ★ '+whole(p.signature)+' · R '+(Number(p.reflector)||0).toFixed(1)+'s');
     setText($('holdCombo'), (Number(game.combo) || 1).toFixed(1) + '×');
     const lives = whole(p.lives);
     setText($('holdLives'), String(lives));
@@ -378,9 +379,9 @@ export class PausePanel {
     setText($('holdCraftCode'), ship.code + ' / ' + ship.role);
     pips($('holdHullPips'), maxHp, hp);
     setText($('holdHull'), hp + '/' + maxHp);
-    const maxShield = whole(p.maxShield), shield = whole(p.shield);
+    const maxShield = Math.max(1, whole(p.shieldCap) || 3), shield = whole(p.shield);
     const shieldRow = $('holdShieldRow'); if (shieldRow) shieldRow.hidden = !maxShield;
-    if (maxShield) { pips($('holdShieldPips'), maxShield, shield); setText($('holdShield'), shield + '/' + maxShield); }
+    if (maxShield) { pips($('holdShieldPips'), maxShield, shield); setText($('holdShield'), String(shield)); }
     setText($('holdCondition'), condition.toUpperCase());
     setData($('holdAirframe'), 'condition', condition);
     this.craft = { shipId, condition };
