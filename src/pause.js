@@ -1,3 +1,4 @@
+import { CAMPAIGN_STAGES } from './game.js';
 // Pause / holding-pattern screen presentation.
 // main.js calls these hooks; keep the exported API stable.
 import { SHIPS, SPECIAL_LABELS, shipShape } from './ships.js';
@@ -34,7 +35,7 @@ function surface(width, height) {
 
 // What the pilot should know right now: flagship tactics, the next contact, or the resupply.
 function intelFor(game) {
-  const stage = clamp(whole(game.stage) || 1, 1, 3);
+  const stage = clamp(whole(game.stage) || 1, 1, CAMPAIGN_STAGES);
   const boss = game.boss, drill = whole(game.practiceStage);
   if (boss) {
     const age = Number(boss.age) || 0, phase = clamp(whole(boss.phase) || 1, 1, 3);
@@ -55,6 +56,11 @@ function intelFor(game) {
       else if (r && !r.broken) { head = 'RIGHT REACTOR'; tip = 'Break the right reactor to disable the spiral cannon for the rest of the fight, or keep pressing the main hull.'; }
       else if (r && r.phase === 3 && r.broken) { head = 'SPIRAL OFFLINE'; tip = 'The right spiral cannon is silenced for the rest of the fight. Press the main hull.'; }
       else { head = 'OPTIONAL REACTORS'; tip = 'In phases two and three a side reactor opens. The left buys 3.2 seconds of cover; the right silences the spiral cannon.'; }
+    } else if (stage === 4) {
+      head = phase === 1 ? 'BREAK THE DECK GUNS' : phase === 2 ? 'BROADSIDE BATTERIES' : 'MONSOON ENGINE';
+      tip = phase === 1 ? 'Destroy the four deck turrets first. The armored core takes only a quarter of your damage while a gun survives.'
+        : phase === 2 ? 'Read the gaps in alternating broadside walls. Shoot down homing torpedoes. Violet void rounds pass through reflectors and orbitals.'
+        : 'The exposed engine spins opposing spirals. Keep moving between their seams and hunt scavengers carrying your salvage.';
     } else {
       const l = boss.lance;
       const live = l && !l.cancelled && age >= l.startsAt && age < l.endsAt;
@@ -70,7 +76,7 @@ function intelFor(game) {
   }
   if (interludeProgress(game) >= 0) {
     if (drill) return { kind: 'clear', kicker: 'FLAGSHIP DOWN', right: 'DRILL COMPLETE', name: FLAGSHIP_NAMES[stage], sub: 'UNRANKED / CAMPAIGN RECORDS PRESERVED', hull: null, head: 'DEBRIEF', tip: 'The flight record is next. Take the pattern into your next sortie.' };
-    if (stage >= 3) return { kind: 'clear', kicker: 'SECTOR 03 CLEAR', right: 'ROUTE COMPLETE', name: 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
+    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
     return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'NEXT / SECTOR ' + pad(stage + 1, 2), name: SECTOR_NAMES[stage + 1],
       sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: 'One hull point and one special are restored as you cross into the next front.' };
   }
@@ -79,7 +85,8 @@ function intelFor(game) {
   const tips = [null,
     ['CURRENT LANES', 'Formations open marked corridors. Follow the current, break each formation and collect power from fallen aircraft.'],
     ['STORM WALL', 'Pincers and relay strikes close from both flanks. Hold the centre, read the second lane opening and keep WAKE charged.'],
-    ['THE ABYSS', 'Storm curtains sweep the maelstrom. Focus to thread the gaps and keep a special in reserve for the Crown.']];
+    ['THE ABYSS', 'Storm curtains sweep the maelstrom. Focus to thread the gaps and keep a special in reserve for the Crown.'],
+    ['IRON MONSOON', 'Break the battleship turrets to thin their fire. Shoot mines before their fuses burst, and reclaim stolen salvage from glowing scavengers.']];
   return { kind: 'approach', kicker: 'NEXT CONTACT', right: 'ETA ' + clock(eta), name: FLAGSHIP_NAMES[stage], sub: 'SECTOR ' + pad(stage, 2) + ' FLAGSHIP',
     hull: null, head: tips[stage][0], tip: tips[stage][1] };
 }
@@ -92,11 +99,11 @@ function flavorFor(game, critical, intel) {
   return 'The storm can wait. Take a breath, read the pattern, and return to the sky.';
 }
 
-// Route position 0..1 along Operation Long Meridian. Each sector owns a third;
-// its flagship node sits at the centre of that third.
+// Route position 0..1 along Operation Long Meridian. Each sector owns an equal share;
+// its flagship node sits at the centre of that share.
 function routePosition(game) {
-  const stage = clamp(whole(game.stage) || 1, 1, 3);
-  const third = 1 / 3;
+  const stage = clamp(whole(game.stage) || 1, 1, CAMPAIGN_STAGES);
+  const third = 1 / CAMPAIGN_STAGES;
   if (game.boss) return (stage - 0.5) * third;
   const interlude = interludeProgress(game);
   if (interlude >= 0) return (stage - 0.5) * third + interlude * third * 0.5;
@@ -328,7 +335,7 @@ export class PausePanel {
     const panel = $('holdPanel'); if (panel) panel.scrollTop = 0;
 
     const p = game.player || {};
-    const stage = clamp(whole(game.stage) || 1, 1, 3);
+    const stage = clamp(whole(game.stage) || 1, 1, CAMPAIGN_STAGES);
     const drill = whole(game.practiceStage);
     const hp = whole(p.hp), maxHp = Math.max(1, whole(p.maxHp) || 4);
     const critical = hp <= 1;
@@ -406,7 +413,7 @@ export class PausePanel {
     const pos = routePosition(game);
     $('holdTrack')?.style.setProperty('--route', pos.toFixed(4));
     const interlude = interludeProgress(game) >= 0;
-    for (let k = 1; k <= 3; k++) {
+    for (let k = 1; k <= CAMPAIGN_STAGES; k++) {
       let state, label;
       if (drill) {
         state = k === drill ? (interlude ? 'cleared' : 'engaged') : 'off';
@@ -419,7 +426,7 @@ export class PausePanel {
       setText(li?.querySelector('em'), label);
       setData(this.root.querySelector('.hold-node[data-node="' + k + '"]'), 'state', state);
     }
-    setText($('holdRouteState'), drill ? 'DRILL / UNRANKED' : pad(stage, 2) + ' / 03 · ' + Math.round(pos * 100) + '%');
+    setText($('holdRouteState'), drill ? 'DRILL / UNRANKED' : pad(stage, 2) + ' / ' + pad(CAMPAIGN_STAGES, 2) + ' · ' + Math.round(pos * 100) + '%');
 
     // Scope.
     const hostiles = this.scope.capture(game);

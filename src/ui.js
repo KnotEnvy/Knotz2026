@@ -1,3 +1,4 @@
+import { CAMPAIGN_STAGES } from './game.js';
 // Canvas-native cockpit UI. No fonts, icons, or images are loaded from outside the browser.
 const W = 540;
 const H = 900;
@@ -214,6 +215,29 @@ export class HUD {
     this.wakeConvertTime = Math.max(0, this.wakeConvertTime - (Number(dt) || 1 / 60));
 
     this.hudClock += clamp(Number(dt) || 1 / 60, 0, 0.1);
+    // Keep the four weapon pips on the mobile boss row without adding HUD height.
+    if (this.compact && typeof document !== 'undefined') {
+      const host = document.getElementById('mobileBossRow');
+      if (host && !this.mobileTurrets) {
+        this.mobileTurrets = document.createElement('span');
+        this.mobileTurrets.style.cssText = 'float:right;letter-spacing:3px;font-size:10px;line-height:inherit';
+        this.mobileTurrets.setAttribute('role','img');
+        host.insertBefore(this.mobileTurrets, document.getElementById('mobileBoss'));
+      }
+      if (this.mobileTurrets) {
+        const b = game.boss, show = b?.name === 'LEVIATHAN' && b.phase === 1;
+        this.mobileTurrets.hidden = !show;
+        if (show) {
+          const states = (b.turrets || []).map(id => (game.enemies || []).some(e => e.id === id && !e.dead && e.hp > 0));
+          const key = states.join('/');
+          if (this.mobileTurrets.dataset.key !== key) {
+            this.mobileTurrets.dataset.key = key;
+            this.mobileTurrets.innerHTML = states.map(live => '<i style="font-style:normal;color:' + (live ? '#ffd98b' : '#526468') + '">▰</i>').join('');
+            this.mobileTurrets.setAttribute('aria-label', states.filter(Boolean).length + ' deck turrets remaining');
+          }
+        }
+      }
+    }
     // Mobile readouts run every frame, even when the canvas HUD reuses its layer.
     this.salvageCount=0;
     for(const item of game.pickups||[])if(item.salvage&&!item.dead)this.salvageCount++;
@@ -251,6 +275,7 @@ export class HUD {
   }
 
   drawStatus(ctx, game) {
+    if(game.stage === 4)return this.drawFleetStatus(ctx,game);
     const player = game.player || {};
     const boss = game.boss;
     panel(ctx, 11, 10, 518, 85, 0.94);
@@ -293,7 +318,7 @@ export class HUD {
     ctx.fillStyle='rgba(195,163,255,.18)';ctx.fillRect(448,117,63,6);
     if(player.reflector>0){ctx.fillStyle=player.reflector<2?COLORS.coral:'#c3a3ff';ctx.fillRect(448,117,63*clamp(player.reflector/6,0,1),6);}
     if(this.recoverTime>0&&this.recoveredType==='reflector')rule(ctx,434,129,511,129,'rgba(255,245,200,.7)');
-    if (boss && boss.hp > 0) this.drawBossMeter(ctx,boss);
+    if (boss && boss.hp > 0) this.drawBossMeter(ctx,boss,game);
     else this.drawProgress(ctx,game);
     this.drawBottomRail(ctx, game);
   }
@@ -306,16 +331,44 @@ export class HUD {
     ctx.fillRect(11, 141, 518 * progress, 3);
   }
 
-  drawBossMeter(ctx, boss) {
-    const y = 148;
+  drawFleetStatus(ctx, game) {
+    // LEVIATHAN settles close to the top. Compress the cockpit so its 160 px
+    // deck and child guns stay visible at their actual collision coordinates.
+    const p=game.player||{};
+    panel(ctx,11,10,518,52,.94);
+    text(ctx,'SCORE',25,23,9,COLORS.muted,700,'left',1.2);
+    text(ctx,String(Math.floor(game.score||0)).padStart(8,'0'),25,44,20,COLORS.pale,700);
+    text(ctx,game.practiceStage?'DRILL':'SECTOR',210,23,9,COLORS.muted,700,'center',1);
+    text(ctx,'04',210,43,21,COLORS.cyan,800,'center');
+    text(ctx,'HULL '+(p.hp||0)+'/'+(p.maxHp||4)+'   LIVES '+(p.lives||0)+'   B '+(p.bombs||0),273,23,10,COLORS.pale,700);
+    text(ctx,'P'+(p.level||1)+'  E'+(p.escorts||0)+'  M'+(p.sidewinder||0)+'  ★'+(p.signature||0)+'  S'+(p.shield||0),273,44,11,COLORS.gold,700);
+    if(p.reflector>0){ctx.fillStyle='#c3a3ff';ctx.fillRect(274,54,230*clamp(p.reflector/6,0,1),2);}
+    if(game.boss?.hp>0)this.drawBossMeter(ctx,game.boss,game,67);
+    else{
+      ctx.fillStyle=COLORS.cyan;
+      ctx.fillRect(11,66,518*clamp((game.stageTime||0)/(game.stageGoal?.[4]||95),0,1),2);
+    }
+    this.drawBottomRail(ctx,game);
+  }
+
+  drawBossMeter(ctx, boss, game, y = 148) {
     panel(ctx, 11, y, 518, 36, 0.99);
     const bossName = boss.name || (boss.type ? String(boss.type).replace(/[_-]/g, " ").toUpperCase() : "HOSTILE FLAGSHIP");
     text(ctx, bossName, 25, y + 10, 10, COLORS.coral, 800, "left", 1.2);
     const guardLeft = Math.max(0, (Number(boss.guardUntil) || 0) - (Number(boss.age) || 0));
-    const centerLabel = boss.guard ? "ARMOR CYCLING / " + guardLeft.toFixed(1) + "s" :
+    const leviathan = game?.stage === CAMPAIGN_STAGES && boss.name === 'LEVIATHAN';
+    const liveTurrets = leviathan ? (game.enemies || []).filter(e => boss.turrets?.includes(e.id) && !e.dead && e.hp > 0).length : 0;
+    const centerLabel = leviathan && boss.phase === 1 ? (liveTurrets ? 'DECK ARMOR / 25% DAMAGE' : 'DECK GUNS SILENCED') : boss.guard ? "ARMOR CYCLING / " + guardLeft.toFixed(1) + "s" :
       "LV " + Math.max(0, Number(this.lastPower) || 0) + " / " + Math.max(1, Number(this.lastCombo)||1).toFixed(1) + "×";
     text(ctx, centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
     text(ctx, "PHASE " + String(boss.phase || 1), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
+    if (leviathan && boss.phase === 1) {
+      for (let i = 0; i < (boss.turrets?.length || 4); i++) {
+        const live = (game.enemies || []).some(e => e.id === boss.turrets?.[i] && !e.dead && e.hp > 0);
+        ctx.fillStyle = live ? COLORS.gold : '#364b50';
+        ctx.fillRect(441 + i * 18, y + 15, 11, 4);
+      }
+    }
     const ratio = clamp((boss.hp || 0) / Math.max(1, boss.maxHp || 1), 0, 1);
     ctx.fillStyle = "rgba(255,119,95,.18)";
     ctx.fillRect(25, y + 22, 487, 6);

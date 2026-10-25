@@ -1,5 +1,6 @@
 // Authored craft and terrain with procedural light, atmosphere and combat.
-import { drawAtlasScenery, drawAtlasClouds, WorldAmbience } from './background.js';
+import { drawAtlasScenery, drawAtlasClouds, WorldAmbience, worldPaintsStage } from './background.js';
+import { CAMPAIGN_STAGES } from './game.js';
 import { drawCraft, drawCoast, drawWreck, prepareWaterMaps } from './art.js';
 const W = 540, H = 900, TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -106,21 +107,22 @@ export class Renderer {
     this.seas=[
       ['#0b5a77','#0b5175','#073857'],
       ['#245574','#1d4b6b','#123a59'],
-      ['#203d63','#194161','#102d4b']
+      ['#203d63','#194161','#102d4b'],
+      ['#061d1c','#092d29','#041513']
     ].map(colors=>{
       const gradient=this.ctx.createLinearGradient(0,0,0,H);
       gradient.addColorStop(0,colors[0]);gradient.addColorStop(.5,colors[1]);gradient.addColorStop(1,colors[2]);
       return gradient;
     });
-    this.sceneTiles=[1,2,3].map(stage=>this.makeSceneTile(stage));
-    this.lightShafts=['rgba(99,222,192,.09)','rgba(244,167,102,.085)','rgba(137,107,199,.1)'].map(color=>{
+    this.sceneTiles=[1,2,3,4].map(stage=>this.makeSceneTile(stage));
+    this.lightShafts=['rgba(99,222,192,.09)','rgba(244,167,102,.085)','rgba(137,107,199,.1)','rgba(168,205,165,.06)'].map(color=>{
       const sprite=surface(730,730),g=sprite.getContext('2d'),light=g.createRadialGradient(365,365,15,365,365,365);
       light.addColorStop(0,color);light.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=light;g.fillRect(0,0,730,730);
       return sprite;
     });
     // Distant haze is baked into each scenery tile; only the nearer weather
     // plane moves independently, keeping the dense boss path to one overlay.
-    this.weatherTiles=[1,2,3].map(stage=>this.makeWeatherTile(stage,true));
+    this.weatherTiles=[1,2,3,4].map(stage=>this.makeWeatherTile(stage,true));
     this.bossSprites=[1,2,3].map(stage=>this.makeBossSprite(stage));
     this.bulletSprites=this.makeBulletSprites();
     this.enemyExhaustSprites={
@@ -179,13 +181,13 @@ export class Renderer {
   }
   castShadows(enemies,boss,player) {
     const c=this.ctx,s=this.contactShadows;
-    if(boss&&boss.hp>0) {
+    if(boss&&boss.hp>0&&this.currentStage!==4) {
       const x=boss.x??W/2,y=boss.y??285;
       c.drawImage(s.boss,x+22-s.boss.width/2,y+129-s.boss.height/2);
       oval(c,x+22,y+129,146,43,'rgba(150,187,230,.1)',true,1.5);
     }
     for(const e of enemies) {
-      if(!e||e.dead||e.alive===false||e.isBoss||e.type==='boss')continue;
+      if(!e||e.dead||e.alive===false||e.isBoss||['boss','hull','hullTurret','gunboat'].includes(e.type))continue;
       const heavy=/bomber|heavy|gunship|carrier|tank|mini/.test(String(e.type||'').toLowerCase());
       const tile=heavy?s.heavy:s.light;
       c.drawImage(tile,(e.x||0)+8-tile.width/2,(e.y||0)+24-tile.height/2);
@@ -227,6 +229,7 @@ export class Renderer {
   makeSceneTile(stage) {
     const tile=surface(W,1400),c=tile.getContext('2d');
     c.drawImage(this.makeWeatherTile(stage,false),0,0);
+    if(stage===4)return tile; // Sector 4 sea is authored by drawCoast; no painted scenery.
     drawAtlasScenery(c,stage);
     if(stage===2) this.drawFoundry(c);
     else if(stage===3) this.drawMaelstrom(c);
@@ -723,7 +726,11 @@ export class Renderer {
   }
   draw(game={},dt=1/60) {
     const c=this.ctx;
-    this.currentStage=clamp(game.stage||1,1,3);
+    this.currentStage=clamp(game.stage||1,1,CAMPAIGN_STAGES);
+    this.fleetEnemies=game.enemies||[];this.fleetBoss=game.boss;
+    if((game.stageTime||0)<(this.fleetStageTime||0)-1)this.fleetWrecks?.clear();
+    this.fleetStageTime=game.stageTime||0;
+    if(this.fleetFireClocks?.size>80)this.fleetFireClocks.clear();
     const step=clamp(dt>1?dt/1000:dt,0,.05);
     if(game.mode!=='paused') {this.time+=step;this.travel+=step*105;}
     const t=Number.isFinite(game.time)?game.time:this.time;
@@ -739,31 +746,64 @@ export class Renderer {
     this.drawWorldResponse();
     this.castShadows(game.enemies||[],game.boss,game.player);
     this.drawCombatLighting(game);
+    const fleet=this.currentStage===4,enemies=game.enemies||[];
+    if(fleet){
+      for(const e of enemies)if(e.type==='hull'||e.type==='gunboat')this.enemy(e,t);
+      for(const e of enemies)if(e.type==='hullTurret'&&e.parentId!==game.boss?.id)this.enemy(e,t);
+      for(const e of enemies)if(e.type==='hull'&&!e.dead)this.fleetTurretWrecks(e,t);
+    }
     this.pickups(game.pickups||[],t);
-    this.projectiles(game.shots||[],true,t);
-    this.arsenalCraft(game.player,t);
-    const enemies=game.enemies||[];
-    for(const e of enemies) this.enemy(e,t);
+    if(!fleet){this.projectiles(game.shots||[],true,t);this.arsenalCraft(game.player,t);}
+    for(const e of enemies)if(!fleet||!['hull','gunboat','hullTurret'].includes(e.type))this.enemy(e,t);
     if(game.boss&&!enemies.includes(game.boss)) this.boss(game.boss,t);
-    this.drawEffects(t);
+    if(!fleet)this.drawEffects(t);
+    else this.projectiles(game.shots||[],true,t);
     this.drawReactorCoverLabel(game.boss);
     this.drawBossLance(game.boss,t);
-    this.particles(game.particles||[]);
+    if(!fleet)this.particles(game.particles||[]);
     this.player(game.player,t);
+    if(fleet)this.arsenalCraft(game.player,t);
     this.shieldAura(game.player);
     // Threats stay above the hull, escorts, orbitals, smoke and auras.
     this.projectiles(game.bullets||[],false,t);
+    if(fleet){this.particles(game.particles||[]);this.drawEffects(t);this.fleetEffects(t);}
     this.foreground(t,this.reducedEffects?0:Math.min(.09,game.flash||0));
     c.restore();c.setTransform(1,0,0,1,0,0);
+    if(fleet){
+      this.fleetPickupPoints=(game.pickups||[]).map(p=>({id:p.id,x:p.x,y:p.y,type:p.type}));
+      this.fleetMountPoints=enemies.filter(e=>e.type==='hullTurret'&&!e.dead&&e.hp>0).map(e=>({id:e.id,parentId:e.parentId,x:e.x,y:e.y,ox:e.ox,oy:e.oy,gun:e.gun}));
+      for(const [id,wreck] of this.fleetWrecks||[]){if(!enemies.some(e=>e.id===wreck.parentId)&&game.boss?.id!==wreck.parentId)this.fleetWrecks.delete(id);}
+    }
   }
   captureEffects(events,step) {
     if(step>0) for(const fx of this.impacts)fx.age+=step;
     this.impacts=this.impacts.filter(fx=>fx.age<fx.life);
     this.seenEffects ||= new WeakSet();
+    this.fleetMuzzles ||= new Map();
+    for(const [id,left] of this.fleetMuzzles){if(left<=step)this.fleetMuzzles.delete(id);else this.fleetMuzzles.set(id,left-step);}
     for(const event of events) {
       if(!event||this.seenEffects.has(event))continue;
       this.seenEffects.add(event);
       const type=event.type;
+      if(this.currentStage===4){
+        if(type==='bossShot'||type==='shoot'){
+          // Existing shot events provide origin coordinates; no simulation field needed.
+          for(const e of this.fleetEnemies||[])if(e.type==='hullTurret'&&Math.hypot(e.x-event.x,e.y-event.y)<38)this.fleetMuzzles.set(e.id,.1);
+        }
+        if(['hullDown','turretDown','scavengerSteal','scavengerDrop','scavengerEscape','mineBurst','broadside','coreExposed'].includes(type)||(type==='torpedoLaunch'&&event.value==='enemy')||type==='bossDown'){
+          if(type==='turretDown'){
+            const mount=this.fleetMountPoints?.find(m=>Math.hypot(m.x-event.x,m.y-event.y)<24);
+            if(mount){
+              const parent=this.fleetEnemies.find(e=>e.id===mount.parentId)||this.fleetBoss;
+              if(parent){this.fleetWrecks ||= new Map();this.fleetWrecks.set(mount.id,{...mount,ox:mount.ox??mount.x-parent.x,oy:mount.oy??mount.y-parent.y});}
+            }
+          }
+          const origin=type==='scavengerSteal'?this.fleetPickupPoints?.filter(p=>p.type===event.value).sort((a,b)=>Math.hypot(a.x-event.x,a.y-event.y)-Math.hypot(b.x-event.x,b.y-event.y))[0]:null;
+          this.impacts.push({id:++this.effectId,type,fleet:true,fromX:origin?.x,fromY:origin?.y,x:event.x??270,y:event.y??280,value:event.value,age:0,
+            life:type==='bossDown'?2.8:type==='hullDown'?2.1:1,size:type==='bossDown'?270:type==='hullDown'?130:type==='turretDown'?35:type==='coreExposed'?150:55});
+          continue;
+        }
+      }
       if(['squadronBonus','arsenalScatter','salvageRecover','salvageExpire','escortJoin','sidewinderLaunch','reflect','reflectorUp','reflectorDown','signatureUp','shieldUp','orbitalEat'].includes(type)){
         if(['reflect','orbitalEat','sidewinderLaunch'].includes(type)&&this.impacts.some(f=>f.type===type&&f.age<.1))continue;
         this.impacts.push({id:++this.effectId,type,x:event.x??this.playerPoint?.x??270,y:event.y??this.playerPoint?.y??750,value:event.value,age:0,life:type==='squadronBonus'?1.15:type==='arsenalScatter'?.95:.48,size:type==='arsenalScatter'?130:40});
@@ -899,7 +939,7 @@ export class Renderer {
   drawEffects(t) {
     const c=this.ctx;
     for(const fx of this.impacts) {
-      if(fx.type==='lane')continue;
+      if(fx.type==='lane'||fx.fleet)continue;
       const p=fx.age/fx.life,fade=(1-p)*(1-p),size=fx.size;
       const violet=this.currentStage===3&&(fx.type==='bossPhase'||fx.type==='explode');
       const cool=fx.type==='playerHit';
@@ -1221,7 +1261,7 @@ export class Renderer {
   }
   background(scroll,t,stage,game={},step=0) {
     const c=this.ctx;
-    const index=clamp(stage-1,0,2);
+    const index=clamp(stage-1,0,3);
     c.fillStyle=this.seas[index];c.fillRect(-15,-15,W+30,H+30);
     const authored=drawCoast(c,scroll,stage);
     const tile=this.sceneTiles[index];
@@ -1232,29 +1272,32 @@ export class Renderer {
       if(first<H)c.drawImage(tile,0,0,W,H-first,0,first,W,H-first);
     }
     const ambience=this.ambience;
-    ambience.begin(game,t,scroll,clamp(stage,1,3),step,this.reducedEffects);
-    ambience.drawSurface(c,clamp(stage,1,3));
-    this.drawWeatherTile(this.weatherTiles[index],scroll,.53);
-    this.drawActiveWeather(scroll,t,stage);
-    this.drawTerrainLights(scroll,t,stage);
-    // Broad low-contrast light shafts add moving atmosphere with few draw calls.
-    // Cached per sector: same falloff as a per-frame gradient, fewer pixels, no gradient rebuild.
-    const lightX=W*.52+Math.sin(t*.23)*85;
-    const shaft=this.lightShafts[index];
-    c.drawImage(shaft,Math.round(lightX-365),10);
-    // Flow lines at a distinct speed preserve parallax against the cached coast.
-    for(let band=0;band<3;band++) {
-      const y=((band*327+scroll*(.47+band*.08))%(H+250))-125;
-      c.beginPath();
-      for(let x=-12;x<=W+12;x+=18) {
-        const yy=y+Math.sin(x*.013+band*2.73)*17+Math.sin(x*.036+band)*5;
-        if(x===-12)c.moveTo(x,yy);else c.lineTo(x,yy);
+    ambience.begin(game,t,scroll,clamp(stage,1,CAMPAIGN_STAGES),step,this.reducedEffects);
+    ambience.drawSurface(c,clamp(stage,1,CAMPAIGN_STAGES));
+    // From sector 4 the world layer paints its own weather; skip the sector 1-3 dressing.
+    const worldPainted=worldPaintsStage(stage);
+    if(!worldPainted){
+      this.drawWeatherTile(this.weatherTiles[index],scroll,.53);
+      this.drawActiveWeather(scroll,t,stage);this.drawTerrainLights(scroll,t,stage);
+      // Broad low-contrast light shafts add moving atmosphere with few draw calls.
+      // Cached per sector: same falloff as a per-frame gradient, fewer pixels, no gradient rebuild.
+      const lightX=W*.52+Math.sin(t*.23)*85;
+      const shaft=this.lightShafts[index];
+      c.drawImage(shaft,Math.round(lightX-365),10);
+      // Flow lines at a distinct speed preserve parallax against the cached coast.
+      for(let band=0;band<3;band++) {
+        const y=((band*327+scroll*(.47+band*.08))%(H+250))-125;
+        c.beginPath();
+        for(let x=-12;x<=W+12;x+=18) {
+          const yy=y+Math.sin(x*.013+band*2.73)*17+Math.sin(x*.036+band)*5;
+          if(x===-12)c.moveTo(x,yy);else c.lineTo(x,yy);
+        }
+        c.strokeStyle=stage===3?'rgba(154,155,227,.09)':stage===2?'rgba(255,202,151,.07)':band===1?'rgba(84,195,193,.065)':'rgba(125,218,207,.095)';
+        c.lineWidth=band===1?1:2;c.stroke();
       }
-      c.strokeStyle=stage===3?'rgba(154,155,227,.09)':stage===2?'rgba(255,202,151,.07)':band===1?'rgba(84,195,193,.065)':'rgba(125,218,207,.095)';
-      c.lineWidth=band===1?1:2;c.stroke();
     }
-    ambience.drawAir(c,clamp(stage,1,3));
-    ambience.drawTransitions(c,clamp(stage,1,3));
+    ambience.drawAir(c,clamp(stage,1,CAMPAIGN_STAGES));
+    ambience.drawTransitions(c,clamp(stage,1,CAMPAIGN_STAGES));
   }
   drawTerrainLights(scroll,t,stage) {
     // Reflections move with cached shelves, furnaces and spires. Their low
@@ -1545,10 +1588,263 @@ export class Renderer {
     oval(c,0,0,r,r,bright?'rgba(212,255,246,.95)':'rgba(212,255,246,.48)',true,bright?1.5:1);
     oval(c,0,0,bright?2.8:2,bright?2.8:2,bright?'#fffce8':'rgba(255,248,225,.65)');
   }
+  // The static steel is cached once; only weapons, engine shutters and damage move.
+  fleetHull(w,h,flagship=false,hullClass='destroyer') {
+    this.fleetSprites ||= new Map();
+    const key=[w,h,flagship,hullClass].join('/');
+    if(this.fleetSprites.has(key))return this.fleetSprites.get(key);
+    const s=surface(w*2+64,h*2+64),c=s.getContext('2d');c.translate(w+32,h+32);
+    c.lineJoin='round';
+    const outline=[-w,-h*.18,-w*.83,-h*.72,-w*.48,-h,w*.62,-h,w*.91,-h*.54,w,h*.1,w*.84,h*.7,w*.5,h,-w*.6,h,-w*.9,h*.57];
+    c.save();c.translate(5,12);poly(c,outline,'#030b0f','#02080c',9);c.restore();
+    const steel=c.createLinearGradient(0,-h,0,h);steel.addColorStop(0,'#798a87');steel.addColorStop(.25,'#3d5457');steel.addColorStop(.75,'#23353c');steel.addColorStop(1,'#101f29');
+    poly(c,outline,steel,'#91aaa2',2);
+    c.save();c.scale(.94,.84);poly(c,outline,'#283b40','#b8b79a',1.5);c.restore();
+    c.save();c.scale(.86,.72);poly(c,outline,'#4b5550','#111e26',3);c.restore();
+    // Pitted steel grain and beveled deck plates remain entirely in the cache.
+    c.save();poly(c,outline);c.clip();
+    for(let i=0;i<1500;i++){
+      c.fillStyle=i%3?'rgba(219,217,181,.09)':'rgba(0,9,14,.2)';
+      c.fillRect((hash(i*13+1)-.5)*w*2,(hash(i*29+2)-.5)*h*2,1+hash(i*7)*3,.6);
+    }
+    c.restore();
+    for(const side of [-1,1])for(let i=0;i<4;i++){
+      const x=side*(w*.47+i*w*.075),y=-h*.2+i%2*12;
+      c.fillStyle='#12282e';c.fillRect(x-5,y-13,10,26);
+      c.fillStyle='#687b73';c.fillRect(x-4,y-12,8,23);
+      line(c,[x-2,y-9,x+2,y-9,x+2,y+7],'#afb29a',1);
+      for(let j=0;j<4;j++)line(c,[x-3,y-5+j*4,x+3,y-5+j*4],'#203a40',1);
+    }
+    // Riveted deck seams, longitudinal catwalks, ladders and plated armor belt.
+    for(let x=-w*.72;x<w*.8;x+=24){
+      line(c,[x,-h*.62,x,h*.64],'rgba(9,21,25,.7)',1);
+      for(const y of [-h*.76,h*.76]){oval(c,x,y,1.3,1.3,'#b5b39b');line(c,[x-7,y-3,x+7,y-3],'#121f26',2);}
+    }
+    for(const y of [-h*.45,h*.45])line(c,[-w*.78,y,w*.81,y],'#92947d',1.5);
+    for(const side of [-1,1])for(let i=0;i<7;i++){
+      const x=-w*.65+i*w*.21,y=side*h*.85;
+      poly(c,[x-7,y-4,x+7,y-4,x+6,y+4,x-6,y+4],'#192b32','#7f8f83',1);
+    }
+    // Layered armored island and bridge windows.
+    const bw=flagship?43:w*.24,bh=flagship?29:h*.24;
+    poly(c,[-bw-10,-bh,bw-6,-bh-10,bw+10,bh,-bw+2,bh+9],'#142731','#b8b69c',1.4);
+    poly(c,[-bw,-bh+3,bw-12,-bh+3,bw,bh-3,-bw+8,bh-3],'#76827a','#172c34',2);
+    for(let i=0;i<6;i++)line(c,[-bw+12+i*(bw*2-23)/6,-bh+8,-bw+15+i*(bw*2-23)/6,-bh+8],'#bee8d4',2);
+    for(const x of [-bw*.4,bw*.45]){oval(c,x,3,8,11,'#111d22');oval(c,x,3,8,11,'#8c9589',true);line(c,[x-5,-3,x+5,-3],'#a19b7b',2);}
+    line(c,[2,-8,2,-h-22],'#a3b4a8',2);line(c,[-23,-h-12,25,-h-12],'#728b85',2);
+    line(c,[-17,-h-10,2,-h-22,20,-h-10],'#314b51',1);
+    c.fillStyle='#d5c6a0';c.font='bold '+(flagship?11:8)+'px monospace';c.textAlign='center';
+    c.fillText(flagship?'L V / 0 4':'I M / '+(hullClass==='cruiser'?'CR':'DD'),w*.48,h*.25);
+    this.fleetSprites.set(key,s);return s;
+  }
+  fleetWake(x,y,w,h,t) {
+    const c=this.ctx;c.save();
+    oval(c,x+6,y+11,w+9,h+5,'rgba(0,6,10,.7)');
+    for(const side of [-1,1]){
+      line(c,[x+side*w*.77,y-h*.72,x+side*(w+12),y+h*.3,x+side*(w+23),y+h+38], 'rgba(193,231,216,.28)',2);
+      line(c,[x+side*w*.8,y+h*.65,x+side*(w+5),y+h+27+Math.sin(t*4)*5], 'rgba(231,248,229,.5)',1.3);
+    }
+    oval(c,x,y+h+9,w*.63,9,'rgba(175,224,208,.15)');c.restore();
+  }
+  fleetDamage(e,w,h,t) {
+    const c=this.ctx,damage=1-clamp(e.hp/Math.max(1,e.maxHp||e.hp),0,1);
+    if(damage<.22)return;
+    const count=damage>.65?5:damage>.4?3:1;
+    for(let i=0;i<count;i++){
+      const x=(hash(i*17+13)-.5)*w*1.5,y=(hash(i*23+8)-.5)*h*1.3;
+      oval(c,x,y,12+i*2,7+i,'#121b1c');
+      const pulse=1+Math.sin(t*15+i*2)*.22;
+      poly(c,[x-5,y+3,x-8,y-8*pulse,x-2,y-4,x+2,y-18*pulse,x+7,y-4,x+5,y+4],'#dc6034');
+      poly(c,[x-3,y+2,x,y-10*pulse,x+4,y+1],'#ffe8a1');
+      for(let j=0;j<3;j++)oval(c,x+Math.sin(i+j+t)*4-j*5,y-14-j*10,7+j*4,6+j*3,'rgba(16,22,25,'+(.47-j*.09)+')');
+    }
+  }
+  fleetEnemy(e,t) {
+    const type=e.type,c=this.ctx;
+    if(!['interceptor','gunboat','hull','hullTurret','scavenger','mine','torpedoEnemy'].includes(type))return false;
+    c.save();c.translate(e.x,e.y);
+    if(type==='hull'||type==='gunboat'){
+      const w=type==='hull'?(e.w||72):18,h=type==='hull'?(e.h||100):37;
+      c.save();c.translate(-e.x,-e.y);this.fleetWake(e.x,e.y,w,h,t);c.restore();
+      if(type==='hull'){const tile=this.fleetHull(w,h,false,e.hullClass);c.drawImage(tile,-w-32,-h-32);}
+      else if(!drawCraft(c,'turret',0,0,44,79,true)){
+        poly(c,[0,-h,-w,-h*.35,-w,h*.7,0,h,w,h*.7,w,-h*.35],'#30484c','#a3b5a5',1.3);
+        poly(c,[-11,-17,0,-28,11,-17,10,25,-10,25],'#717a69','#14272b',1);
+        c.fillStyle='#1a3037';c.fillRect(-7,-1,14,17);line(c,[-6,1,6,1],'#b3e6d3',2);
+        oval(c,0,-14,7,6,'#182d35');oval(c,0,-14,7,6,'#b8b99b',true);line(c,[0,-14,0,-31],'#c0b899',3);
+      }
+      this.fleetDamage(e,w,h,t);
+    }else if(type==='hullTurret'){
+      this.fleetFireClocks ||= new Map();
+      const prior=this.fleetFireClocks.get(e.id);
+      if(prior!==undefined&&e.fireAt>prior+.03)this.fleetMuzzles?.set(e.id,.11);
+      this.fleetFireClocks.set(e.id,e.fireAt);
+      const gun=e.gun||'triple',col=gun==='void'?'#c391e8':gun==='flak'?'#e5ae68':gun==='fan'?'#8ac3bd':'#b9c6ad';
+      oval(c,2,5,21,16,'#071217');oval(c,0,0,20,16,'#293c40');oval(c,0,0,20,16,col,true,1.5);
+      if(e.hp<=0||e.dead){poly(c,[-15,-4,3,-12,13,3,-6,10],'#10181b','#6e7470',2);line(c,[-12,-7,10,9],'#c17e51',2);}
+      else{
+        c.rotate((e.aim??Math.PI/2)-Math.PI/2);
+        poly(c,[-13,-9,9,-11,15,1,11,11,-12,11,-16,1],'#64716a',col,1.4);
+        poly(c,[-12,-8,8,-9,11,-3,-12,0],'#9ba48d');
+        poly(c,[-12,3,11,3,10,10,-11,10],'#283e42');
+        line(c,[-9,-5,7,-6],'#d1c8a3',1);
+        for(const x of [-9,8])oval(c,x,0,1.2,1.2,'#e0cfaa');
+        const n=gun==='triple'?3:gun==='fan'||gun==='broadside'?4:2;
+        for(let i=0;i<n;i++){
+          const x=(i-(n-1)/2)*6,len=gun==='broadside'?29:gun==='flak'?18:25;
+          line(c,[x,4,x,len],'#0b1b22',5);line(c,[x-1,4,x-1,len],col,2);
+          const flash=this.fleetMuzzles?.get(e.id)||0;
+          if(flash>0||e.firePulse>0)poly(c,[x-4,len,x,len+12+hash(i+t)*8,x+4,len],'#fff0b4');
+        }
+        if(gun==='void'){oval(c,0,-1,6,6,'#281435');oval(c,0,-1,6,6,'#ebc5ff',true,2);}
+        else if(gun==='flak')line(c,[-10,-4,10,5],col,2);
+        else if(gun==='fan'){oval(c,0,-3,6,4,'#142b32');oval(c,0,-3,6,4,col,true);}
+      }
+    }else if(type==='interceptor'){
+      c.rotate((e.angle||0)+Math.PI);c.scale(.88+Math.cos((e.age||0)*3)*.12,1);
+      line(c,[-12,13,-16,44],'rgba(228,141,102,.24)',2);line(c,[12,13,16,44],'rgba(228,141,102,.24)',2);
+      if(!drawCraft(c,'ace',0,0,68,72,true)){
+      poly(c,[0,-30,-7,-11,-32,5,-29,15,-9,7,-5,23,-14,29,-13,33,0,27,13,33,14,29,5,23,9,7,29,15,32,5,7,-11],'#17242b','#d89378',1);
+      poly(c,[-7,-9,-29,7,-27,10,-8,2,8,2,27,10,29,7,7,-9],'#a93535');
+      poly(c,[0,-30,-4,-10,-3,22,0,26,3,22,4,-10],'#e45c48','#6b2529',1);
+      poly(c,[-3,-10,0,-17,3,-10,3,1,-3,1],'#091c25','#a5ddd0',1);
+      for(const side of [-1,1]){oval(c,side*22,6,3,3,'#f4c7a4');oval(c,side*22,6,1.5,1.5,'#b33035');}
+      }
+    }else if(type==='scavenger'){
+      const col=PICKUP_THEMES[e.carrying?.type]?.[1]||'#ffdf7c';
+      if(e.carrying){
+        c.globalAlpha=.18;oval(c,0,12,29,34,col);c.globalAlpha=1;
+        line(c,[-7,8,0,25,7,8],col,2);
+        c.save();c.translate(0,27);poly(c,[0,-10,10,0,0,10,-10,0],'#0a1620',col,2.5);c.fillStyle=col;c.font='bold 11px Arial';c.textAlign='center';c.fillText(PICKUP_THEMES[e.carrying.type]?.[0]||'P',0,4);c.restore();
+      }
+      for(const side of [-1,1]){
+        poly(c,[side*5,-5,side*20,-13,side*25,3,side*14,0,side*9,10],'#374a46','#a0c3a0',1);
+        line(c,[side*10,3,side*18,10+Math.sin(t*30)*3,side*13,17],'#c2a775',1.6);
+      }
+      poly(c,[0,-15,-7,-4,-5,9,0,15,5,9,7,-4],'#25302c','#a5b995',1);
+      oval(c,0,-5,3,4,e.carrying?col:'#ef6b47');
+    }else if(type==='mine'){
+      const fuse=Math.max(0,e.fuse??4),pulse=Math.sin(t*(8+28/(fuse+.5)))>0;
+      for(let i=0;i<8;i++){const a=i*TAU/8;line(c,[Math.cos(a)*10,Math.sin(a)*10,Math.cos(a)*19,Math.sin(a)*19],'#a6b2a0',3);}
+      oval(c,1,3,13,13,'#030d13');oval(c,0,0,12,12,'#3d4640');oval(c,0,0,12,12,'#a2aa92',true,1.5);oval(c,-3,-4,4,3,'#65766b');
+      oval(c,0,0,4,4,pulse?'#fff4bf':'#ad422e');if(pulse)oval(c,0,0,7,7,'#e99c61',true,1.5);
+    }else{
+      c.rotate(Math.atan2(e.vy||110,e.vx||0)-Math.PI/2);
+      line(c,[-6,-11,-10,-42],'rgba(194,228,208,.6)',2);line(c,[6,-11,10,-42],'rgba(194,228,208,.6)',2);
+      poly(c,[0,21,-7,9,-6,-16,-12,-23,-3,-20,3,-20,12,-23,6,-16,7,9],'#14252b','#aab6a0',1.5);
+      line(c,[-5,6,5,6],'#f39e61',3);oval(c,0,14,3,3,'#ffdb96');
+    }
+    if(e.flash>0){c.globalAlpha=Math.min(.65,e.flash);oval(c,0,0,type==='hull'?e.w:19,type==='hull'?e.h:15,'#fff3ca');}
+    c.restore();return true;
+  }
+  fleetTurretWrecks(parent,t) {
+    for(const wreck of this.fleetWrecks?.values()||[]){
+      if(wreck.parentId!==parent.id)continue;
+      this.fleetEnemy({...wreck,type:'hullTurret',x:parent.x+wreck.ox,y:parent.y+wreck.oy,hp:0,maxHp:1},t);
+    }
+  }
+  leviathan(b,t) {
+    const c=this.ctx,w=b.w||210,h=b.h||80;
+    this.fleetWake(b.x,b.y,w,h,t);
+    c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
+    const tile=this.fleetHull(w,h,true);c.drawImage(tile,-w-32,-h-32);
+    const extension=clamp(b.broadside||0,0,1);
+    for(const side of [-1,1])for(let i=0;i<5;i++){
+      const y=-h*.52+i*h*.26,x=side*(w*.85+extension*22),lit=extension>0&&b.broadsideSide===side;
+      c.fillStyle='#071419';c.fillRect(side<0?-w*.93:w*.81,y-8,w*.12,16);
+      poly(c,[x-8,y-7,x+8,y-7,x+8,y+7,x-8,y+7],lit?'#9e7048':'#455f5b',lit?'#ffd78c':'#99aaa0',1);
+      for(const dy of [-3,3])line(c,[x,y+dy,x+side*(9+extension*12),y+dy],lit?'#f4d59a':'#899f95',3);
+      if(lit)oval(c,x,y,4,3,'#ffe0a0');
+    }
+    // Sliding core armor reveals a counter-rotating monsoon engine.
+    const core=clamp(b.core||0,0,1),cy=18;
+    oval(c,0,cy,42,34,'#08151d');oval(c,0,cy,42,34,'#bcb897',true,2);
+    if(core>0){
+      c.save();c.globalAlpha=core;
+      bloom(c,0,cy,65,'rgba(128,253,228,.8)','effectTeal',.8);
+      for(const side of [-1,1]){
+        c.save();c.translate(0,cy);c.rotate(t*side*1.7);
+        for(let i=0;i<8;i++){const a=i*TAU/8;line(c,[Math.cos(a)*15,Math.sin(a)*15,Math.cos(a+.4*side)*34,Math.sin(a+.4*side)*27],side<0?'#c5fff0':'#dca2ef',2.3);}
+        c.restore();
+      }
+      oval(c,0,cy,12+Math.sin(t*9)*2,12,'#efffec');c.restore();
+    }
+    for(const side of [-1,1]){
+      const x=side*(19+core*37);
+      poly(c,[x-18,cy-30,x+18,cy-30,x+18,cy+30,x-18,cy+30],'#3d5555','#c1bea0',1.5);
+      for(let j=0;j<4;j++)line(c,[x-13,cy-20+j*12,x+13,cy-20+j*12],'#162b31',3);
+    }
+    this.fleetDamage(b,w,h,t);
+    if(b.flash>0){c.globalAlpha=b.flash*.65;line(c,[-w*.8,-h*.6,w*.65,-h*.6,w*.9,-h*.25],'#fff3cb',3);}
+    c.restore();
+    this.fleetTurretWrecks(b,t);
+    // Child coordinates are authoritative: no decorative guns that survive a kill.
+    for(const e of this.fleetEnemies||[])if(e.type==='hullTurret'&&e.parentId===b.id&&!e.dead&&e.hp>0)this.enemy(e,t);
+  }
+  fleetEffects(t) {
+    const c=this.ctx;
+    for(const fx of this.impacts){
+      if(!fx.fleet)continue;
+      const p=fx.age/fx.life,fade=(1-p)*(1-p);c.save();c.globalAlpha=fade;
+      const col=PICKUP_THEMES[fx.value]?.[1]||'#ffe4a2';
+      if(fx.type.startsWith('scavenger')){
+        const sign=fx.type==='scavengerEscape'?-1:1;
+        line(c,[fx.fromX??fx.x-40*(1-p),fx.fromY??fx.y+sign*48*(1-p),fx.x,fx.y],col,3);
+        oval(c,fx.x,fx.y,10+p*34,10+p*34,col,true,2);
+        for(let i=0;i<5;i++)line(c,[fx.x,fx.y,fx.x+Math.cos(i*TAU/5)*p*45,fx.y+Math.sin(i*TAU/5)*p*45],col,1);
+      }else if(['hullDown','turretDown','bossDown'].includes(fx.type)){
+        if(fx.type==='turretDown'){
+          oval(c,fx.x,fx.y,20,14,'#172426');oval(c,fx.x,fx.y,20,14,'#77837b',true,2);
+          line(c,[fx.x-12,fx.y-7,fx.x+8,fx.y+8],'#d78b56',3);
+          poly(c,[fx.x-10,fx.y+7,fx.x+5,fx.y-8,fx.x+13,fx.y+4],'#0b171c');
+        }
+        const n=fx.type==='bossDown'?13:fx.type==='hullDown'?7:3;
+        for(let i=0;i<n;i++){
+          const age=p-i*.045;if(age<0)continue;
+          c.globalAlpha=Math.max(.15,1-age*1.4)*Math.min(1,(1-p)*3);
+          const x=fx.x+(hash(i+fx.id)-.5)*fx.size*1.5,y=fx.y+(hash(i*19+fx.id)-.5)*fx.size*.55;
+          const r=(fx.type==='bossDown'?23+age*65:fx.type==='hullDown'?17+age*47:9+age*23)*(1-age*.5);
+          oval(c,x-8*age,y-45*age,r*1.2,r,'rgba(17,25,28,.7)');
+          bloom(c,x,y,Math.min(94,r*2.3),'rgba(255,178,116,.7)','rimFire',.7);
+          oval(c,x,y,r,r*.8,'#b74428');oval(c,x-2,y-3,r*.75,r*.65,'#f28a3f');
+          oval(c,x-3,y-6,r*.45,r*.44,'#fff0b5');
+          for(let j=0;j<3;j++){
+            const a=i*2.3+j*2.1,d=age*(45+j*25),dx=Math.cos(a)*d,dy=Math.sin(a)*d+age*age*25;
+            line(c,[x+dx*.7,y+dy*.7,x+dx,y+dy],'#eab778',1.5);
+            poly(c,[x+dx-3,y+dy,x+dx+2,y+dy-4,x+dx+4,y+dy+3],'#2a3939','#b2ad8d',1);
+          }
+          line(c,[x,y,x+Math.cos(i*3)*age*80,y+Math.sin(i*3)*age*70],'#fff3b7',2);
+        }
+        c.globalAlpha=fade;oval(c,fx.x,fx.y,fx.size*(.2+p),fx.size*(.1+p*.3),'#c7f5e2',true,2);
+      }else{
+        const radius=fx.size*(.1+p);
+        if(fx.type==='broadside'){
+          const side=Number(fx.value)||1;
+          for(let i=0;i<7;i++){
+            const x=fx.x,y=fx.y-65+i*20;
+            bloom(c,x,y,25,'rgba(255,226,179,.8)','coreFire',.8);
+            poly(c,[x,y-5,x+side*(25+p*30),y+Math.sin(i)*9,x,y+5],'#ffe4a0');
+          }
+        }else if(fx.type==='coreExposed'){
+          bloom(c,fx.x,fx.y,94,'rgba(128,253,228,.8)','effectTeal',.8);
+          line(c,[fx.x-radius,fx.y,fx.x+radius,fx.y],'#d8ffed',3);
+        }else if(fx.type==='torpedoLaunch'){
+          for(const side of [-1,1])line(c,[fx.x+side*7,fx.y,fx.x+side*(17+p*25),fx.y+60*p],'#d3eee2',2);
+        }else if(fx.type==='mineBurst'){
+          for(let i=0;i<12;i++){const a=i*TAU/12,x=fx.x+Math.cos(a)*radius,y=fx.y+Math.sin(a)*radius;oval(c,x,y,3,3,'#fff0bd');}
+        }
+        oval(c,fx.x,fx.y,radius,radius*.6,fx.type==='coreExposed'?'#a8ffe7':'#ffe3ad',true,3);
+        for(let i=0;i<10;i++){const a=i*TAU/10;line(c,[fx.x+Math.cos(a)*radius*.6,fx.y+Math.sin(a)*radius*.6,fx.x+Math.cos(a)*radius,fx.y+Math.sin(a)*radius],'#fff0c2',2);}
+      }
+      c.restore();
+    }
+  }
+
   enemy(e,t) {
-    if(!e||e.dead||e.alive===false)return;
+    if(!e||e.dead||e.alive===false||e.hidden)return;
     const kind=String(e.type||'scout').toLowerCase();
     if(kind==='boss'||e.isBoss)return this.boss(e,t);
+    if(this.fleetEnemy(e,t))return;
     if(this.authoredEnemy(e,t))return;
     const stage=this.currentStage||1;
     const heavy=/bomber|heavy|gunship|carrier|tank|mini/.test(kind);
@@ -1758,6 +2054,7 @@ export class Renderer {
     this.drawReactorStatus(r,open?(r.phase===3?'CUT RIGHT SPIRAL':'BREAK FOR COVER'):'REACTOR OPENING','#f3d29c');
   }
   boss(b,t) {
+    if(this.currentStage===4||b?.name==='LEVIATHAN')return this.leviathan(b,t);
     const r=b?.reactor;
     if(r&&Number.isFinite(r.x)){
       const c=this.ctx,angle=b.angle||0,x=b.x+r.side*108*Math.cos(angle)-28*Math.sin(angle),y=b.y+r.side*108*Math.sin(angle)+28*Math.cos(angle);
