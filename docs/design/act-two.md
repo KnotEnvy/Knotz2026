@@ -309,6 +309,72 @@ Enemy bullets must stay readable through full player firepower. Player shots sta
   - HP is tuned so a fully equipped ship takes about 60–80 s and a bare ship about 3 times longer. "Fully equipped" means the power-25 full-kit reference in "Simulation notes (arsenal round 3)", not a Crown arrival kit. Use the existing learn-age guard floors so each phase plays out. Since round 2 those floors run on the effective learn age (see "Boss guard clock"); give LEVIATHAN its own `BOSS_GUARD_PAR` entry and learn windows.
   - Drill: LEVIATHAN unlocks after encountering it. Raise the `bossSeen` and `bestClears` limits from 3 to `CAMPAIGN_STAGES`.
 
+### Sector 4 build contract (shared by the four sector-4 builders)
+
+The simulation owns state. Everyone else reads it. Builders may extend this contract, but they must write any change here.
+
+**Campaign**
+- `export const CAMPAIGN_STAGES = 4` from `src/game.js`. Presentation modules import it from there.
+- Every "final sector" check (`stage>=3`, `stage===3` used to mean "last", `Math.min(3, …)`, `clamp(…,1,3)`, `[...][stage]` tables) is replaced by `CAMPAIGN_STAGES`, or extended to index 4.
+- After the Crown falls in a campaign (not a drill):
+  - `_transition` runs about 6.5 s instead of 3.5 s, and the event `actTwo {x, y}` fires once.
+  - Then the stage advances to 4 as usual.
+  - Victory comes after sector 4's flagship (`stage >= CAMPAIGN_STAGES`).
+- `INTERLUDE_LENGTH` (timeline) stays 3.5. Readers of the act II interlude use `game._transitionLength`, which the simulation sets to the real length so the progress helpers stay correct.
+- **Drills:** `startDrill(4)` exists. `progress.js` raises the `bossSeen` and `bestClears` limits to `CAMPAIGN_STAGES`. Drill 4 starts with the power-25 reference kit: power 25, 6 escorts, sidewinder 4, signature 4, shield 3.
+
+**Sector 4 enemy types** (`e.type`)
+
+| Type | What it is | Key fields | Notes |
+| --- | --- | --- | --- |
+| `interceptor` | 1942-style red squadron fighter. Flies scripted loop paths in formations of 5–7, entering from the bottom or sides. | `e.squad`, `e.path` (`"loop"`, `"sweep"`, `"rise"`) | Low HP, fast; fires short aimed bursts. Squadron wipe uses the existing squadron bonus. |
+| `gunboat` | Surface craft on the sea. | (none) | Slow, medium HP; aimed triple streams. Draw it at sea level, under the air enemies. |
+| `hull` | Armored warship section that scrolls down. | `e.hullClass` (`"destroyer"` or `"cruiser"`), `e.w`, `e.h` (body half-extents for drawing and collision), `e.turrets` (child ids) | Huge HP pool. Takes 35% damage while any of its turrets lives. Never fires itself. Body contact does not hurt the player; it's a ship below. Bullets pass over it. |
+| `hullTurret` | Destructible gun on a hull or on LEVIATHAN. | `e.parentId`, `e.ox`, `e.oy` (offset from parent), `e.aim` (radians, toward the player), `e.gun` (`"triple"`, `"fan"`, `"flak"`, `"void"`, `"broadside"`) | Position = parent + offset each tick. Dies with its parent. Its own HP. |
+| `scavenger` | Small fast drone that steals floating salvage. | `e.targetPickupId`, `e.carrying` (stolen pickup record or null) | A carrying scavenger flees upward and off-screen; the salvage is lost if it escapes. Killing it drops the carried pickup back, with `salvage` still true. Spawns only when salvage exists, or in authored beats. |
+| `mine` | Destructible drifting mine. | `e.fuse` (seconds to burst) | Shootable (low HP). When the fuse runs out, it bursts into a radial ring. |
+| `torpedoEnemy` | Destructible homing torpedo, fired by LEVIATHAN phase 2 and cruisers. | (none) | Slow homing, low HP, shootable; hurts on contact. |
+
+**Bullets:** sector 4 uses `kind:"void"` for some turret and boss patterns. Act II raises the bullet cap to 900.
+
+**HP:** an Act II curve, tuned so the power-25 reference kit clears sector-4 popcorn instantly. Hulls take about 4–8 s of focused fire. LEVIATHAN takes about 60–80 s with the reference kit.
+
+**Flagship LEVIATHAN** (`this.boss`, `stage === 4`)
+- `boss.name = "LEVIATHAN"`.
+- `boss.w` and `boss.h` are the collision half-extents, much wider than the 98×55 used by earlier bosses: about 210×80.
+- Four deck turrets are separate `hullTurret` enemies with `parentId = boss.id`. They are listed in `boss.turrets`.
+- Phase 1: while any deck turret lives, core damage is ×0.25.
+- `boss.broadside` (0..1) is how far the batteries have rolled out in phase 2. `boss.broadsideSide` is −1 or 1, the side currently firing.
+- `boss.core` (0..1) is how far the phase-3 core is exposed.
+
+**New events**
+- `squadronEnter {value: count}`
+- `hullEnter {value: hullClass}`
+- `hullDown {value: hullClass}`
+- `turretDown {value: gun}`
+- `scavengerSteal {value: pickupType}`
+- `scavengerDrop`
+- `scavengerEscape`
+- `mineBurst`
+- `torpedoLaunch` (enemy). Distinct from the player torpedo cue; the presentation reads `value === "enemy"`.
+- `broadside {value: side}`
+- `coreExposed`
+- `actTwo`
+
+Existing boss events (`bossEnter`, `bossPhase`, `bossGuard`, `bossShot`, `bossDown`) carry `stage === 4` as before.
+
+**Presentation and world**
+- `SECTOR_NAMES[4] = "IRON MONSOON"`, `FLAGSHIP_NAMES[4] = "LEVIATHAN"`, `FLAGSHIP_CLASSES[4] = "SUPER-DREADNOUGHT"`, plus coordinates and tagline from above.
+- `lightningAt` covers stage 4, with a period of about 4.5 s. The white-gold cast is a presentation choice.
+- Music cues: `sector4`, `warning4`, `boss4`.
+- The sector-4 ambience bed is the typhoon bed.
+
+**Builder file ownership (sector 4)**
+- **Simulation:** `src/game.js`, `src/progress.js`, `test/*`, `qa/*`.
+- **Combat rendering:** `src/render.js`, `src/ui.js`, `src/pause.js`. This covers enemy and LEVIATHAN art and the HUD.
+- **World and story:** `src/background.js`, `src/art.js`, `src/timeline.js`, `src/ambience.js`, `src/sequences.js`, `src/cinema.js`, `src/frontend.js`, `src/main.js`, `index.html`, CSS.
+- **Audio:** `src/music.js`, `src/soundscape.js`, `src/sfx.js`, `src/audio.js`.
+
 ### Sector 5: SKYFORGE (planned, not built yet)
 
 - **Tagline:** "Above the storm, the factories fly."
@@ -337,8 +403,10 @@ Enemy bullets must stay readable through full player firepower. Player shots sta
   2. Sector 4: two build → judge → iterate rounds, then merge.
   3. Pause for player feedback before sector 5.
 - **Builders own files** so they can work in parallel on one checkout:
-  - The simulation builder owns `src/game.js`, `src/progress.js` and `test/*.mjs`.
-  - The presentation builder owns `src/render.js`, `src/ui.js`, `src/main.js`, `src/sfx.js`, `src/audio.js`, `src/sequences.js`, `index.html` (field-manual copy only) and the CSS.
+  - For the Arsenal:
+    - The simulation builder owns `src/game.js`, `src/progress.js` and `test/*.mjs`.
+    - The presentation builder owns `src/render.js`, `src/ui.js`, `src/main.js`, `src/sfx.js`, `src/audio.js`, `src/sequences.js`, `index.html` (field-manual copy only) and the CSS.
+  - For sector 4, see "Builder file ownership" in the sector 4 build contract.
 - **Contract changes:** any change to the contract above is written into this file.
 - **Done means:**
   - `npm test` passes.
