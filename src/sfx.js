@@ -2,11 +2,14 @@
 // Every cue is layered synthesis: a transient for attack, a body for weight and a tail for space.
 // Levels are set so a single cue peaks well below full scale; the engine's glue and limiter
 // stages handle stacking.
+import { CAMPAIGN_STAGES } from './game.js';
+
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const hz = midi => 440 * Math.pow(2, (midi - 69) / 12);
 
 // Events resolved before the high-volume shot and hit streams.
 export const PRIORITY_EVENTS = new Set([
+  'scavengerSteal', 'scavengerDrop', 'scavengerEscape', 'hullEnter', 'hullDown', 'broadside', 'coreExposed', 'actTwo',
   'squadronBonus', 'arsenalScatter', 'salvageRecover', 'escortJoin', 'reflectorUp', 'reflectorDown', 'signatureUp', 'shieldUp',
   'playerHit', 'lifeLost', 'bomb', 'shieldBreak', 'shieldRestore', 'powerUp', 'wakeRoll', 'wakeReady',
   'wakeConvert', 'bossDown', 'bossPhase', 'bossEnter', 'reactorBreak', 'reactorOpen', 'lanceLock',
@@ -16,7 +19,11 @@ export const RECOVERY_FOLLOW_ON_EVENTS = new Set(['powerUp','shieldUp','shieldRe
 
 // Mix trims, set from offline renders through the full chain so the hierarchy reads:
 // UI and fire at the back, hits and pickups above fire, warnings and milestones clearly on top.
+// Sector-4 combat cues use the existing per-name RATE gates and global voice ceilings.
 const TRIM = {
+  squadronEnter: 1.2, hullEnter: 1.35, hullDown: 1.1, turretDown: 0.9,
+  scavengerSteal: 1.7, scavengerDrop: 1.5, scavengerEscape: 1.5,
+  mineBurst: 0.9, broadside: 1.15, coreExposed: 1.4,
   shoot: 1, missileLaunch: 1.3, roll: 3.4, wakeRoll: 2.8, wakeConvert: 1.2, drop: 1.5,
   'pickup-power': 2, 'pickup-shield': 2.1, 'pickup-life': 2.3, 'pickup-score': 1.9, 'pickup-bomb': 1.15,
   powerUp: 2.2, wakeReady: 1.7, shieldBreak: 1.5, shieldRestore: 1.7,
@@ -26,10 +33,10 @@ const TRIM = {
   'ui-focus': 0.55, 'ui-confirm': 0.72, 'ui-skip': 1.6,
 };
 const BOOM_TRIM = { small: 1.3, medium: 1.6, large: 1 };
-const LARGE = new Set(['bomber', 'carrier', 'mini']);
-const MEDIUM = new Set(['ace', 'turret']);
-// Flagship roots: D, C# and A. Each flagship announces itself in its own key.
-const FLAGSHIP_ROOT = [0, 38, 37, 33];
+const LARGE = new Set(['bomber', 'carrier', 'mini', 'hull']);
+const MEDIUM = new Set(['ace', 'turret', 'gunboat', 'hullTurret']);
+// Flagship roots: D, C#, A and D. Each flagship announces itself in its own key.
+const FLAGSHIP_ROOT = [0, 38, 37, 33, 38];
 
 export class SfxLibrary {
   constructor(engine) {
@@ -274,7 +281,7 @@ export class SfxLibrary {
     return this.trimmed('sectorClear', () => this._sectorClear(t, stage, drill));
   }
   _sectorClear(t, stage, drill) {
-    const root = drill ? 62 : [0, 62, 64, 60][clamp(stage, 1, 3)];
+    const root = drill ? 62 : [0, 62, 64, 60, 62][clamp(stage, 1, CAMPAIGN_STAGES)];
     [12, 16, 19, 24, 28].forEach((step, i) => {
       this.osc({ at: t + i * 0.07, dur: 0.5, type: 'glass', freq: hz(root + step), vol: 0.032, send: 0.35 });
     });
@@ -369,6 +376,67 @@ export class SfxLibrary {
 
 // One handler per game event type. `this` is the SfxLibrary.
 const HANDLERS = {
+  squadronEnter(ev, game, t) {
+    if (!this.rate('squadronEnter', 1.5)) return;
+    this.noise({ at: t, dur: 1.5, color: 'brown', vol: 0.08, attack: 0.65, filter: { type: 'bandpass', freq: 120, end: 650, q: 1 }, pan: -0.4, panEnd: 0.4, bus: this.combat });
+    this.osc({ at: t, dur: 1.4, type: 'sawtooth', freq: 65, end: 98, vol: 0.025, attack: 0.65, filter: { freq: 350 }, bus: this.combat });
+  },
+  hullEnter(ev, game, t) {
+    if (!this.rate('hullEnter', 2)) return;
+    for (const [offset, f] of [[0, 73.42], [0.18, 110]]) this.osc({ at: t + offset, dur: 1.7, type: 'horn', freq: f, vol: 0.065, attack: 0.18, hold: 0.3, filter: { freq: 650 }, pan: this.pan(ev.x), send: 0.3, bus: this.alert });
+  },
+  hullDown(ev, game, t) {
+    if (!this.rate('hullDown', 0.65)) return;
+    this.engine.duck('combat', 0.5, 0.4, 0.6);
+    this.boom('large', t, this.pan(ev.x), this.fx, 0.9);
+    this.boom('medium', t + 0.28, -this.pan(ev.x), this.fx, 0.65);
+    this.fm({ at: t + 0.08, dur: 1.5, freq: 95, end: 48, ratio: 2.76, index: 4, vol: 0.055, send: 0.3 });
+    this.noise({ at: t + 0.5, dur: 1.8, color: 'brown', vol: 0.1, filter: { freq: 850, end: 100 }, send: 0.2 });
+  },
+  turretDown(ev, game, t) {
+    if (!this.rate('turretDown', 0.16)) return;
+    this.boom('medium', t, this.pan(ev.x));
+    this.fm({ at: t, dur: 0.4, freq: 220, ratio: 2.76, index: 3, vol: 0.03, pan: this.pan(ev.x), bus: this.combat });
+  },
+  scavengerSteal(ev, game, t) {
+    if (!this.rate('scavengerSteal', 0.45)) return;
+    this.engine.duck('combat', 0.45, 0.25, 0.25);
+    [1568, 1175, 1568].forEach((f, i) => this.osc({ at: t + i * 0.09, dur: 0.085, type: 'square', freq: f, end: f * 0.8, vol: 0.035, filter: { freq: 2600 }, bus: this.alert }));
+    this.noise({ at: t, dur: 0.22, color: 'pink', vol: 0.05, filter: { type: 'bandpass', freq: 2800, end: 400 }, bus: this.alert });
+  },
+  scavengerDrop(ev, game, t) {
+    if (!this.rate('scavengerDrop', 0.3)) return;
+    [74, 81, 86].forEach((n, i) => this.osc({ at: t + i * 0.08, dur: 0.35, type: 'glass', freq: hz(n), vol: 0.04, send: 0.2, bus: this.alert }));
+  },
+  scavengerEscape(ev, game, t) {
+    if (!this.rate('scavengerEscape', 0.4)) return;
+    [74, 70, 62].forEach((n, i) => this.osc({ at: t + i * 0.12, dur: 0.28, type: 'hollow', freq: hz(n), end: hz(n - 2), vol: 0.045, bus: this.alert }));
+  },
+  mineBurst(ev, game, t) {
+    if (!this.rate('mineBurst', 0.14)) return;
+    this.noise({ at: t, dur: 0.18, color: 'pink', vol: 0.075, filter: { freq: 3400, end: 700 }, pan: this.pan(ev.x), bus: this.combat });
+    this.fm({ at: t, dur: 0.23, freq: 310, end: 80, ratio: 1.414, index: 3, vol: 0.04, bus: this.combat });
+  },
+  broadside(ev, game, t) {
+    if (!this.rate('broadside', 0.75)) return;
+    this.engine.duck('combat', 0.35, 0.25, 0.5);
+    const side = Math.sign(Number(ev.value)) || 1;
+    for (const [i, offset] of [0, 0.055, 0.11].entries()) {
+      const pan = side * (0.5 - i * 0.2);
+      this.noise({ at: t + offset, dur: 0.5, color: 'brown', vol: 0.14, filter: { freq: 2100, end: 180 }, pan, bus: this.alert, send: 0.15 });
+      this.osc({ at: t + offset, dur: 0.65, type: 'sine', freq: 95 - i * 8, end: 28, vol: 0.14, pan, bus: this.alert });
+    }
+  },
+  coreExposed(ev, game, t) {
+    if (!this.rate('coreExposed', 2)) return;
+    this.engine.duck('combat', 0.4, 0.5, 0.5);
+    this.fm({ at: t, dur: 1.1, freq: 146.83, end: 587.33, ratio: 1.5, index: 4, indexEnd: 0.2, vol: 0.06, bus: this.alert });
+    [74, 77, 81, 86].forEach((n, i) => this.osc({ at: t + 0.15 + i * 0.07, dur: 0.65, type: 'glass', freq: hz(n), vol: 0.035, bus: this.alert, send: 0.3 }));
+  },
+  actTwo(ev, game, t) {
+    this.engine.duck('combat', 0.25, 1.2, 1);
+    this.noise({ at: t, dur: 2.8, color: 'brown', vol: 0.12, attack: 0.3, filter: { freq: 120, end: 1200, time: 2.4 }, send: 0.3 });
+  },
   arsenalScatter(ev,game,t){
     if(!this.rate('arsenalScatter',.4))return;
     this.engine.duck('all',.35,.25,.5);
@@ -400,6 +468,12 @@ const HANDLERS = {
     this.osc({at:t,dur:.09,type:'glass',freq:2200,end:3200,vol:.025,bus:this.combat});
   },
   torpedoLaunch(ev,game,t){
+    if (ev.value === 'enemy') {
+      if (!this.rate('enemyTorpedo', 0.28)) return;
+      this.osc({ at: t, dur: 0.3, type: 'reed', freq: 290, end: 95, vol: 0.055, filter: { freq: 1100 }, pan: this.pan(ev.x), bus: this.combat });
+      this.noise({ at: t, dur: 0.25, color: 'pink', vol: 0.035, attack: 0.03, filter: { type: 'bandpass', freq: 1600, end: 400 }, bus: this.combat });
+      return;
+    }
     if(!this.rate('torpedoLaunch',.35))return;
     this.osc({at:t,dur:.17,type:'hollow',freq:115,end:42,vol:.06,bus:this.combat});
     this.noise({at:t,dur:.2,attack:.04,color:'brown',vol:.04,filter:{freq:800,end:1800},bus:this.combat});
@@ -493,7 +567,7 @@ const HANDLERS = {
     this.osc({ at: t, dur: 0.08, type: 'glass', freq: (ev.value === 'reactor' ? 1650 : 1250) * v, vol: 0.014, pan, bus: this.combat });
   },
   explode(ev, game, t) {
-    if (ev.value === 'boss') return; // bossDown owns the full collapse.
+    if (ev.value === 'boss' || ev.value === 'hull' || ev.value === 'hullTurret') return; // Dedicated collapse events own these.
     const size = LARGE.has(ev.value) ? 'large' : MEDIUM.has(ev.value) ? 'medium' : 'small';
     if (!this.rate('boom-' + size, size === 'large' ? 0.09 : size === 'medium' ? 0.07 : 0.05)) return;
     this.boom(size, t, this.pan(ev.x));
@@ -662,7 +736,12 @@ const HANDLERS = {
     }
   },
   bossEnter(ev, game, t) {
-    const stage = clamp(Number(ev.value || game.stage) || 1, 1, 3), root = FLAGSHIP_ROOT[stage];
+    const stage = clamp(Number(ev.stage || ev.value || game.stage) || 1, 1, CAMPAIGN_STAGES), root = FLAGSHIP_ROOT[stage];
+    if (stage === 4) {
+      this.engine.duck('combat', 0.3, 1, 1);
+      this.osc({ at: t, dur: 3.1, type: 'horn', freq: hz(root), vol: 0.08, attack: 0.3, hold: 0.7, filter: { freq: 900 }, send: 0.4 });
+      this.fm({ at: t + 0.1, dur: 2.8, freq: 73.42, ratio: 2.76, index: 2, vol: 0.055, send: 0.4 });
+    }
     this.engine.duck('beds', 0.55, 0.8, 1.2);
     this.osc({ at: t, dur: 0.6, type: 'sine', freq: 82, end: 30, vol: 0.16 });
     this.noise({ at: t, dur: 0.42, color: 'pink', vol: 0.1, filter: { freq: 1200, end: 300 } });
@@ -673,7 +752,12 @@ const HANDLERS = {
     this.fm({ at: t + 0.3, dur: 1.6, freq: hz(root + 12), ratio: 1.414, index: 2, indexEnd: 0.3, vol: 0.028, send: 0.35 });
   },
   bossPhase(ev, game, t) {
-    const stage = clamp(Number(game.stage) || 1, 1, 3), phase = clamp(Number(ev.value) || 2, 2, 3), root = FLAGSHIP_ROOT[stage];
+    const stage = clamp(Number(ev.stage || game.stage) || 1, 1, CAMPAIGN_STAGES), phase = clamp(Number(ev.value) || 2, 2, 3), root = FLAGSHIP_ROOT[stage];
+    if (stage === 4) {
+      this.engine.duck('combat', 0.35, 0.6, 0.5);
+      this.boom('large', t, 0, this.fx, 0.7);
+      this.osc({ at: t + 0.1, dur: 1.4, type: 'horn', freq: hz(root + (phase === 3 ? 12 : 7)), vol: 0.075, attack: 0.12, filter: { freq: 1400 }, send: 0.3 });
+    }
     this.engine.duck('beds', 0.6, 0.3, 0.6);
     this.osc({ at: t, dur: 0.5, type: 'sine', freq: 72, end: 30, vol: 0.15 });
     this.noise({ at: t, dur: 0.45, color: 'pink', vol: 0.12, filter: { freq: 1600, end: 300 }, send: 0.15 });
@@ -764,9 +848,14 @@ const HANDLERS = {
   bossDown(ev, game, t) {
     this.engine.duck('beds', 0.35, 1.6, 1.6);
     this.engine.duck('combat', 0.2, 1.6, 1);
-    const times = [0, 0.18, 0.42, 0.7, 1.05];
+    const leviathan = Number(ev.stage || game.stage) === 4;
+    const times = leviathan ? [0, 0.14, 0.32, 0.58, 0.88, 1.2, 1.55] : [0, 0.18, 0.42, 0.7, 1.05];
     times.forEach((offset, i) => this.boom(i < 2 ? 'medium' : 'large', t + offset, this.rnd() * 0.4, this.fx, 0.75 + i * 0.07));
-    const at = t + 1.3;
+    if (leviathan) {
+      this.fm({ at: t + 1.6, dur: 3.5, freq: 110, end: 24, ratio: 2.76, index: 5, vol: 0.08, send: 0.5 });
+      this.noise({ at: t + 2.5, dur: 3, color: 'brown', vol: 0.14, filter: { freq: 500, end: 70 }, send: 0.4 });
+    }
+    const at = t + (leviathan ? 1.8 : 1.3);
     this.noise({ at, dur: 2.6, color: 'brown', vol: 0.3, filter: { freq: 2500, end: 150, time: 2.2 }, pan: -0.3, send: 0.4 });
     this.noise({ at: at + 0.01, dur: 2.4, color: 'pink', vol: 0.12, filter: { freq: 2000, end: 200, time: 2 }, pan: 0.3 });
     this.osc({ at, dur: 2.2, type: 'sine', freq: 50, end: 22, vol: 0.28 });
