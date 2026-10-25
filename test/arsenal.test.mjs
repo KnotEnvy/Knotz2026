@@ -75,15 +75,15 @@ test('every pickup type applies its contract effect and event', () => {
   assert.equal(manta.player.maxShield, 3);
 });
 
-test('escort pickups past six convert into two power levels and are never wasted', () => {
+test('escort pickups past six convert into one power level and are never wasted', () => {
   const game = start(), p = game.player;
   for (let i = 0; i < 3; i++) give(game, 'escort');
   assert.equal(p.escorts, 6); assert.equal(p.escortSlots.length, 6);
   assert.deepEqual(p.escortSlots.map(s => [s.side, s.rank]), [[-1, 0], [1, 0], [-1, 1], [1, 1], [-1, 2], [1, 2]]);
   give(game, 'escort');
-  assert.equal(p.escorts, 6); assert.equal(p.level, 3);
+  assert.equal(p.escorts, 6); assert.equal(p.level, 2, 'round 3: a surplus pair is +1 power (was +2)');
   assert.ok(!types(game).includes('escortJoin'));
-  assert.ok(game.events.some(e => e.type === 'powerUp' && e.value === 3));
+  assert.ok(game.events.some(e => e.type === 'powerUp' && e.value === 2));
 });
 
 test('escorts trail with a spring lag, spread wide unfocused and collapse forward on focus', () => {

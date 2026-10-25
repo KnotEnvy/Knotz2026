@@ -32,32 +32,37 @@ const ORBITAL_COOL = .6;           // seconds before an orbital can eat again
 const ORBITALS_SHOWN = 6;
 const PARTICLE_CAP = 380;          // non-critical particles are dropped at the cap
 const PARTICLE_HARD_CAP = 520;     // critical feedback (phase, scatter, bomb...) may overflow to here
-const CRITICAL_PARTICLES = new Set(["boss","phase","ring","bomb","scatter","damage","shield","power","pickup","roll"]);
-// 1942 squadron bonus: wiping every craft of one formation wave drops this fan.
-const SQUADRON_BONUS_DROPS = 2;
+const CRITICAL_PARTICLES = new Set(["boss","phase","ring","bomb","scatter","damage","shield","power","pickup","roll","explode"]);
+// 1942 squadron bonus: wiping every craft of one formation wave drops this many
+// equipment items (never power, so the bonus cannot compound the main gun).
+const SQUADRON_BONUS_DROPS = 1;
 // Random drop weights. Power dominates so the main gun visibly grows; the
 // equipment share keeps a sector-1 run collecting a full kit.
 const DROP_WEIGHTS = [["power",50],["escort",12],["sidewinder",12],["signature",9],["shield",9],["reflector",8]];
 const EQUIPMENT_WEIGHTS = DROP_WEIGHTS.filter(([type])=>type!=="power");
 // Carriers, minibosses and bosses add bonus items from a fixed ladder, so every
 // run sees escorts, a sidewinder rack and a signature level in sector 1.
-// Sector 1 awards the first six rungs (3 carriers, the miniboss, Vesper).
-const BONUS_LADDER = ["escort","sidewinder","signature","power","reflector","shield","escort","sidewinder","signature","power"];
-// Chance that an ordinary kill drops a random item (old flat rate was 4.5%).
-// Sector 1 has ~90 kills: ~5 random drops on top of 4 authored power drops,
-// 6 ladder bonuses and the flagship spoils, so a no-hit run reaches about
-// power 8 at Vesper and 9-10 after it, with 1-3 escort pairs, a sidewinder
-// rack and a signature level.
-const DROP_CHANCE = {scout:.035,wing:.04,bomber:.25,ace:.15,turret:.25,carrier:1,mini:1};
+// Sector 1 awards the six starter rungs (3 carriers, the miniboss, Vesper);
+// after that the ladder cycles equipment only. Power past sector 1 comes from
+// authored drops, flagship spoils and overflow conversions.
+const BONUS_LADDER = ["escort","sidewinder","signature","power","reflector","shield"];
+const BONUS_CYCLE = ["sidewinder","escort","signature","reflector","shield"];
+// Chance that an ordinary kill rolls the weighted table (round 3: x0.7).
+// Formation scouts and wings never roll; they pay out as a squadron bonus.
+const DROP_CHANCE = {scout:.025,wing:.03,bomber:.18,ace:.1,turret:.18,carrier:1,mini:1};
 // Bonus items on top of the authored drop: carriers/minis drop 2-3 in total.
 const BONUS_DROPS = {carrier:1,mini:2};
 const BIG_TARGETS = new Set(["boss","bomber","turret","carrier","mini"]);
+const BURST_CUE_COOLDOWN = .085;  // per target: missile/torpedo burst cues (not damage)
 const SMALL_SHOTS = new Set(["shot","lance","escort","flak","orbital","reflect"]);
 const DRILL_LOADOUTS = [null,
   {level:6,escorts:2,sidewinder:1,signature:0},    // Vesper
   {level:8,escorts:4,sidewinder:1,signature:1},    // Aurelia
   {level:10,escorts:4,sidewinder:2,signature:2}    // The Crown
 ];
+// Visual growth of main-gun shots past the stream ceiling: logarithmic with no
+// hard stop. +0.9 px at power 13, +1.8 at 20, +2.5 at 30, +3.3 at 50, +4.1 at 80.
+export function overpowerGrowth(over) { return over>0?1.6*Math.log1p(over/6):0; }
 export const SHIP_IDS = ["kestrel", "manta", "wraith"];
 export const SHIP_DEFS = {
   kestrel: {id:"kestrel",name:"KESTREL",role:"Balanced striker",weapon:"spread",special:"nova",
@@ -182,22 +187,21 @@ export class Game {
   _addEscorts(pairs=1) {
     const p=this.player;let converted=0;
     for(let i=0;i<pairs;i++) {
-      if(p.escorts<MAX_ESCORTS)p.escorts+=2;else converted+=2;
+      if(p.escorts<MAX_ESCORTS)p.escorts+=2;else converted++;
     }
     this._syncEscortSlots(true);
-    if(pairs*2>converted)this._event("escortJoin",p.x,p.y,p.escorts);
-    // A full wing is never wasted: each surplus pair becomes two levels.
+    if(pairs>converted)this._event("escortJoin",p.x,p.y,p.escorts);
+    // A full wing is never wasted: each surplus pair becomes one level.
     if(converted)this._increasePower(converted);
     this._syncArsenal();
   }
   // Shield charges cap at SHIELD_CAP for every ship (power stays uncapped).
-  // A pickup that finds the bank full becomes +1 power, so it is never wasted.
+  // Charges fill the bank to the cap; each charge past it becomes +1 power,
+  // so nothing is wasted (Manta at 2/3: one charge banks, one becomes power).
   _addShield(pickups=1,perPickup=1) {
-    const p=this.player;let overflow=0,gained=0;
-    for(let i=0;i<pickups;i++) {
-      const add=Math.min(perPickup,Math.max(0,SHIELD_CAP-p.shield));
-      if(add>0){p.shield+=add;gained+=add;}else overflow++;
-    }
+    const p=this.player,charges=Math.max(0,pickups*perPickup);
+    const gained=Math.min(charges,Math.max(0,SHIELD_CAP-p.shield)),overflow=charges-gained;
+    p.shield+=gained;
     p.maxShield=Math.max(p.maxShield,p.shield);
     if(gained)this._event("shieldUp",p.x,p.y,p.shield);
     if(overflow)this._increasePower(overflow);
@@ -213,6 +217,7 @@ export class Game {
   }
   _syncArsenal() {
     const p=this.player;
+    p.shield=Math.min(p.shield,SHIELD_CAP);p.maxShield=Math.min(p.maxShield,SHIELD_CAP);
     p.arsenal=p.level-1+p.escorts+p.sidewinder*1.5+p.signature*1.5+p.shield;
     if(this.stats)this.stats.arsenalPeak=Math.max(this.stats.arsenalPeak||0,p.arsenal);
   }
@@ -397,7 +402,9 @@ export class Game {
   // Streams stop growing at STREAM_CEILING; damage keeps scaling with no maximum.
   _fire() {
     const p=this.player,level=p.level,structural=Math.min(level,STREAM_CEILING);
-    const over=Math.max(0,level-STREAM_CEILING),scale=1+over*OVERPOWER_DAMAGE,grow=Math.min(2.5,over*.12);
+    const over=Math.max(0,level-STREAM_CEILING),scale=1+over*OVERPOWER_DAMAGE,grow=overpowerGrowth(over);
+    // Collision grows at half the visual rate: shots look heavier than they hit.
+    const hitGrow=grow*.5;
     if(p.weaponType==="spread") {
       // Kestrel: 2 streams at power 1, 9 at power 8. The core columns stay
       // parallel (1942 tracer wall); only the outermost pair fans out.
@@ -405,7 +412,7 @@ export class Game {
       for(let i=0;i<n;i++) {
         const off=i-center,fan=Math.max(0,Math.abs(off)-core)*Math.sign(off);
         this._shot({x:p.x+off*(p.focus?6:8),y:p.y-20,
-          vx:fan*(p.focus?16:62),vy:-870,r:(level>=4?4.5:3.5)+grow,
+          vx:fan*(p.focus?16:62),vy:-870,r:(level>=4?4.5:3.5)+grow,hitR:(level>=4?4.5:3.5)+hitGrow,
           damage:(p.focus?8:7)*scale,kind:p.focus?"lance":"shot",age:0});
       }
     } else if(p.weaponType==="missile") {
@@ -415,14 +422,14 @@ export class Game {
       for(let i=0;i<n;i++) {
         const off=i-center;
         this._shot({x:p.x+off*13,y:p.y-20,vx:off*(p.focus?12:48),vy:-800,
-          r:3.8+grow,damage:(p.focus?8:7)*scale,kind:"shot",age:0});
+          r:3.8+grow,hitR:3.8+hitGrow,damage:(p.focus?8:7)*scale,kind:"shot",age:0});
       }
       if(this._missileClock<=0) {
         const count=Math.min(4,1+Math.floor((structural-1)/2));
         for(let i=0;i<count;i++) {
           const side=count===1?0:(i%2?1:-1)*(1+Math.floor(i/2));
           this._shot({x:p.x+side*17,y:p.y-12,vx:side*80,vy:-460,
-            r:6+grow*.5,damage:(25+structural*2)*scale,kind:"missile",age:0,targetId:null});
+            r:6+grow*.5,hitR:6+hitGrow*.5,damage:(25+structural*2)*scale,kind:"missile",age:0,targetId:null});
         }
         this._missileClock=Math.max(.42,.62-structural*.025);
         this._event("missileLaunch",p.x,p.y,p.shipId);
@@ -437,7 +444,7 @@ export class Game {
       for(let i=0;i<n;i++) {
         const off=n===1?0:n===2?(i?9:-9):(i-(n-1)/2)*12;
         this._shot({x:p.x+off,y:p.y-22,vx:0,vy:-1020,
-          r:4+structural*.15+grow,damage,kind:"pierce",age:0,pierceRemaining:2+Math.floor(structural/2),hitIds:[]});
+          r:4+structural*.15+grow,hitR:4+structural*.15+hitGrow,damage,kind:"pierce",age:0,pierceRemaining:2+Math.floor(structural/2),hitIds:[]});
       }
     }
     this._fireEscorts();
@@ -583,9 +590,9 @@ export class Game {
   _spawnWave(pattern) {
     this.wave++;
     const w=this.wave,s=this.stage;
-    // Sector 1's opening beats carry guaranteed power so a sortie ramps fast
-    // (the 0.6 s split here, the 4.7 s drift, and the 7.5 s wing's carrier).
-    const opening=s===1&&this.stageTime<9;
+    // Sector 1 is the power warm-up: every split's lead wing, the bomber pair's
+    // lead and every drift's centre scout carry a guaranteed power (6 levels).
+    const warmup=s===1;
     if(pattern==="split") {
       // Split spearhead: two readable lanes that close toward the centre.
       const squad=this._newSquad();
@@ -594,7 +601,7 @@ export class Game {
         this._enemy("scout",x,-25-Math.abs(i-(7+s)/2)*32,
           {amp:(x<270?1:-1)*27,phase:i*.28,fireAt:1.35+i*.065,squad});
       }
-      this._enemy("wing",100,-115,{vx:55,amp:20,fireAt:1.65,squad,drop:opening?"power":null});
+      this._enemy("wing",100,-115,{vx:55,amp:20,fireAt:1.65,squad,drop:warmup?"power":null});
       this._enemy("wing",440,-115,{vx:-55,amp:-20,fireAt:1.65,squad});
     } else if(pattern==="wing") {
       const squad=this._newSquad();
@@ -606,7 +613,7 @@ export class Game {
       this._enemy("carrier",270,-125,{drop:"power",fireAt:1.75});
     } else if(pattern==="bomber") {
       const squad=this._newSquad();
-      this._enemy("bomber",132,-42,{amp:42,fireRate:2.05,fireAt:1.35,squad});
+      this._enemy("bomber",132,-42,{amp:42,fireRate:2.05,fireAt:1.35,squad,drop:warmup?"power":null});
       this._enemy("bomber",408,-88,{amp:-42,phase:2,fireRate:2.05,fireAt:1.6,squad});
       for(let i=0;i<5+s;i++)
         this._enemy("scout",58+i*(424/(4+s)),-80-i*21,{amp:i%2?32:-32,phase:i*.7,fireAt:1.55,squad});
@@ -672,9 +679,9 @@ export class Game {
   }
   _spawnDrift() {
     const left=this._range(75,175),right=540-left,squad=this._newSquad();
-    const opening=this.stage===1&&this.stageTime<9;
+    const warmup=this.stage===1;
     this._enemy("scout",left,-26,{amp:24,phase:this._rand()*3,fireAt:99,squad});
-    this._enemy("scout",270,-72,{amp:this._range(-22,22),fireAt:1.85,fireRate:3.6,squad,drop:opening?"power":null});
+    this._enemy("scout",270,-72,{amp:this._range(-22,22),fireAt:1.85,fireRate:3.6,squad,drop:warmup?"power":null});
     this._enemy("scout",right,-46,{amp:-24,phase:this._rand()*3,fireAt:99,squad});
   }
   _spawnFlank() {
@@ -702,6 +709,7 @@ export class Game {
     for(const e of this.enemies) {
       e.age+=h;e.flash=Math.max(0,e.flash-h*5);
       e.impactCooldown=Math.max(0,(e.impactCooldown||0)-h);
+      e.burstCooldown=Math.max(0,(e.burstCooldown||0)-h);
       if(e.type==="boss") {
         const entrance=Math.min(1,e.age/2.8);
         e.y=-145+(e.age<2.8?(1-(1-entrance)**3)*430:430);
@@ -951,13 +959,36 @@ export class Game {
     const item={x,y,r:16,type,age:0,vy:95};if(vx)item.vx=vx;
     this.pickups.push(item);this._event("drop",x,y,type);return item;
   }
-  _randomDropType(equipmentOnly=false) {
-    const table=equipmentOnly?EQUIPMENT_WEIGHTS:DROP_WEIGHTS;
+  // Generated drops (random table, ladder, squadron bonus) are kit-aware: they
+  // never offer an escort pair to a full wing or an S to a full bank. Authored
+  // drops keep their type, and anything that reaches a full kit still converts
+  // to power at pickup.
+  _canHold(type) {
+    const p=this.player;
+    return type==="escort"?p.escorts<MAX_ESCORTS:type==="shield"?p.shield<SHIELD_CAP:true;
+  }
+  _rollTable(table) {
     let roll=this._rand()*table.reduce((sum,[,w])=>sum+w,0);
     for(const [type,weight] of table){if((roll-=weight)<0)return type;}
     return table[0][0];
   }
-  _bonusDropType() { return BONUS_LADDER[this._bonusIndex++%BONUS_LADDER.length]; }
+  // A random roll the kit can't hold drops nothing. The squadron item is a
+  // guaranteed reward, so it re-rolls among the equipment the kit can hold.
+  _randomDropType(equipmentOnly=false) {
+    const type=this._rollTable(equipmentOnly?EQUIPMENT_WEIGHTS:DROP_WEIGHTS);
+    if(this._canHold(type))return type;
+    return equipmentOnly?this._rollTable(EQUIPMENT_WEIGHTS.filter(([t])=>this._canHold(t))):null;
+  }
+  // Ladder rungs the kit can't hold are skipped (sidewinder is always held).
+  _bonusDropType() {
+    let type="sidewinder";
+    for(let tries=0;tries<=BONUS_CYCLE.length;tries++) {
+      const i=this._bonusIndex++;
+      type=i<BONUS_LADDER.length?BONUS_LADDER[i]:BONUS_CYCLE[(i-BONUS_LADDER.length)%BONUS_CYCLE.length];
+      if(this._canHold(type))break;
+    }
+    return type;
+  }
   // Several items from one kill fan out sideways so each is readable.
   _dropMany(x,y,types) {
     types.forEach((type,i)=>this._drop(x,y,type,(i-(types.length-1)/2)*70));
@@ -1011,6 +1042,7 @@ export class Game {
   }
   _collect(item) {
     const p=this.player,value=Math.max(1,Math.floor(item.value||1));
+    let reported=item.type;
     this.stats.pickups++;
     if(item.type==="power") this._increasePower(value);
     else if(item.type==="escort") this._addEscorts(value);
@@ -1019,15 +1051,16 @@ export class Game {
     else if(item.type==="reflector") this._addReflector(REFLECTOR_PICKUP*value);
     else if(item.type==="signature") this._addSignature(value);
     else if(item.type==="bomb") {
-      // A full bomb bay turns the pickup into a power level.
-      if(p.bombs>=MAX_BOMBS)this._increasePower(1);else p.bombs++;
+      // A full bomb bay turns the pickup into a power level, reported as a
+      // power pickup so presentation plays one power cue, not a bomb cue too.
+      if(p.bombs>=MAX_BOMBS){this._increasePower(1);reported="power";}else p.bombs++;
     }
     else this._awardScore(Math.round(1500*this.combo));
     this._burst(item.x,item.y,22,"gold",140,"pickup");
     // Salvage reports only salvageRecover (amount = levels carried); ordinary
     // pickups report pickup. Follow-on events (powerUp, escortJoin...) stay.
     if(item.salvage){this.stats.salvageRecovered+=value;this.events.push({type:"salvageRecover",x:item.x,y:item.y,value:item.type,amount:value});}
-    else this._event("pickup",item.x,item.y,item.type);
+    else this._event("pickup",item.x,item.y,reported);
   }
   // At the cap, new decorative particles are dropped (no array shifting);
   // critical feedback may overflow up to PARTICLE_HARD_CAP. Callers draw their
@@ -1059,7 +1092,7 @@ export class Game {
       for(const e of this.enemies) {
         if(e.dead||e.y< -70||shot.hitIds?.includes(e.id))continue;
         const reactor=e.reactor;
-        if(reactor&&!reactor.broken&&e.age>=reactor.opensAt&&!shot.hitIds?.includes(reactor.id)&&Math.hypot(shot.x-reactor.x,shot.y-reactor.y)<reactor.r+shot.r){
+        if(reactor&&!reactor.broken&&e.age>=reactor.opensAt&&!shot.hitIds?.includes(reactor.id)&&Math.hypot(shot.x-reactor.x,shot.y-reactor.y)<reactor.r+(shot.hitR||shot.r)){
           if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
           reactor.hp-=shot.damage;
           if(this._pierces(shot)){shot.hitIds.push(reactor.id);if(--shot.pierceRemaining<=0||shot.kind==="torpedo")shot.dead=true;}
@@ -1071,7 +1104,7 @@ export class Game {
         }
         const dx=shot.x-e.x,dy=shot.y-e.y;
         const hit=e.type==="boss" ? dx*dx/(98*98)+dy*dy/(55*55)<1 :
-          dx*dx+dy*dy<(shot.r+e.r*.78)**2;
+          dx*dx+dy*dy<((shot.hitR||shot.r)+e.r*.78)**2;
         if(!hit)continue;
         if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
         const previousHp=e.hp;
@@ -1096,8 +1129,13 @@ export class Game {
               if(other.hp<=0)this._killEnemy(other);
             }
           }
-          this._event(armorStopped?"bossArmorHit":"missileHit",shot.x,shot.y,e.type);
-          if(torpedo)this.events[this.events.length-1].torpedo=true;
+          // Burst cues are gated per target, so a salvo landing together reads
+          // as one blast; damage, splash and particles above are untouched.
+          if((e.burstCooldown||0)<=0) {
+            this._event(armorStopped?"bossArmorHit":"missileHit",shot.x,shot.y,e.type);
+            if(torpedo)this.events[this.events.length-1].torpedo=true;
+            e.burstCooldown=BURST_CUE_COOLDOWN;
+          }
         }
         // Contact cues respect the per-target cooldown; rails may cut in only
         // once it has nearly run out, so pierce volleys cannot flood events.
@@ -1323,16 +1361,15 @@ export class Game {
       // of the random table; heavies and loners still roll it.
       const formation=e.squad&&(e.type==="scout"||e.type==="wing");
       if(e.drop)drops.push(e.drop);
-      else if(!formation&&this._rand()<(DROP_CHANCE[e.type]??.05))drops.push(this._randomDropType());
+      else if(!formation&&this._rand()<(DROP_CHANCE[e.type]??.035)){const type=this._randomDropType();if(type)drops.push(type);}
       for(let i=0;i<(BONUS_DROPS[e.type]||0);i++)drops.push(this._bonusDropType());
-      // Squadron wipe: the last kill of an intact formation adds a power plus
-      // a weighted equipment item to this kill's fan.
+      // Squadron wipe: the last kill of an intact formation adds a weighted
+      // equipment item (no power) to this kill's fan.
       const squad=e.squad&&this._squads.get(e.squad);
       let wiped=0;
       if(squad&&++squad.killed>=squad.total) {
         this._squads.delete(e.squad);wiped=squad.total;this.stats.squadronBonuses++;
-        drops.push("power");
-        for(let i=1;i<SQUADRON_BONUS_DROPS;i++)drops.push(this._randomDropType(true));
+        for(let i=0;i<SQUADRON_BONUS_DROPS;i++)drops.push(this._randomDropType(true));
       }
       if(drops.length)this._dropMany(e.x,e.y,drops);
       if(wiped)this.events.push({type:"squadronBonus",x:e.x,y:e.y,value:wiped,drops:SQUADRON_BONUS_DROPS});

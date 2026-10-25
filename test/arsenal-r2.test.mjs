@@ -122,7 +122,7 @@ test('the guard countdown (guardUntil) falls faster than real time while the flo
   assert.ok(boss.age < 10, 'phase two arrives before the authored ten seconds');
 });
 
-test('shield charges cap at 3 for every ship; S pickups at the cap become +1 power', () => {
+test('shield charges cap at 3 for every ship; each charge past the cap becomes +1 power', () => {
   const game = quiet(), p = game.player;
   for (let i = 0; i < 3; i++) give(game, 'shield');
   assert.equal(p.shield, 3); assert.equal(p.level, 2);
@@ -132,9 +132,11 @@ test('shield charges cap at 3 for every ship; S pickups at the cap become +1 pow
   assert.ok(!types(game).includes('shieldUp'), 'no shieldUp when nothing was added');
   const manta = quiet('manta');
   give(manta, 'shield'); assert.equal(manta.player.shield, 3, 'Manta: 1 + 2');
-  give(manta, 'shield'); assert.equal(manta.player.shield, 3); assert.equal(manta.player.level, 3);
+  give(manta, 'shield'); assert.equal(manta.player.shield, 3);
+  assert.equal(manta.player.level, 4, 'round 3: overflow counts per charge, so both Manta charges become power');
   manta.player.shield = 2; give(manta, 'shield');
-  assert.equal(manta.player.shield, 3, 'a partial top-up fills the bank'); assert.equal(manta.player.level, 3);
+  assert.equal(manta.player.shield, 3, 'a partial top-up fills the bank');
+  assert.equal(manta.player.level, 5, 'and the charge that does not fit becomes power');
 });
 
 test('a bomb pickup with a full bay (4) becomes +1 power', () => {
@@ -160,23 +162,22 @@ test('the sector-1 opening ramps an engaged pilot to power 4, power 6 and an esc
   }
 });
 
-test('wiping a whole formation drops a two-item bonus fan; one escapee spoils it', () => {
-  const wipe = quiet(); wipe.stage = 1; wipe.stageTime = 30;
+test('wiping a whole formation drops one equipment item (never power); one escapee spoils it', () => {
+  const wipe = quiet(); wipe.stage = 2; wipe.stageTime = 30;  // sector-1 drifts carry authored power
   wipe._spawnStageBeat('drift');
   const squad = wipe.enemies.filter(e => e.squad);
   assert.equal(squad.length, 3);
   wipe.events = [];
   for (const e of squad) wipe._killEnemy(e);
   const bonus = wipe.events.filter(e => e.type === 'squadronBonus');
-  assert.equal(bonus.length, 1); assert.equal(bonus[0].value, 3); assert.equal(bonus[0].drops, 2);
+  assert.equal(bonus.length, 1); assert.equal(bonus[0].value, 3); assert.equal(bonus[0].drops, 1);
   const last = squad[2];
   assert.equal(bonus[0].x, last.x); assert.equal(bonus[0].y, last.y);
-  assert.equal(wipe.pickups.length, 2, 'the fan is two pickups at the last kill');
-  assert.equal(wipe.pickups[0].type, 'power');
-  assert.notEqual(wipe.pickups[1].type, 'power', 'the second item is equipment');
+  assert.equal(wipe.pickups.length, 1, 'the bonus is a single item at the last kill');
+  assert.notEqual(wipe.pickups[0].type, 'power', 'and it is equipment, never power');
   assert.equal(wipe.stats.squadronBonuses, 1);
 
-  const spoiled = quiet(); spoiled.stage = 1; spoiled.stageTime = 30;
+  const spoiled = quiet(); spoiled.stage = 2; spoiled.stageTime = 30;
   spoiled._spawnStageBeat('drift');
   const [runner, ...rest] = spoiled.enemies;
   runner.y = 1000; spoiled._cleanup();

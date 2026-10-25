@@ -22,7 +22,7 @@ Simulation (`src/game.js`) owns these fields. Presentation (`render.js`, `ui.js`
 | `escortSlots` | array of `{x, y, side, rank}` | World positions of each escort, updated every tick by the simulation. They follow the player with a spring lag. Focus pulls them into a tight forward formation. |
 | `sidewinder` | integer ≥ 0, uncapped | Sidewinder missile rack level. |
 | `shield` | integer 0–`shieldCap` | Shield charges. Each charge fully absorbs one hit, with no scatter and no hull loss. |
-| `shieldCap` | integer, 3 | Most charges any ship can hold (round 2). S pickups at the cap become +1 power. |
+| `shieldCap` | integer, 3 | Most charges any ship can hold (round 2). Charges fill the bank to the cap; each charge past it becomes +1 power (round 3). The simulation clamps `shield` and `maxShield` to the cap in `_syncArsenal`. |
 | `maxShield` | integer | Display hint only: the highest charge count reached this life (at least 1 for Manta). Never above `shieldCap`. |
 | `magnetBoost` | seconds ≥ 0 | Round 2. Time left on the roll-to-recover magnet pulse: 0.35 s after a roll ends, the pickup magnet is ×1.8. |
 | `reflector` | seconds ≥ 0 | Reflector shield time remaining. |
@@ -38,18 +38,19 @@ Pickups keep the existing shape `{x, y, r, type, age, vy}`. New optional fields:
 | `type` | Glyph | Effect |
 | --- | --- | --- |
 | `power` | P (gold) | `level += value` (value defaults to 1). |
-| `escort` | E (white-blue) | +2 escorts up to 6. Past 6, it gives +2 power instead. Never wasted. |
+| `escort` | E (white-blue) | +2 escorts up to 6. Past 6, it gives +1 power instead (round 3; was +2). Never wasted. |
 | `sidewinder` | M (amber) | `sidewinder += 1`. |
-| `shield` | S (cyan) | `shield += 1` (Manta gets +2), up to `shieldCap` (3). At the cap the pickup gives +1 power instead. This replaces the old non-Manta "+1 hull" behaviour. |
+| `shield` | S (cyan) | `shield += 1` (Manta gets +2), up to `shieldCap` (3). Overflow counts per charge (round 3): each charge that does not fit is +1 power. So Manta at 2/3 banks one charge and gains 1 power, and at 3/3 gains 2 power. This replaces the old non-Manta "+1 hull" behaviour. |
 | `reflector` | R (violet) | `reflector += 6` seconds. |
 | `signature` | ★ (ship colour) | `signature += 1`. |
-| `bomb` | B | +1 bomb, up to 4. With a full bay it gives +1 power instead. |
+| `bomb` | B | +1 bomb, up to 4. With a full bay it gives +1 power instead and reports `pickup` with value `"power"` plus `powerUp` (round 3), so presentation plays one power cue and no bomb cue. |
 
 Drops:
 - Authored `drop:` fields in sectors 1–3 stay as they are.
 - Add drops so a strong sector-1 run ends around power 8–10 with one or two escort pairs, a sidewinder rack and a signature level.
 - Random drops roll more often than before. Weights (tunable): power 50, escort 12, sidewinder 12, signature 9, shield 9, reflector 8.
 - Round 2: the opening beats of sector 1 carry guaranteed power, and wiping a whole formation drops a squadron bonus (see "Simulation notes (arsenal round 2)").
+- Round 3: the squadron bonus is one equipment item (never power). Generated drops are kit-aware. Power after sector 1 comes from authored drops, flagship spoils and overflow conversions. See "Simulation notes (arsenal round 3)" for the power curve that Act II is tuned against.
 - Carriers and minibosses drop two or three items.
 - The old `POWER_MILESTONES` cap and the "final boss guarantees level five" rule are removed. Score extends stay.
 
@@ -59,7 +60,7 @@ The fire cadence stays around 0.09–0.105 s. Everything below scales with `leve
 
 - **Main gun:**
   - Stream count grows to a structural ceiling around level 8. Kestrel goes to 9 or more streams; Manta to quad guns plus heavier missile salvos; Wraith to triple rails with more pierce.
-  - Past the ceiling, each level adds about 6% damage and slightly larger shots.
+  - Past the ceiling, each level adds about 6% damage and slightly larger shots. Round 3: the visual radius grows by `1.6 × ln(1 + over/6)` px with no hard stop (`over = level − 8`), and the collision radius (`hitR`) by half that.
   - The game must *look* like 1942 at high power: dense parallel tracer columns, not a thin fan.
 - **Escorts:**
   - Each escort fires a lighter copy of its ship's weapon: Kestrel escorts fire twin cannons, Manta escorts fire mini-rockets, Wraith escorts fire thin rails.
@@ -111,7 +112,8 @@ Keep every existing event. Add these:
 - `shieldUp {value: charges}`
 - `orbitalEat {value: countThisTick}` (coalesce)
 - `powerUp {value: level}` already exists; it now fires at every level, uncapped.
-- `squadronBonus {x, y, value: craftWiped, drops: 2}` (round 2): the last kill of a fully wiped formation.
+- `squadronBonus {x, y, value: craftWiped, drops: 1}` (round 2; `drops` is 1 since round 3): the last kill of a fully wiped formation.
+- `pickup` (round 3): a bomb picked up with a full bay reports `value: "power"` (plus `powerUp`), not `"bomb"`.
 
 Audio must voice-limit the new high-rate events (`reflect`, `orbitalEat`, `sidewinderLaunch`), so that full power never turns to noise.
 
@@ -126,6 +128,7 @@ These are additions and refinements made while building the simulation. Every fi
 - **Extra event fields:**
   - `arsenalScatter` also has `burned` (power levels lost). Its `value` is the total of the token values (power levels plus equipment levels).
   - Torpedo bursts reuse `missileHit`, with `torpedo: true`.
+  - Round 3: burst cues (`missileHit` and burst `bossArmorHit`) are gated per target by `e.burstCooldown` (0.085 s). Damage, splash and particles are not gated.
   - New optional event `torpedoLaunch {value: count}`. Presentation may ignore it.
 - **`powerUp`:** fires once per pickup, with `value` set to the new level. A multi-level salvage token raises several levels with one event.
 - **Salvage tokens:**
@@ -136,10 +139,10 @@ These are additions and refinements made while building the simulation. Every fi
   - Salvage life is paused during the sector-clear interlude. Whatever the interlude does not collect is cleared at the next sector and counted in `stats.salvageLost`.
 - **Manta shield:** `maxShield` starts at 1 for Manta (it was 2). Drills give Manta 2 charges.
 - **Drops:**
-  - Ordinary kills drop from the weight table at these rates: scout 3.5%, wing 4%, ace 15%, bomber 25%, turret 25%.
+  - Ordinary kills drop from the weight table at these rates: scout 3.5%, wing 4%, ace 15%, bomber 25%, turret 25%. Round 3 multiplies them by about 0.7: scout 2.5%, wing 3%, ace 10%, bomber 18%, turret 18%.
   - Carriers add 1 bonus item and minibosses add 2, on top of their authored drop.
   - Each flagship drops 1 power plus 1 bonus item, collected automatically during the interlude.
-  - Bonus items follow a fixed ladder: escort, sidewinder, signature, power, reflector, shield, escort, sidewinder, signature, power, and so on. So sector 1 always yields one escort pair, a sidewinder rack and a signature level.
+  - Bonus items follow a fixed ladder. Round 3: six starter rungs (escort, sidewinder, signature, power, reflector, shield), then an equipment-only cycle (sidewinder, escort, signature, reflector, shield). Rungs the kit can't hold are skipped. So sector 1 always yields one escort pair, a sidewinder rack and a signature level.
 - **Summary and stats:** new fields `arsenalPeak`, `scatters` and `salvageRecovered`. Stats also track `salvageLost`, `reflected`, `orbitalEats` and (round 2) `squadronBonuses`.
 - **Orbitals:** orbital objects also carry an internal `fire` clock.
 
@@ -165,7 +168,7 @@ These changes answer the round-1 judges. Where they change the contract above, t
   - The owner's "no caps" is about power. Shield charges are protection, not power.
   - With uncapped stacking, a stocked Manta absorbed 8 of 13 hits in a sector-1 run without scattering. It opted out of the lose-it-and-win-it-back loop that this overhaul is about.
   - Manta keeps its identity: it starts each life with 1 charge and gains 2 per S pickup, so it reaches the cap fastest.
-  - S pickups at the cap become +1 power, so they are never wasted. A partial top-up (Manta at 2) just fills the bank.
+  - S pickups at the cap become +1 power, so they are never wasted. A partial top-up (Manta at 2) just fills the bank. (Superseded in round 3: overflow counts per charge.)
 - **Ramp ("insanely powerful right away").**
   - Sorties start at power 2.
   - Sector 1's opening beats carry guaranteed power: the left wing of the 0.6 s split, the centre scout of the 4.7 s drift, and the 7.5 s wing's carrier (as before).
@@ -176,9 +179,10 @@ These changes answer the round-1 judges. Where they change the contract above, t
     - it reaches Vesper at power 17–23 with 2–6 escorts.
   - A mortal dodging bot reaches Vesper at power 14–23, against 3–10 in round 1. Most of the extra comes from squadron bonuses.
   - The old "a strong sector-1 run ends around power 8–10" target is retired.
+  - (Superseded in round 3: these arrivals snowballed to power 50–90 at the Crown. See "Simulation notes (arsenal round 3)".)
 - **Squadron bonus (1942 style).**
   - Formation waves get a squad id: drift (3 scouts), split, wing (fighters only), ace, bomber and cross (fighters only). Carriers fly outside the squadron.
-  - When every craft of a squad is killed (by any player damage, including bombs and splash), the last kill's fan adds 1 power plus 1 item from the weight table without power. The event is `squadronBonus`.
+  - When every craft of a squad is killed (by any player damage, including bombs and splash), the last kill's fan adds 1 power plus 1 item from the weight table without power. The event is `squadronBonus`. (Round 3: one equipment item, no power.)
   - A craft that leaves the screen deletes the squad, which spoils the bonus.
   - Squads are cleared when a flagship spawns or a stage advances. `stats.squadronBonuses` counts payouts.
   - Formation scouts and wings no longer roll the random drop table; they pay out through the squadron bonus. Heavies (bomber, ace, turret) still roll.
@@ -195,9 +199,67 @@ These changes answer the round-1 judges. Where they change the contract above, t
   - `selectShip` resets to a bare sortie loadout: power 2, no escorts, sidewinder, signature, reflector or orbitals, and the ship's starting shield.
   - A stage advance adds uncollected salvage to `stats.salvageLost` before clearing it.
   - Contact cues (`railHit`, `bossCoreHit`, `bossArmorHit`, `chipHit`) respect the per-target impact cooldown. A pierce shot may cut in once the cooldown is at or below 0.04 s. Maxed Wraith on Vesper drops from 36.6 to about 15 cues/s.
-  - Missile and torpedo burst cues (`missileHit` and burst `bossArmorHit`) are not cooldown-gated, as before; maxed Manta makes about 18 per second.
-  - Particles: at 380, decorative particles are dropped instead of shifting the array. Critical kinds (boss, phase, ring, bomb, scatter, damage, shield, power, pickup, roll) may overflow to 520. The seeded random stream is unchanged by the cap.
+  - Missile and torpedo burst cues (`missileHit` and burst `bossArmorHit`) are not cooldown-gated, as before; maxed Manta makes about 18 per second. (Round 3: gated per target, see below.)
+  - Particles: at 380, decorative particles are dropped instead of shifting the array. Critical kinds (boss, phase, ring, bomb, scatter, damage, shield, power, pickup, roll and, since round 3, explode) may overflow to 520. The seeded random stream is unchanged by the cap.
   - Homing shots find their target and the nearest enemy in one loop, with no per-shot closure.
+
+### Simulation notes (arsenal round 3)
+
+These changes stop the round-2 snowball and set the power curve that Act II is tuned against. Where they change the contract above, the line above has been updated too.
+
+- **Why.** In round 2, an engaged no-hit pilot reached Vesper at power 18–27, Aurelia at 49–58 and the Crown at 79–91, and every flagship died at the 12 s floor. The squadron bonus (1 power plus 1 item per wipe) and overflow conversions at a full kit compounded each other.
+- **Changes.**
+  - The squadron bonus is one item from the equipment table, never power (`SQUADRON_BONUS_DROPS = 1`).
+  - Escort overflow is +1 power per surplus pair (was +2).
+  - Shield overflow counts per charge. This raises Manta's curve: an authored S at a full bank is worth +2, which puts Manta about 5 levels above the other ships at Aurelia and about 8 at the Crown.
+  - Generated drops are kit-aware. Random rolls, ladder rungs and the squadron item never offer an escort pair to a full wing or an S to a full bank:
+    - a random roll that lands there drops nothing;
+    - the ladder skips to the next rung;
+    - the squadron item re-rolls among the equipment the kit can hold.
+    Authored drops keep their type, and anything that reaches a full kit still converts at pickup.
+  - The bonus ladder is six starter rungs (escort, sidewinder, signature, power, reflector, shield), then an equipment-only cycle (sidewinder, escort, signature, reflector, shield). Power past sector 1 comes from authored drops, flagship spoils and conversions.
+  - Random drop chances are multiplied by about 0.7: scout 2.5%, wing 3%, ace 10%, bomber 18%, turret 18%.
+  - Sector 1 is the power warm-up. Every split's lead wing, the bomber pair's lead and every drift's centre scout carry power (6 guaranteed levels). Enemy content is unchanged; only `drop:` fields were added.
+- **Power curve.** Arrival power at each flagship. For the engaged pilot, the value is the default seed with the range over 6 seeds in brackets:
+
+| Bot | Ship | Vesper | Aurelia | Crown |
+| --- | --- | --- | --- | --- |
+| Engaged pilot (the regression bot) | Kestrel | 13 [13–15] | 24 [23–27] | 38 [36–39] |
+| | Manta | 13 [13–14] | 30 [27–30] | 47 [42–48] |
+| | Wraith | 14 [13–14] | 26 [23–27] | 36 [36–43] |
+| Engaged greedy (chases every pickup) | Kestrel | 14 [13–17] | 27 [24–29] | 39 [37–43] |
+| | Manta | 15 [15–17] | 30 [28–32] | 46 [45–51] |
+| | Wraith | 15 [13–17] | 27 [23–27] | 41 [37–42] |
+| Mortal dodger, lives refilled (6-seed mean) | Kestrel | 6.2 | 9.0 | 16.3 |
+| | Manta | 14.8 | 27.8 | 40.3 |
+| | Wraith | 4.5 | 13.5 | 21.5 |
+
+  - The engaged pilot is the regression bot: fire held, lines up under the lowest enemy, detours to pickups within 300 px, invulnerable. `test/arsenal-r3.test.mjs` pins its arrivals at Vesper 12–16, Aurelia 22–32 and the Crown 35–50 for all three ships. The greedy bot is the feel judge's bot A; the dodger is its bot B with lives refilled.
+  - A mortal Kestrel or Wraith dodger arrives far lower: it scatters 8–10 times in sector 1. Manta's shields keep its dodger close to the engaged curve.
+- **Ramp (engaged pilot).** Power 4 at 8.8–9.2 s (worst of 6 seeds: 10.1 s). Power 6 at 16.7–17.3 s (worst 17.8 s). First escort pair at 8.3–12.9 s (worst 14.4 s).
+- **Boss kill times.** Invulnerable bot tracking the flagship with fire held, in seconds:
+
+| Ship | Vesper: drill / arrival / P25 kit | Aurelia: drill / arrival / P25 kit | Crown: drill / arrival / P25 kit |
+| --- | --- | --- | --- |
+| Kestrel | 20.9 / 14.8 (P13) / 12.2 | 21.9 / 14.3 (P24) / 16.4 | 21.8 / 13.0 (P38) / 17.6 |
+| Manta | 20.7 / 14.0 (P13) / 12.1 | 21.3 / 12.1 (P30) / 15.0 | 21.4 / 12.1 (P47) / 16.5 |
+| Wraith | 20.0 / 13.0 (P14) / 12.1 | 21.5 / 12.3 (P26) / 14.7 | 21.3 / 12.1 (P36) / 16.2 |
+
+  Vesper no longer sits on the floor at arrival for Kestrel and Manta; Aurelia and the Crown still reach it for strong arrival kits.
+- **Act II tuning reference (required).** Sector 4 (LEVIATHAN and the Act II HP curve) must be tuned against a **power-25 full-kit DPS**:
+  - The kit is power 25, 6 escorts, sidewinder 4, signature 4, shield 3.
+  - Measured raw flagship DPS (guard ignored, invulnerable tracking bot): Kestrel 1,820, Manta 2,090, Wraith 2,110. The Crown drill kit is 1,020–1,110 for comparison.
+  - Strong players arrive above the reference: the engaged pilot's Crown kits measure 3,150 (Kestrel P38 M14 ★12), 4,620 (Manta P47 M16 ★12) and 4,150 (Wraith P36 M21 ★11). Round 2's were 4,950–6,620.
+  - Sidewinder and signature levels are uncapped and now carry much of the late growth: M14–21 and ★11–12 at the Crown. Re-measure DPS from the arrival kits rather than from power alone. Consider diminishing returns for those levels before Act II if arrival DPS outruns the guard floors.
+- **Shot growth.** `overpowerGrowth(over) = 1.6 × ln(1 + over/6)` px, with `over = level − 8`:
+  - about +0.9 px at power 13, +1.8 at 20, +2.5 at 30, +3.3 at 50 and +4.1 at 80, with no hard stop (was `min(2.5, over × 0.12)`).
+  - Main-gun shots carry `hitR`, the collision radius, which grows at half that rate. `r` stays the visual radius. Damage scaling is unchanged.
+- **Burst cue gate.** Each enemy carries `burstCooldown`, decremented with `impactCooldown`. Burst `missileHit` / `bossArmorHit` events fire only when it is 0 or less, then reset it to 0.085 s. Damage, splash and the particle random stream are untouched; a test runs the same duel with and without the gate and checks boss HP tick for tick. On a Manta flagship duel, missile and armour cues fall from 19–24/s to 11–13/s; the remainder includes the ordinary contact armour cue.
+- **Other.**
+  - `explode` is a critical particle kind.
+  - `_syncArsenal` clamps `shield` and `maxShield` to `SHIELD_CAP`.
+  - `stats.squadronBonuses` still counts one per wipe; the regression test checks it against the `squadronBonus` events.
+- **Known cost, deferred to the human playtest.** Less power means slower kills for players who keep getting hit. Over 10 seeds of the mortal dodger (no lives refill), clearing sector 1 dropped from 5/10 to 2/10 for Kestrel and from 5/10 to 2/10 for Wraith; Manta still clears 10/10. Deaths cluster after the 42 s split. Restoring sector-1 random rates or removing the 42 s split power did not change this; the cause is the lower power level in the 40–50 s stretch. Sector 1–3 enemy content is unchanged, as instructed.
 
 ### HUD
 
@@ -244,7 +306,7 @@ Enemy bullets must stay readable through full player firepower. Player shots sta
   - **Phase 1, "Deck guns":** four destructible deck turrets with separate patterns (aimed triple streams, rotating fans, flak bursts, broadside rows). The core takes 25% damage while any turret lives. Destroying a turret awards points and drops an item.
   - **Phase 2, "Broadside":** the hull rolls its batteries out. Alternating left and right walls of bullets with readable gaps. Destructible homing torpedoes that firepower must shoot down. Void rounds enter the mix.
   - **Phase 3, "Monsoon engine":** an exposed core spins counter-rotating spirals and launches scavengers at any floating salvage. It ends in a desperation curtain on a guard floor.
-  - HP is tuned so a fully equipped ship takes about 60–80 s and a bare ship about 3 times longer. Use the existing learn-age guard floors so each phase plays out. Since round 2 those floors run on the effective learn age (see "Boss guard clock"); give LEVIATHAN its own `BOSS_GUARD_PAR` entry and learn windows.
+  - HP is tuned so a fully equipped ship takes about 60–80 s and a bare ship about 3 times longer. "Fully equipped" means the power-25 full-kit reference in "Simulation notes (arsenal round 3)", not a Crown arrival kit. Use the existing learn-age guard floors so each phase plays out. Since round 2 those floors run on the effective learn age (see "Boss guard clock"); give LEVIATHAN its own `BOSS_GUARD_PAR` entry and learn windows.
   - Drill: LEVIATHAN unlocks after encountering it. Raise the `bossSeen` and `bestClears` limits from 3 to `CAMPAIGN_STAGES`.
 
 ### Sector 5: SKYFORGE (planned, not built yet)
