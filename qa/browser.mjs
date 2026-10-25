@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {chromium,firefox} from 'playwright';
+import {CAMPAIGN_STAGES} from '../src/game.js';
 const origin=process.env.GAME_URL||'http://127.0.0.1:4173/';
 const out=new URL(process.env.QA_OUTPUT||'../artifacts/current/',import.meta.url);await mkdir(out,{recursive:true});
 const browserType=process.env.QA_BROWSER==='firefox'?firefox:chromium;
@@ -47,14 +48,14 @@ try{
  if(hooks){
   await p.evaluate(()=>{window.__game.player.invuln=999;});await p.keyboard.down('Space');await p.waitForTimeout(8000);await p.keyboard.up('Space');
   await p.screenshot({path:new URL('combat-live.png',out).pathname});
-  for(const stage of [1,2,3]){
+  for(let stage=1;stage<=CAMPAIGN_STAGES;stage++){
    await p.evaluate(stage=>{const g=__game;g.reset();g._start();g.stage=stage;g.stageTime=30;g.scroll=3500;g._beatIndex=99;g._laneIndex=99;g.player.invuln=999;g._spawnBoss();g.boss.age=24;g.boss.phase=3;g.boss.hp=g.boss.maxHp*.3;g.boss.fireAt=24;g.player.level=3;g.player.power=3;},stage);
    await p.keyboard.down('Space');await p.waitForTimeout(2300);await p.keyboard.up('Space');
    await p.locator('#game').screenshot({path:new URL(`boss-${stage}-staged.png`,out).pathname});
    report.stagedCaptures.push(await p.evaluate(()=>({stage:__game.stage,bullets:__game.bullets.length,mode:__game.mode})));
   }
   await p.locator('#pauseButton').click();await p.locator('#retryPauseButton').click();
-  await p.evaluate(()=>{localStorage.removeItem('2026-high-score');__game.stage=3;__game._advanceStage();});await p.waitForTimeout(300);
+  await p.evaluate(final=>{localStorage.removeItem('2026-high-score');__game.stage=final;__game._advanceStage();},CAMPAIGN_STAGES);await p.waitForTimeout(300);
   const scores=await p.evaluate(()=>({actual:__game.score,saved:Number(localStorage.getItem('2026-high-score'))}));assert.equal(scores.actual,scores.saved);report.checks.endScoreFlush=scores;
  }else report.checks.noPublicHooks=true;
  await p.close();
@@ -128,16 +129,16 @@ try{
    if(browserType!==firefox||context.state!=='suspended'||context.time!==0)throw error;
    terminalAudioReady=false;report.audioLimitation='This host also leaves a bare Firefox AudioContext.resume pending at time0. Terminal voice counts are verified in Chromium; Firefox flow checks continue without an audio-output claim.';
   }
-  await terminal.evaluate(outcome=>{
+  await terminal.evaluate(([outcome,final])=>{
    const g=window.__qaTerminalGame;
    window.__qaTerminalCues={dispatches:0,oscillators:0};
    const a=__qaTerminalAudio,play=a.playEvent.bind(a),create=a.ctx.createOscillator.bind(a.ctx);
    let terminalCue=false;
    a.ctx.createOscillator=()=>{if(terminalCue)__qaTerminalCues.oscillators++;return create();};
    a.playEvent=(event,game)=>{terminalCue=['victory','gameover'].includes(event.type);if(terminalCue)__qaTerminalCues.dispatches++;try{play(event,game);}finally{terminalCue=false;}};
-   if(outcome==='victory'){g.stage=3;g.boss=null;g.enemies=[];g._transition=.001;}
+   if(outcome==='victory'){g.stage=final;g.boss=null;g.enemies=[];g._transition=.001;}
    else{g.player.hp=1;g.player.lives=1;g.player.invuln=0;g.bullets.push({x:g.player.x,y:g.player.y,vx:0,vy:0,r:5,kind:'red'});}
-  },outcome);
+  },[outcome,CAMPAIGN_STAGES]);
   await terminal.locator('#endScreen').waitFor({state:'visible'});
   await terminal.locator('#skipCinemaButton').click();assert.ok(await terminal.locator('#retryButton').isVisible());
   const record=await terminal.evaluate(()=>({score:__qaTerminalGame.score,saved:Number(localStorage.getItem('2026-high-score')),mode:__qaTerminalGame.mode}));

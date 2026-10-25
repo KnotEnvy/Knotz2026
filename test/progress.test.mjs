@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Game} from '../src/game.js';
+import {Game,CAMPAIGN_STAGES} from '../src/game.js';
 import {readProgress,saveProgress,markEncounter,recordFlight,flightAdvice,readDrillRecords,recordDrill,flightTime,drillClearTier} from '../src/progress.js';
 
 test('flagship drills use sector weapons, end after one boss and preserve campaign high score',()=>{
@@ -39,8 +39,8 @@ test('career records are per-airframe, monotonic, persisted and ignore unranked 
 });
 test('career handles corrupt and denied storage without blocking a flight',()=>{
   for(const value of ['{broken','null','{"bossSeen":99,"ships":{"manta":{"bestScore":-1,"bestClears":99}}}']){
-    const progress=readProgress({getItem:()=>value});assert.ok(progress.bossSeen>=1&&progress.bossSeen<=3);
-    assert.ok(progress.ships.manta.bestScore>=0);assert.ok(progress.ships.manta.bestClears<=3);
+    const progress=readProgress({getItem:()=>value});assert.ok(progress.bossSeen>=1&&progress.bossSeen<=CAMPAIGN_STAGES);
+    assert.ok(progress.ships.manta.bestScore>=0);assert.ok(progress.ships.manta.bestClears<=CAMPAIGN_STAGES);
   }
   const denied={getItem:()=>{throw Error('denied')},setItem:()=>{throw Error('denied')}};
   assert.equal(readProgress(denied).bossSeen,1);assert.doesNotThrow(()=>saveProgress(readProgress(denied),denied));
@@ -77,7 +77,7 @@ test('drill benchmarks track independent time and hit bests without touching cam
   const before=JSON.stringify(readDrillRecords(storage));
   assert.equal(recordDrill(records,{...clear,outcome:'defeat'},storage),null);
   assert.equal(recordDrill(records,{...clear,practiceStage:0},storage),null);
-  assert.equal(recordDrill(records,{...clear,practiceStage:4},storage),null);
+  assert.equal(recordDrill(records,{...clear,practiceStage:CAMPAIGN_STAGES+1},storage),null);
   assert.equal(recordDrill(records,{...clear,time:NaN},storage),null);
   assert.equal(JSON.stringify(readDrillRecords(storage)),before);
   assert.equal(values.get('2026-career'),'untouched');assert.equal(values.get('2026-high-score'),'12345');

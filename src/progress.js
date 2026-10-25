@@ -1,4 +1,7 @@
-import { SHIP_IDS } from './game.js';
+import { SHIP_IDS, CAMPAIGN_STAGES } from './game.js';
+
+// Flagships 1..CAMPAIGN_STAGES can be seen, cleared and drilled.
+const DRILL_STAGES=Array.from({length:CAMPAIGN_STAGES},(_,i)=>i+1);
 
 const integer=value=>Number.isFinite(Number(value))?Math.max(0,Math.floor(Number(value))):0;
 const emptyRecord=()=>({sorties:0,wins:0,bestScore:0,bestClears:0,bestGrazes:0,bestConversions:0});
@@ -8,12 +11,12 @@ export function readProgress(storage) {
   const progress={bossSeen:1,ships:Object.fromEntries(SHIP_IDS.map(id=>[id,emptyRecord()]))};
   try{
     const saved=JSON.parse((storage||globalThis.localStorage)?.getItem('2026-career')||'{}');
-    progress.bossSeen=Math.max(1,Math.min(3,integer(saved.bossSeen)));
+    progress.bossSeen=Math.max(1,Math.min(CAMPAIGN_STAGES,integer(saved.bossSeen)));
     for(const id of SHIP_IDS)for(const key of Object.keys(progress.ships[id])){
       const value=saved.ships?.[id]?.[key];
       if(Number.isFinite(value))progress.ships[id][key]=integer(value);
     }
-    for(const record of Object.values(progress.ships))record.bestClears=Math.min(3,record.bestClears);
+    for(const record of Object.values(progress.ships))record.bestClears=Math.min(CAMPAIGN_STAGES,record.bestClears);
   }catch{}
   savedSnapshots.set(progress,snapshot(progress));return progress;
 }
@@ -34,7 +37,7 @@ export function saveProgress(progress,storage) {
   }catch{return false;}
 }
 export function markEncounter(progress,stage) {
-  const next=Math.max(progress.bossSeen,Math.min(3,integer(stage)));
+  const next=Math.max(progress.bossSeen,Math.min(CAMPAIGN_STAGES,integer(stage)));
   if(next===progress.bossSeen)return false;
   progress.bossSeen=next;return true;
 }
@@ -47,7 +50,7 @@ export function recordFlight(progress,summary,storage) {
   for(const [key,source] of [['bestScore','score'],['bestClears','bossesDefeated'],['bestGrazes','grazes'],['bestConversions','conversions']]){
     record[key]=Math.max(record[key],integer(summary[source]));
   }
-  record.bestClears=Math.min(3,record.bestClears);
+  record.bestClears=Math.min(CAMPAIGN_STAGES,record.bestClears);
   return{previous,record,newBest:record.bestScore>previous.bestScore};
 }
 export function flightAdvice(summary) {
@@ -66,7 +69,7 @@ export function flightAdvice(summary) {
 }
 
 export function drillClearTier(summary) {
-  if(![1,2,3].includes(summary?.practiceStage)||summary.outcome!=='victory')return null;
+  if(!DRILL_STAGES.includes(summary?.practiceStage)||summary.outcome!=='victory')return null;
   return summary.hitsTaken===0?'flawless':summary.livesLost===0?'controlled':'survived';
 }
 
@@ -74,7 +77,7 @@ export function readDrillRecords(storage) {
   const records={};
   try{
     const saved=JSON.parse((storage||globalThis.localStorage)?.getItem('2026-drills')||'{}');
-    for(const id of SHIP_IDS)for(const stage of [1,2,3]){
+    for(const id of SHIP_IDS)for(const stage of DRILL_STAGES){
       const key=id+'-'+stage,record=saved?.[key];
       if(record&&Number.isFinite(record.bestTime)&&record.bestTime>0&&Number.isFinite(record.fewestHits)&&record.fewestHits>=0)
         records[key]={bestTime:record.bestTime,fewestHits:integer(record.fewestHits)};
@@ -83,7 +86,7 @@ export function readDrillRecords(storage) {
   return records;
 }
 export function recordDrill(records,summary,storage) {
-  if(![1,2,3].includes(summary?.practiceStage)||summary.outcome!=='victory'||!SHIP_IDS.includes(summary.shipId)||!Number.isFinite(summary.time)||summary.time<=0)return null;
+  if(!DRILL_STAGES.includes(summary?.practiceStage)||summary.outcome!=='victory'||!SHIP_IDS.includes(summary.shipId)||!Number.isFinite(summary.time)||summary.time<=0)return null;
   const merged=readDrillRecords(storage);
   for(const [key,record] of Object.entries(records)){
     const old=merged[key];merged[key]=old?{bestTime:Math.min(old.bestTime,record.bestTime),fewestHits:Math.min(old.fewestHits,record.fewestHits)}:{...record};

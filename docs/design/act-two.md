@@ -337,7 +337,7 @@ The simulation owns state. Everyone else reads it. Builders may extend this cont
 
 **Bullets:** sector 4 uses `kind:"void"` for some turret and boss patterns. Act II raises the bullet cap to 900.
 
-**HP:** an Act II curve, tuned so the power-25 reference kit clears sector-4 popcorn instantly. Hulls take about 4–8 s of focused fire. LEVIATHAN takes about 60–80 s with the reference kit.
+**HP:** an Act II curve, tuned so the power-25 reference kit clears sector-4 popcorn instantly. Hulls take about 4–8 s of focused fire (as built: destroyer 4–9 s, cruiser 7–14 s; see "Simulation notes (sector 4)"). LEVIATHAN takes about 60–80 s with the reference kit.
 
 **Flagship LEVIATHAN** (`this.boss`, `stage === 4`)
 - `boss.name = "LEVIATHAN"`.
@@ -369,11 +369,101 @@ Existing boss events (`bossEnter`, `bossPhase`, `bossGuard`, `bossShot`, `bossDo
 - Music cues: `sector4`, `warning4`, `boss4`.
 - The sector-4 ambience bed is the typhoon bed.
 
+**World and story notes (sector 4, round 1)**
+- **Background ownership from sector 4.** `background.js` exports `worldPaintsStage(stage)`, which is true for `stage >= 4`. When it is true, the world layer paints the whole sea and its weather:
+  - `drawCoast(c, scroll, 4)` (art.js) blits the procedural Iron Monsoon sea and returns true. `drawAtlasScenery(c, 4)` also paints it, so `makeSceneTile(4)` is safe.
+  - `WorldAmbience.begin/drawSurface/drawAir/drawTransitions` take the real stage (4).
+  - render.js skips its own sector 1–3 dressing: `drawWeatherTile`, `drawActiveWeather`, `drawTerrainLights`, the light-shaft blit and the three flow-line bands. The lead agreed to apply this in render.js. Until then, teal weather-tile streaks show over the typhoon. A `seas[3]` fill of `#040b0a` suits it.
+- **Interlude length.** `timeline.js` adds `interludeLength(game)` (`game._transitionLength` when set, else `INTERLUDE_LENGTH`). `interludeProgress` uses it. `actTwoInterlude(game)` is true during the long Crown→sector 4 interlude. `ACT_TWO_STAGE = 4` is exported from timeline for presentation code.
+- **Lightning.** `lightningAt(time, 4)` strikes on a 4.5 s period, using the same strike shape as sectors 2–3, so thunder timing rules are unchanged. The playfield and page console draw sector-4 strikes white-gold.
+- **Act II interstitial** (`sequences.js`). On the long interlude: FLAGSHIP DOWN (0–1.3 s), then the sector-3 tally until 3.3 s (footer "THE CROWN FALLS · THE GATE OPENS"), then the ACT II card from 3.1 s to the end of the interlude. The card has letterbox bars, two white-gold strikes, "ACT II", "The Crown was only the gate." and "AHEAD · SECTOR 04 — IRON MONSOON · LEVIATHAN". Under it, the background's cloud deck closes into the dark typhoon palette (cover palette 4) with lightning inside the cloud. The page console's interlude wash switches to the storm variant (`body[data-interlude="act2"]`). The Act II sector intro card runs 3.4 s (not 2.6 s). Audio cue timing can key off the same `actTwo` event and `game._transitionLength`.
+- **Cover palettes.** `COVER` in background.js is keyed 1–4 by sector, and 5 is the dawn after the final flagship (it used to be 4).
+- **Page console.** `body[data-sector="4"]` gets the typhoon backdrop. `body[data-jam]` is set during short typhoon link dropouts in sector 4. Log lines are added for `actTwo`, `hullEnter`, `hullDown`, `scavengerSteal` (throttled), `broadside` and `coreExposed`.
+- **Markup for 4 sectors.** index.html has a 4th node in the console route and the pause hold route (`data-node="4"`, `li[data-sector="4"]`), with CSS positions at 12.5/37.5/62.5/87.5%. These match `routePosition` in pause.js. It also has drill button `data-drill="4"` and mastery badge `data-mastery="4"`.
+
 **Builder file ownership (sector 4)**
 - **Simulation:** `src/game.js`, `src/progress.js`, `test/*`, `qa/*`.
 - **Combat rendering:** `src/render.js`, `src/ui.js`, `src/pause.js`. This covers enemy and LEVIATHAN art and the HUD.
 - **World and story:** `src/background.js`, `src/art.js`, `src/timeline.js`, `src/ambience.js`, `src/sequences.js`, `src/cinema.js`, `src/frontend.js`, `src/main.js`, `index.html`, CSS.
 - **Audio:** `src/music.js`, `src/soundscape.js`, `src/sfx.js`, `src/audio.js`.
+
+### Simulation notes (sector 4)
+
+Refinements made while building the sector-4 simulation. Every field and event in the build contract above keeps its name and meaning; the items below are additions.
+
+**Extra fields (all optional for readers)**
+- `hull.turretsAlive` and `boss.turretsAlive`: live child turrets. `turrets` keeps every child id, dead ones included, so presentation can still draw wrecked mounts. The ×0.35 hull and ×0.25 core rules use `turretsAlive > 0`.
+- LEVIATHAN keeps its deck turrets (and the ×0.25 rule) until they are shot, in any phase. `boss.leviathan` is true. Earlier bosses now also carry `w`/`h` (98×55, unchanged collision).
+- Interceptors, scavengers and enemy torpedoes set `e.angle` to their full heading (`atan2(-vx, vy)`; 0 = nose down, as for the other enemies). Interceptors also carry `side`, and `hidden` while they wait below or beside the field. Hidden craft are not hit by shots, homing or contact.
+- Mines carry `fuse` (counts down); enemy torpedoes carry `heading` and `speed`. Hull turrets carry `aim` (radians, slewing toward the player at 2.6 rad/s).
+- Pickups now carry a unique `id` (so `scavenger.targetPickupId` can point at one).
+- Flak turret shells are ordinary bullets with `fuse` and `burst`. When the fuse runs out they turn into a ring.
+- `game.threat` (0–1.25): the Act II rank (see below). `game.bulletCap` reports the live cap (700, or 900 in Act II).
+
+**Extra event fields**
+- `squadronEnter` also carries `path` and `side`; `x, y` is the entry point (clamped to the field).
+- `torpedoLaunch` (enemy) and `mineBurst` are coalesced per frame and carry `count`.
+- `scavengerDrop` and `scavengerEscape` carry the pickup type as `value`.
+- `actTwo` carries `value: 4`.
+
+**Behaviour**
+- Surface ships (hulls, hull turrets, gunboats) never hurt on contact. A shot over a live turret hits the turret, and a shot flying up a live turret's column passes over the hull to reach it. LEVIATHAN's body still hurts on contact, like the earlier flagships.
+- Scavengers hunt for up to 8–11 s, sniping only while they have no salvage target. They steal any salvage older than 0.4 s, then flee upward. Shot down, they drop the salvage back with `salvage: true` and at least 5 s of life. In the sector, a scatter calls 2 scavengers 1.1 s later. LEVIATHAN phase 3 launches 2 every 3.8 s while salvage floats. At most 4 are alive at once.
+- Interceptors fly scripted paths: `loop` (dive, 1.5 loops, climb out), `rise` (from below the field up a side lane, drifting toward the centre) and `sweep` (across on a dipping arc). Squads have 5–6 craft, staggered 0.17–0.2 s. Each craft fires two short aimed bursts per pass; a low-threat ship meets only the second.
+- The Act II interlude after the Crown (campaign only) is 6.5 s. Drills never play it.
+
+**Threat rank (Act II is "aware of the arsenal").** Without this, density cannot make a full kit sweat. A power-25 kit deletes every source before it fires (peak 116 bullets), while the same density kills a bare ship.
+- `threat = clamp((arsenal − 6) / 44, 0, 1.25)`. It rises at 0.15/s and falls at 0.35/s.
+  - A bare ship sits at 0; the reference kit at about 0.9; Crown-arrival kits at 1.25.
+  - Each sector opens on a power trip, and a scatter eases the pressure while the pilot rebuilds.
+- Act II enemy cooldowns are multiplied by `1.8 / (1 + 1.61 × threat)`: 1.8 at threat 0, about 0.73 for the reference kit and 0.69 at threat 1. Bullet speed is multiplied by `1 + 0.1 × threat`.
+- Volleys grow with threat:
+  - interceptor bursts 1→4 rounds;
+  - gunboat bursts 2→4 volleys;
+  - triple turrets 3→5 ways above 0.6;
+  - fan turrets 9→12 bullets;
+  - flak rings 10→15;
+  - mine rings 12→18.
+- LEVIATHAN's own guns use a milder `1.35 / (1 + 0.45 × threat)`. The second broadside row needs threat > 0.8, and the 5-way void spread needs > 0.7.
+- **Rescue drops.** Squadron leads, gunboats and one torpedo per LEVIATHAN salvo carry a power level only while `threat < 0.5`, so a stripped ship can rebuild without feeding a full kit's snowball.
+- **Void awareness.** While the ship flies 2+ orbitals or a live reflector, the last round of each interceptor burst and every third gunboat or turret volley is `void`. Without this, a Wraith arrival kit scattered 1.5 times on average, against 9 for Kestrel.
+
+**Numbers as built**
+- Act II HP (×1.35 per later Act II sector):
+  - interceptor 55, scavenger 45, torpedo 42, mine 120, gunboat 900;
+  - destroyer 5,600 with 3 turrets of 1,100;
+  - cruiser 9,000 with 6 turrets of 1,250.
+- LEVIATHAN:
+  - core 145,000 HP; 4 deck turrets of 1,800 HP (triple, fan, flak, broadside); each turret drops power plus a ladder item and scores 3,000.
+  - Learn windows 24 / 46 / 68 s. `BOSS_GUARD_PAR[4] = 0.016`, which is the reference kit's share per second. Guard K is 20 for this boss (2.6 for the others), because its per-second share is small.
+- Kill times, invulnerable tracker that shoots turrets first and collects drops:
+
+| Kit | Kestrel | Manta | Wraith |
+| --- | --- | --- | --- |
+| Power-25 reference | 68.0 s | 67.2 s | 67.8 s |
+| Crown arrival | 63.5 s | 56.7 s | 59.9 s |
+| Bare (power 2) | 193 s | 193 s | 182 s |
+
+  Bare is 2.7–2.8× the reference. Without drops, a bare ship takes about 360 s.
+- **Balance bot.** A dodging pilot with human limits: reaction latency, attention, re-plan interval and aim noise. The "average" pilot (0.3 s latency) is calibrated to the round-3 mortal dodger: a bare Kestrel scatters 3–10 times in sector 1. With a Crown kit, neither pilot scatters in sector 3.
+
+  Sector 4 plus LEVIATHAN, 6 seeds per row:
+
+| Pilot | Kit | Clears (Kestrel / Manta / Wraith) | Mean scatters (Kestrel / Manta / Wraith) |
+| --- | --- | --- | --- |
+| Good | Crown arrival | 5/6, 6/6, 6/6 | 9.2, 4.5, 2.8 |
+| Good | Reference | 4/6, 6/6, 6/6 | 9.8, 5.8, 3.0 |
+| Good | Bare | 0/6, 4/6, 4/6 | — |
+| Average | Crown arrival | 1/6, 6/6, 6/6 | — |
+| Average | Reference | 5/6, 6/6, 6/6 | — |
+| Average | Bare | 0/6, 3/6, 3/6 | — |
+
+  - Peak enemy bullets in these runs: 90–128.
+  - Simulation cost: 0.01–0.023 ms per 120 Hz tick.
+- **Known costs for the judges.**
+  - Kestrel is the hardest ship in Act II. It has the largest hitbox of the fast ships and no defensive signature. At power 2, its three parallel streams make a 16 px column with no homing, so a bare Kestrel cannot clear Act II sources: 0 of 12 bare runs cleared.
+  - Kestrel arriving with a full kit clears, but sweats hardest (9–10 scatters).
+  - Wraith's orbitals still make it the safest ship.
 
 ### Sector 5: SKYFORGE (planned, not built yet)
 
