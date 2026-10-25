@@ -7,6 +7,7 @@ const hz = midi => 440 * Math.pow(2, (midi - 69) / 12);
 
 // Events resolved before the high-volume shot and hit streams.
 export const PRIORITY_EVENTS = new Set([
+  'arsenalScatter', 'salvageRecover', 'escortJoin', 'reflectorUp', 'reflectorDown', 'signatureUp', 'shieldUp',
   'playerHit', 'lifeLost', 'bomb', 'shieldBreak', 'shieldRestore', 'powerUp', 'wakeRoll', 'wakeReady',
   'wakeConvert', 'bossDown', 'bossPhase', 'bossEnter', 'reactorBreak', 'reactorOpen', 'lanceLock',
   'lanceFire', 'lanceCancel', 'stage', 'extend', 'gameover', 'victory',
@@ -362,8 +363,61 @@ export class SfxLibrary {
 
 // One handler per game event type. `this` is the SfxLibrary.
 const HANDLERS = {
+  arsenalScatter(ev,game,t){
+    if(!this.rate('arsenalScatter',.4))return;
+    this.engine.duck('all',.35,.25,.5);
+    this.noise({at:t,dur:.35,color:'crackle',vol:.16,filter:{type:'highpass',freq:1500,end:400},bus:this.alert});
+    [1700,2370,3180].forEach((freq,i)=>this.osc({at:t+i*.025,dur:.22,type:'glass',freq,end:freq*.33,vol:.045,pan:(i-1)*.5,bus:this.alert}));
+    [0,.16].forEach(d=>this.osc({at:t+d,dur:.14,type:'triangle',freq:230,end:110,vol:.075,bus:this.alert}));
+  },
+  salvageRecover(ev,game,t){
+    if(!this.rate('salvageRecover',.065))return;
+    [0,7,12].forEach((step,i)=>this.osc({at:t+i*.035,dur:.18,type:'glass',freq:hz(83+step),vol:.038,pan:this.pan(ev.x),bus:this.alert}));
+  },
+  salvageExpire(ev,game,t){
+    if(!this.rate('salvageExpire',.18))return;
+    this.noise({at:t,dur:.09,vol:.014,filter:{type:'highpass',freq:4500,end:800},bus:this.combat});
+  },
+  sidewinderLaunch(ev,game,t){
+    if(!this.rate('sidewinderLaunch',.18))return;
+    this.noise({at:t,dur:.15,attack:.025,color:'pink',vol:.035,filter:{type:'bandpass',freq:450,end:2700,q:1},bus:this.combat});
+  },
+  reflect(ev,game,t){
+    if(!this.rate('reflect',.10))return;
+    this.osc({at:t,dur:.09,type:'glass',freq:2200,end:3200,vol:.025,bus:this.combat});
+  },
+  torpedoLaunch(ev,game,t){
+    if(!this.rate('torpedoLaunch',.35))return;
+    this.osc({at:t,dur:.17,type:'hollow',freq:115,end:42,vol:.06,bus:this.combat});
+    this.noise({at:t,dur:.2,attack:.04,color:'brown',vol:.04,filter:{freq:800,end:1800},bus:this.combat});
+  },
+  orbitalEat(ev,game,t){
+    if(!this.rate('orbitalEat',.13))return;
+    this.noise({at:t,dur:.045,color:'crackle',vol:.04,filter:{type:'bandpass',freq:1900,end:600,q:2},bus:this.combat});
+    this.osc({at:t,dur:.055,type:'triangle',freq:220,end:75,vol:.03,bus:this.combat});
+  },
+  escortJoin(ev,game,t){
+    if(!this.rate('escortJoin',.18))return;
+    [0,7,12].forEach((step,i)=>this.osc({at:t+i*.065,dur:.24,type:'hollow',freq:hz(72+step),vol:.055,pan:(i-1)*.4,bus:this.alert}));
+  },
+  reflectorUp(ev,game,t){
+    if(!this.rate('reflectorUp',.2))return;
+    this.osc({at:t,dur:.45,type:'glass',freq:420,end:1680,vol:.05,bus:this.alert});
+  },
+  reflectorDown(ev,game,t){
+    if(!this.rate('reflectorDown',.2))return;
+    this.osc({at:t,dur:.22,type:'sine',freq:1100,end:220,vol:.035,bus:this.alert});
+  },
+  signatureUp(ev,game,t){
+    if(!this.rate('signatureUp',.2))return;
+    [0,4,11,16].forEach((step,i)=>this.osc({at:t+i*.045,dur:.25,type:'glass',freq:hz(72+step),vol:.045,bus:this.alert}));
+  },
+  shieldUp(ev,game,t){
+    if(!this.rate('shieldUp',.2))return;
+    [880,1320].forEach((freq,i)=>this.osc({at:t+i*.08,dur:.28,type:'sine',freq,vol:.045,bus:this.alert}));
+  },
   shoot(ev, game, t) {
-    if (!this.rate('shoot', 0.045)) return;
+    if (!this.rate('shoot', (game.player?.level||1)>7?0.085:0.055)) return;
     const p = game.player || {}, B = this.combat, pan = this.pan(ev.x), v = this.vary(0.045);
     const weight = 1 + clamp((p.level || 1) - 1, 0, 4) * 0.06, focus = Boolean(p.focus);
     this.shots++;
@@ -444,6 +498,7 @@ const HANDLERS = {
   },
   pickup(ev, game, t) {
     const type = String(ev.value || '');
+    if(this.inBatch('salvageRecover')||type==='power'&&this.inBatch('powerUp'))return;
     if (this.inBatch('extend') && ['life', 'shield', 'bomb'].includes(type)) return;
     if (!this.rate('pickup', 0.05)) return;
     const pan = this.pan(ev.x);
@@ -472,7 +527,7 @@ const HANDLERS = {
   },
   powerUp(ev, game, t) {
     if (!this.rate('powerUp', 0.2)) return;
-    const level = clamp(Number(ev.value) || 1, 1, 5), root = 60 + level * 2, pan = this.pan(ev.x);
+    const level = Math.max(1,Number(ev.value)||1), root = 62 + 8*Math.log2(1+level)/Math.log2(14), pan = this.pan(ev.x);
     this.osc({ at: t, dur: 0.33, type: 'sawtooth', freq: 220, end: 1400, vol: 0.026, filter: { type: 'bandpass', freq: 600, end: 3000, q: 2.5 }, pan });
     [0, 4, 7, 12].forEach((step, i) => this.osc({ at: t + 0.04 + i * 0.035, dur: 0.34, type: 'brass', freq: hz(root + step), vol: 0.034, filter: { freq: 2800 }, pan, send: 0.15 }));
     this.noise({ at: t, dur: 0.3, vol: 0.014, attack: 0.08, filter: { type: 'highpass', freq: 6000 }, pan });

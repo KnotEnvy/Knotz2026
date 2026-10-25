@@ -163,7 +163,7 @@ export class Sequences {
     if (boss) { this.bossX = Number(boss.x) || 270; this.bossY = Number(boss.y) || 285; }
     const p = game.player || {};
     if (Number.isFinite(p.lives)) {
-      if (game.mode === 'playing' && p.lives < this.lives) this.lifeFx = { t: 0, lives: p.lives, from: this.level, to: p.level ?? this.level };
+      if (game.mode === 'playing' && p.lives < this.lives) this.lifeFx = { t: 0, lives: p.lives, from: this.level, to: p.level ?? this.level, salvage: (game.pickups||[]).filter(item=>item.salvage).length };
       this.lives = p.lives;
     }
     if (Number.isFinite(p.level)) this.level = p.level;
@@ -622,7 +622,8 @@ export class Sequences {
     blit(ctx, this.label('AIRFRAME LOST', 26, C.coral, { family: DISPLAY, weight: 900, spacing: 4 }), 270 + jitter, cy - 9, a);
     const lives = fx.lives;
     let sub = lives <= 1 ? 'FINAL AIRFRAME  ·  RE-ENTRY' : 'RE-ENTRY  ·  ' + lives + ' LIVES REMAIN';
-    if (fx.from > fx.to) sub += '  ·  ARMAMENT LV ' + fx.from + ' → ' + fx.to;
+    if(fx.salvage)sub+='  ·  RECOVER '+fx.salvage+' SALVAGE';
+    else if (fx.from > fx.to) sub += '  ·  POWER ' + fx.from + ' → ' + fx.to;
     blit(ctx, this.label(sub, 10, lives <= 1 ? C.gold : C.pale, { spacing: 1.6 }), 270, cy + 19, a * ramp(.1, .35, t));
     ctx.restore();
   }

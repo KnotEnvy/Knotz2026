@@ -470,7 +470,7 @@ export class AudioEngine {
       bossPhase: boss ? clamp(Number(boss.phase) || 1, 1, 3) : 0,
       bossHp: boss ? clamp(boss.hp / Math.max(1, boss.maxHp || boss.hp), 0, 1) : 0,
       interlude: interludeProgress(g),
-      intensity: playing ? clamp(enemies * 0.05 + bullets * 0.0045 + (boss ? 0.32 + 0.12 * ((boss.phase || 1) - 1) : 0), 0, 1) : 0,
+      intensity: playing ? clamp(enemies * 0.05 + bullets * 0.0045 + Math.min(.18,(Number(player.arsenal)||0)*.006) + (boss ? 0.32 + 0.12 * ((boss.phase || 1) - 1) : 0), 0, 1) : 0,
       critical: playing && Number(player.hp) === 1,
       outcome,
       grade: outcome && g.summary?.grade ? String(g.summary.grade) : null,

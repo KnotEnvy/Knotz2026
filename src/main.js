@@ -523,9 +523,21 @@ function readoutsFromGame(dt){
     setText('mobileScore',String(Math.floor(game.score)).padStart(8,'0'));setText('mobileSector',String(game.stage).padStart(2,'0'));
     setText('mobileSectorLabel',game.practiceStage?'DRILL':'SECTOR');
     setText('mobileHull',p.hp+'/'+p.maxHp);setText('mobileLives',String(p.lives));setText('mobileBombs',String(p.bombs));
-    setText('mobilePower',p.level+'/5');setText('mobileCombo',game.combo.toFixed(1)+'×');setText('mobileWake',Math.round(p.wake*100)+'%');
+    setText('mobilePower',String(p.level));setText('mobileCombo',game.combo.toFixed(1)+'×');setText('mobileWake',Math.round(p.wake*100)+'%');
     setText('mobileRoll',p.rollCooldown>0?'ROLL '+p.rollCooldown.toFixed(1)+'s':p.wake>=.5?'CHARGED ROLL':'ROLL READY');
-    $('mobileShieldRow').hidden=!p.maxShield;setText('mobileShield',p.shield+'/'+p.maxShield);
+    $('mobileShieldRow').hidden=true;
+    let equipment=$('mobileEquipment');
+    if(!equipment){
+      equipment=document.createElement('div');equipment.id='mobileEquipment';equipment.className='mobile-equipment';
+      equipment.innerHTML='<span id="mobileEquipmentText"></span><label>R <progress id="mobileReflector" max="6" value="0" aria-label="Reflector seconds"></progress></label>';
+      $('mobileBossRow').before(equipment);
+    }
+    setText('mobileEquipmentText','E '+(p.escorts||0)+' · M '+(p.sidewinder||0)+' · ★ '+(p.signature||0)+' · S '+(p.shield||0));
+    $('mobileReflector').value=p.reflector||0;
+    equipment.classList.toggle('reflector-low',p.reflector>0&&p.reflector<2);
+    equipment.classList.toggle('recovering',hud.recoverTime>0);
+    equipment.classList.toggle('arsenal-lost',hud.scatterTime>0);
+
     const reactor=game.boss?.reactor,cover=game.boss?.cover;
     const coverLeft=cover?Math.max(0,cover.until-game.boss.age):0;
     const objective=coverLeft>0?'COVER '+coverLeft.toFixed(1)+'s':reactor&&!reactor.broken?(reactor.side<0?'LEFT REACTOR / BREAK FOR COVER':'RIGHT REACTOR / CUT SPIRAL'):reactor?.phase===3&&reactor.broken?'RIGHT SPIRAL OFFLINE':null;
