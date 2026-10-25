@@ -545,7 +545,7 @@ function readoutsFromGame(dt){
     const l=game.boss?.lance,age=game.boss?.age,lanceCue=l&&!l.cancelled&&age>=l.startsAt&&age<l.endsAt?
       l.active?'LANCE FIRING / KEEP CLEAR':l.locked?'LANCE LOCKED / LEAVE THE LANE':'LANCE TRACKING / BAIT THEN MOVE':null;
     const salvageCue=hud.scatterTime>0?'ARSENAL LOST / '+(hud.salvageCount||0)+' IN FIELD':hud.recoverTime>0?'RECOVERED +'+hud.recovered:hud.salvageCount?'RECOVER SALVAGE / '+hud.salvageCount:null;
-    setText('flightSignal',salvageCue|| (lanceCue?(p.hp<=1?'CRITICAL / ':'')+lanceCue:p.hp<=1?'HULL CRITICAL / EVADE':hud.bannerTime>0?hud.banner:objective|| (hud.encounterTime>0?hud.encounterName:'DRAG TO MOVE & FIRE')));
+    setText('flightSignal',lanceCue?(p.hp<=1?'CRITICAL / ':'')+lanceCue:p.hp<=1?'HULL CRITICAL / EVADE':objective||salvageCue||(hud.bannerTime>0?hud.banner:hud.encounterTime>0?hud.encounterName:'DRAG TO MOVE & FIRE'));
     $('mobileBossRow').hidden=!game.boss;
     if(game.boss){setText('mobileBossName',game.boss.name+' / PHASE '+game.boss.phase);$('mobileBoss').value=100*game.boss.hp/game.boss.maxHp;}
   }

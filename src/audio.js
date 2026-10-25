@@ -33,7 +33,7 @@
 //   paused       true on the pause screen or while the game is paused (manual open)
 //   muted        true while sound is muted (the master is already silent)
 //   events       game events new this tick ([] when the batch was already seen)
-import { SfxLibrary, PRIORITY_EVENTS } from './sfx.js';
+import { SfxLibrary, PRIORITY_EVENTS, RECOVERY_FOLLOW_ON_EVENTS } from './sfx.js';
 import { MusicDirector } from './music.js';
 import { Soundscape } from './soundscape.js';
 import { bossWarningProgress, interludeProgress, BOSS_WARNING_LEAD, INTERLUDE_LENGTH } from './timeline.js';
@@ -434,7 +434,9 @@ export class AudioEngine {
   _dispatch(events, game) {
     this.sfx?.beginBatch(events);
     let used = 0, recovered = false;
+    const recovering=this.sfx?.inBatch('salvageRecover');
     for (const event of events) {
+      if(recovering&&RECOVERY_FOLLOW_ON_EVENTS.has(event?.type))continue;
       if(event?.type==='salvageRecover'){if(recovered)continue;recovered=true;}
       if (PRIORITY_EVENTS.has(event?.type) && used++ < PRIORITY_LIMIT) this.playEvent(event, game);
     }

@@ -12,6 +12,7 @@ export const PRIORITY_EVENTS = new Set([
   'wakeConvert', 'bossDown', 'bossPhase', 'bossEnter', 'reactorBreak', 'reactorOpen', 'lanceLock',
   'lanceFire', 'lanceCancel', 'stage', 'extend', 'gameover', 'victory',
 ]);
+export const RECOVERY_FOLLOW_ON_EVENTS = new Set(['powerUp','shieldUp','shieldRestore','escortJoin','signatureUp','reflectorUp']);
 
 // Mix trims, set from offline renders through the full chain so the hierarchy reads:
 // UI and fire at the back, hits and pickups above fire, warnings and milestones clearly on top.
@@ -36,6 +37,7 @@ export class SfxLibrary {
     this.serial = 0;
     this.shots = 0;
     this.batch = null;
+    this.recoveryCount = 0;
     this.scale = 1;
   }
 
@@ -60,7 +62,7 @@ export class SfxLibrary {
     this.recoveryCount=0;
     for(const event of events)if(event?.type==='salvageRecover')this.recoveryCount+=Math.max(1,Number(event.amount)||1);
   }
-  endBatch() { this.batch = null; }
+  endBatch() { this.batch = null; this.recoveryCount = 0; }
   inBatch(type) { return Boolean(this.batch?.has(type)); }
 
   // Shared voice tail: filters, optional drive, envelope, pan, destination and reverb send.
@@ -203,7 +205,7 @@ export class SfxLibrary {
   // ------------------------------------------------------------------- events
   play(event, game, t) {
     // Recovery is one compact musical gesture, including the equipment tick-in events.
-    if(this.inBatch('salvageRecover')&&['powerUp','shieldUp','shieldRestore','escortJoin','signatureUp','reflectorUp'].includes(event?.type))return;
+    if(this.inBatch('salvageRecover')&&RECOVERY_FOLLOW_ON_EVENTS.has(event?.type))return;
     const handler = this.handlers[event?.type];
     if (!handler) return;
     this.scale = TRIM[event.type + '-' + event.value] ?? TRIM[event.type] ?? 1;

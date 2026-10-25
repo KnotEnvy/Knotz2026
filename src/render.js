@@ -31,8 +31,11 @@ const TRACER_STYLES = Object.freeze({
   lance:{jacket:'rgba(127,243,235,.56)',core:'rgba(235,255,249,.82)',width:3.3,length:29},
   pierce:{jacket:'rgba(157,209,255,.58)',core:'rgba(233,246,255,.82)',width:4.8,length:43},
   escort:{jacket:'rgba(117,213,231,.42)',core:'rgba(210,248,255,.7)',width:1.9,length:15},
-  orbital:{jacket:'rgba(180,148,255,.52)',core:'rgba(239,230,255,.8)',width:2.7,length:29}
+  orbital:{jacket:'rgba(180,148,255,.52)',core:'rgba(239,230,255,.8)',width:2.7,length:29},
+  railEscort:{jacket:'rgba(157,209,255,.45)',core:'rgba(233,246,255,.74)',width:2,length:28}
 });
+// Preserve the early power ramp, then grow gently enough to keep columns apart.
+const tracerGrowth = radius => { const grow=Math.max(0,radius-4);return grow<=2.5?grow:2.5+Math.log1p(grow-2.5)*.7; };
 const exhaustSprites = new Map();
 function playerExhaust(ship) {
   if(exhaustSprites.has(ship))return exhaustSprites.get(ship);
@@ -747,6 +750,7 @@ export class Renderer {
     this.drawBossLance(game.boss,t);
     this.particles(game.particles||[]);
     this.player(game.player,t);
+    this.shieldAura(game.player);
     // Threats stay above the hull, escorts, orbitals, smoke and auras.
     this.projectiles(game.bullets||[],false,t);
     this.foreground(t,this.reducedEffects?0:Math.min(.09,game.flash||0));
@@ -1869,7 +1873,7 @@ export class Renderer {
       }
       return;
     }
-    // Reuse five style buckets. Each style costs two strokes, independent of shot count.
+    // Reuse style buckets. Each style costs two strokes, independent of shot count.
     // The width follows the largest radius in that weapon stream; length follows every shot.
     this.tracerGroups ||= Object.fromEntries(Object.keys(TRACER_STYLES).map(k=>[k,[]]));
     const groups=this.tracerGroups;
@@ -1878,7 +1882,7 @@ export class Renderer {
       if(!b||b.x< -50||b.x>W+50||b.y< -60||b.y>H+50)continue;
       const kind=b.kind||'shot';
       if(SPECIAL_SHOTS.has(kind)||kind==='escort'&&b.style==='rocket')continue;
-      (groups[kind]||groups.shot).push(b);
+      (kind==='escort'&&b.style==='rail'?groups.railEscort:groups[kind]||groups.shot).push(b);
     }
     c.save();c.lineCap='round';
     for(const kind in groups){
@@ -1888,12 +1892,13 @@ export class Renderer {
       c.beginPath();
       for(const b of group){
         const r=b.r||4;radius=Math.max(radius,r);
-        const len=style.length+Math.max(0,r-4)*4;
+        const len=style.length+tracerGrowth(r)*4;
         const vx=b.vx||0,vy=b.vy??-760,speed=Math.hypot(vx,vy)||1,dx=vx/speed,dy=vy/speed;
         c.moveTo(b.x-dx*len,b.y-dy*len);c.lineTo(b.x+dx*5,b.y+dy*5);
       }
-      const width=style.width+Math.max(0,radius-4)*.65;
-      c.strokeStyle=style.jacket;c.lineWidth=width;c.stroke();
+      const width=style.width+tracerGrowth(radius)*.65;
+      c.globalAlpha=1/(1+Math.max(0,radius-6.5)*.06);
+      c.strokeStyle=style.jacket;c.lineWidth=width;c.stroke();c.globalAlpha=1;
       c.strokeStyle=style.core;c.lineWidth=Math.max(.85,width*.36);c.stroke();
     }
     for(const b of items){
@@ -1947,7 +1952,6 @@ export class Renderer {
       c.beginPath();c.arc(0,0,14,-Math.PI/2,-Math.PI/2+TAU*ready);c.strokeStyle='#b8caff';c.lineWidth=1.5;c.stroke();c.restore();
     }
     c.save();
-    for(let i=0;i<Math.min(p.shieldCap||3,p.shield||0);i++)oval(c,p.x,p.y,26+i*4,30+i*4,'rgba(111,247,237,'+(.35-i*.06)+')',true,1);
     if(p.reflector>0){
       const low=p.reflector<2,flash=this.impacts.some(f=>f.type==='reflect'&&f.age<.13);
       c.globalAlpha=low?.35+.55*Math.sin(t*16)**2:.8;
@@ -1965,6 +1969,17 @@ export class Renderer {
       c.fillStyle='#0a2936';c.fillRect(p.x-24,p.y-84,48,13);
       c.fillStyle='#c8fff0';c.fillText('MAGNET',p.x,p.y-74);
     }
+    c.restore();
+  }
+  shieldAura(p){
+    if(!p||p.dead||!(p.shield>0))return;
+    const c=this.ctx,charges=Math.min(p.shieldCap||3,p.shield),rx=26+(charges-1)*4,ry=30+(charges-1)*4;
+    c.save();
+    // A clear centre and a soft rim read as a bubble over the opaque airframe.
+    const rim=c.createRadialGradient(p.x,p.y,12,p.x,p.y,ry);
+    rim.addColorStop(0,'rgba(111,247,237,0)');rim.addColorStop(.65,'rgba(111,247,237,.015)');rim.addColorStop(1,'rgba(111,247,237,.12)');
+    oval(c,p.x,p.y,rx,ry,rim);
+    for(let i=0;i<charges;i++)oval(c,p.x,p.y,26+i*4,30+i*4,'rgba(111,247,237,'+(.35-i*.055)+')',true,1.2);
     c.restore();
   }
   pickups(items,t) {

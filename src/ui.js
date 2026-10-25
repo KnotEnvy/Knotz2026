@@ -118,7 +118,7 @@ export class HUD {
     this.wakeConverted = 0;
     this.wakeConvertTime = 0;
     this.hudClock = 0;
-    this.scatterTime=0;this.recoverTime=0;this.recovered=0;
+    this.scatterTime=0;this.recoverTime=0;this.recovered=0;this.recoveredType=null;
     this.layerReady = false;
     this.layer = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(W, H) : (typeof document !== "undefined" ? document.createElement("canvas") : null);
     if (this.layer) { this.layer.width = W; this.layer.height = H; this.layerCtx = this.layer.getContext("2d"); }
@@ -156,8 +156,8 @@ export class HUD {
       if(!event)continue;
       const freshBatch=!this.seenArsenalEvents.has(event);
       this.seenArsenalEvents.add(event);
-      if(freshBatch&&event.type==='arsenalScatter'){this.scatterTime=2;this.recovered=0;}
-      if(freshBatch&&event.type==='salvageRecover'){this.scatterTime=0;this.recoverTime=.7;this.recovered+=Math.max(1,Number(event.amount)||1);}
+      if(freshBatch&&event.type==='arsenalScatter'){this.scatterTime=2;this.recovered=0;this.recoveredType=null;}
+      if(freshBatch&&event.type==='salvageRecover'){this.scatterTime=0;this.recoverTime=.7;this.recovered+=Math.max(1,Number(event.amount)||1);this.recoveredType=event.value;}
 
       if (["stage", "bossEnter", "bossPhase", "extend", "reactorOpen", "reactorBreak", "lanceLock", "lanceCancel", "bossGuard", "bossGuardEnd"].includes(event.type)) {
         this.bannerSequenced = event.type === "stage" || event.type === "bossEnter" || event.type === "bossPhase" || event.type === "extend";
@@ -214,9 +214,10 @@ export class HUD {
     this.wakeConvertTime = Math.max(0, this.wakeConvertTime - (Number(dt) || 1 / 60));
 
     this.hudClock += clamp(Number(dt) || 1 / 60, 0, 0.1);
-    if (this.layerCtx && this.layerReady && this.hudClock < 1 / 30) { ctx.drawImage(this.layer, 0, 0); return; }
+    // Mobile readouts run every frame, even when the canvas HUD reuses its layer.
     this.salvageCount=0;
     for(const item of game.pickups||[])if(item.salvage&&!item.dead)this.salvageCount++;
+    if (this.layerCtx && this.layerReady && this.hudClock < 1 / 30) { ctx.drawImage(this.layer, 0, 0); return; }
     let outputCtx = null;
     if (this.layerCtx) {
       this.hudClock = 0;
@@ -281,15 +282,17 @@ export class HUD {
     // Equipment stays in the same compact rail, including during flagships.
     panel(ctx,11,102,518,36,.9);
     text(ctx,'PWR '+Math.max(1,Number(player.level||player.power)||1),25,120,15,COLORS.gold,800);
-    const slots=[['E',player.escorts,'#6bff95'],['M',player.sidewinder,'#ff9f43'],['★',player.signature,'#fff2a6'],['S',player.shield,'#5ce1ff']];
+    if(this.recoverTime>0&&this.recoveredType==='power')rule(ctx,25,129,82,129,'rgba(255,245,200,.8)');
+    const slots=[['E',player.escorts,'#6bff95','escort'],['M',player.sidewinder,'#ff9f43','sidewinder'],['★',player.signature,'#fff2a6','signature'],['S',player.shield,'#5ce1ff','shield']];
     for(let i=0;i<slots.length;i++){
-      const [glyph,value,col]=slots[i],x=137+i*72;
+      const [glyph,value,col,type]=slots[i],x=137+i*72;
       text(ctx,glyph+' '+(value||0),x,120,12,value?col:COLORS.muted,800);
-      if(value&&this.recoverTime>0)rule(ctx,x,129,x+35,129,'rgba(255,245,200,.7)');
+      if(this.recoverTime>0&&this.recoveredType===type)rule(ctx,x,129,x+35,129,'rgba(255,245,200,.7)');
     }
     text(ctx,'R',434,120,10,player.reflector>0?'#c3a3ff':COLORS.muted,800);
     ctx.fillStyle='rgba(195,163,255,.18)';ctx.fillRect(448,117,63,6);
     if(player.reflector>0){ctx.fillStyle=player.reflector<2?COLORS.coral:'#c3a3ff';ctx.fillRect(448,117,63*clamp(player.reflector/6,0,1),6);}
+    if(this.recoverTime>0&&this.recoveredType==='reflector')rule(ctx,434,129,511,129,'rgba(255,245,200,.7)');
     if (boss && boss.hp > 0) this.drawBossMeter(ctx,boss);
     else this.drawProgress(ctx,game);
     this.drawBottomRail(ctx, game);

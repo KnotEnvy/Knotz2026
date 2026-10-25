@@ -380,7 +380,7 @@ export class PausePanel {
     pips($('holdHullPips'), maxHp, hp);
     setText($('holdHull'), hp + '/' + maxHp);
     const maxShield = Math.max(1, whole(p.shieldCap) || 3), shield = whole(p.shield);
-    const shieldRow = $('holdShieldRow'); if (shieldRow) shieldRow.hidden = !maxShield;
+    const shieldRow = $('holdShieldRow'); if (shieldRow) shieldRow.hidden = !shield && !whole(p.maxShield);
     if (maxShield) { pips($('holdShieldPips'), maxShield, shield); setText($('holdShield'), String(shield)); }
     setText($('holdCondition'), condition.toUpperCase());
     setData($('holdAirframe'), 'condition', condition);
