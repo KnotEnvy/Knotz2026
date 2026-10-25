@@ -4,7 +4,7 @@ import { drawCraft } from './art.js';
 export const SHIPS = {
   kestrel:{name:'KESTREL',code:'SA-01',role:'INTERCEPTOR',description:'Balanced spread cannons and a screen-clearing nova. A razor-wing all-rounder for every opening.',speed:72,fire:72,hull:68,color:'#f3bb70'},
   manta:{name:'MANTA',code:'SA-02',role:'STRIKE CRAFT',description:'Homing missiles, layered shields, and a defensive barrier pulse. Built to hold the line.',speed:48,fire:94,hull:92,color:'#f29a76'},
-  wraith:{name:'WRAITH',code:'SA-03',role:'RECON CRAFT',description:'Piercing rail fire, support drones, and a conversion storm. Precision through the impossible.',speed:95,fire:58,hull:42,color:'#81d7d0'}
+  wraith:{name:'WRAITH',code:'SA-03',role:'RECON CRAFT',description:'Piercing rail fire, ghost orbitals, and a conversion storm. Precision through the impossible.',speed:95,fire:58,hull:42,color:'#81d7d0'}
 };
 export const SHIP_ORDER = Object.keys(SHIPS);
 export const SPECIAL_LABELS = {kestrel:'NOVA',manta:'BARRIER',wraith:'STORM'};

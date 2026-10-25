@@ -118,6 +118,7 @@ export class HUD {
     this.wakeConverted = 0;
     this.wakeConvertTime = 0;
     this.hudClock = 0;
+    this.scatterTime=0;this.recoverTime=0;this.recovered=0;this.recoveredType=null;
     this.layerReady = false;
     this.layer = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(W, H) : (typeof document !== "undefined" ? document.createElement("canvas") : null);
     if (this.layer) { this.layer.width = W; this.layer.height = H; this.layerCtx = this.layer.getContext("2d"); }
@@ -149,10 +150,19 @@ export class HUD {
         this.bannerTime = 2.3; this.bannerSequenced = true;
       }
     }
+    this.scatterTime=Math.max(0,this.scatterTime-dt);this.recoverTime=Math.max(0,this.recoverTime-dt);
+    this.seenArsenalEvents ||= new WeakSet();
     for (const event of game.events || []) {
+      if(!event)continue;
+      const freshBatch=!this.seenArsenalEvents.has(event);
+      this.seenArsenalEvents.add(event);
+      if(freshBatch&&event.type==='arsenalScatter'){this.scatterTime=2;this.recovered=0;this.recoveredType=null;}
+      if(freshBatch&&event.type==='salvageRecover'){this.scatterTime=0;this.recoverTime=.7;this.recovered+=Math.max(1,Number(event.amount)||1);this.recoveredType=event.value;}
+
       if (["stage", "bossEnter", "bossPhase", "extend", "reactorOpen", "reactorBreak", "lanceLock", "lanceCancel", "bossGuard", "bossGuardEnd"].includes(event.type)) {
         this.bannerSequenced = event.type === "stage" || event.type === "bossEnter" || event.type === "bossPhase" || event.type === "extend";
       }
+      if(freshBatch&&event.type==='squadronBonus'){this.banner='SQUADRON BONUS!';this.bannerTime=1.5;this.bannerSequenced=false;}
       if (event.type === "stage" && Number(game.stageTime || 0) < 3) {
         this.banner = "SECTOR " + String(game.stage || 1).padStart(2, "0");
         this.bannerTime = 2.6;
@@ -204,6 +214,9 @@ export class HUD {
     this.wakeConvertTime = Math.max(0, this.wakeConvertTime - (Number(dt) || 1 / 60));
 
     this.hudClock += clamp(Number(dt) || 1 / 60, 0, 0.1);
+    // Mobile readouts run every frame, even when the canvas HUD reuses its layer.
+    this.salvageCount=0;
+    for(const item of game.pickups||[])if(item.salvage&&!item.dead)this.salvageCount++;
     if (this.layerCtx && this.layerReady && this.hudClock < 1 / 30) { ctx.drawImage(this.layer, 0, 0); return; }
     let outputCtx = null;
     if (this.layerCtx) {
@@ -218,6 +231,12 @@ export class HUD {
     const sx = (this.canvas?.width || W) / W;
     const sy = (this.canvas?.height || H) / H;
     ctx.scale(sx, sy);
+    if(!this.compact&&game.mode==='playing'&&(this.scatterTime>0||this.salvageCount||this.recoverTime>0)){
+      const label=this.scatterTime>0?'ARSENAL LOST'+(this.recoverTime>0?' · +'+this.recovered:''):this.recoverTime>0?'RECOVERED +'+this.recovered:'RECOVER SALVAGE';
+      const y=Number(game.player?.y)>770?716:826;
+      panel(ctx,110,y-13,320,27,.9);
+      text(ctx,label+'  /  '+this.salvageCount+' IN FIELD',270,y,12,this.scatterTime>0?COLORS.coral:COLORS.cyan,800,'center');
+    }
     if (!this.compact&&(game.mode === "playing" || game.mode === "paused")) this.drawStatus(ctx, game);
     const critical=Number(game.player?.hp||0)<=1;
     if (game.mode === "playing"&&critical)this.drawCritical(ctx,game);
@@ -238,46 +257,44 @@ export class HUD {
     text(ctx, "SCORE", 26, 27, 10, COLORS.muted, 700, "left", 2.2);
     text(ctx, String(Math.floor(game.score || 0)).padStart(8, "0"), 26, 55, 25, COLORS.pale, 700);
     text(ctx, "HI " + String(Math.floor(Math.max(game.highScore || 0, this.hi))).padStart(8, "0"), 27, 82, 10, COLORS.gold, 700, "left", 1.2);
+    text(ctx,Math.max(1,Number(game.combo)||1).toFixed(1)+'× CHAIN',280,83,9,COLORS.gold,700,'center');
     rule(ctx, 225, 21, 225, 84);
     rule(ctx, 334, 21, 334, 84);
     text(ctx, game.practiceStage?"DRILL":"SECTOR", 280, 27, 10, COLORS.muted, 700, "center", 2);
     text(ctx, String(game.stage || 1).padStart(2, "0"), 280, 59, 32, COLORS.cyan, 800, "center");
     text(ctx, "LIVES", 352, 28, 10, COLORS.muted, 700, "left", 1.4);
     for (let i = 0; i < 4; i++) iconPlane(ctx, 434 + i * 24, 28, 0.75, i < (player.lives || 0));
-    text(ctx, player.maxShield?"HULL / S":"HULL", 352, 48, player.maxShield?8:10, COLORS.muted, 700, "left", 1.1);
+    text(ctx, "HULL", 352, 48, 10, COLORS.muted, 700, "left", 1.1);
     const maxHull = Math.max(1, Math.min(4, Number(player.maxHp) || 3));
     const hull = clamp(Number(player.hp) || 0, 0, maxHull);
     for (let i = 0; i < maxHull; i++) {
-      const x = 427 + i * (player.maxShield?19:25);
+      const x = 427 + i * 25;
       ctx.fillStyle = i < hull ? (hull <= 1 ? COLORS.coral : COLORS.cyan) : "rgba(255,119,95,.18)";
-      const width=player.maxShield?14:19;
+      const width=19;
       ctx.fillRect(x,45,width,6);
       if (i < hull) rule(ctx,x,44,x+width,44,"rgba(231,249,244,.7)");
     }
-    if(player.maxShield)text(ctx,String(player.shield)+"/"+player.maxShield,514,48,10,COLORS.cyan,800,'center');
     text(ctx, "BOMBS", 352, 70, 10, COLORS.muted, 700, "left", 1.4);
     for (let i = 0; i < 4; i++) iconBomb(ctx, 428 + i * 25, 70, i < (player.bombs || 0));
 
     this.lastPower = player.power;
     this.lastCombo = game.combo;
-    if (boss && boss.hp > 0) {
-      this.drawBossMeter(ctx, boss);
-    } else {
-      panel(ctx, 11, 102, 518, 36, 0.82);
-      const level = Math.max(0, Number(player.power) || 0);
-      text(ctx, "ARMAMENT", 25, 120, 10, COLORS.muted, 700, "left", 1.2);
-      text(ctx, "LV " + level, 115, 120, 11, COLORS.gold, 800);
-      for (let i = 0; i < 5; i++) {
-        ctx.fillStyle = i < level ? COLORS.gold : "rgba(255,217,139,.15)";
-        ctx.fillRect(159 + i * 21, 116, 16, 8);
-      }
-      rule(ctx, 277, 109, 277, 131);
-      const combo = Math.max(0, Math.floor(game.combo || 0));
-      text(ctx, "COMBO", 291, 120, 10, COLORS.muted, 700, "left", 1.2);
-      text(ctx, Math.max(1,Number(game.combo)||1).toFixed(1) + "×", 367, 120, 17, COLORS.cyan, 800);
-      text(ctx, "MAX 8×", 507, 120, 10, COLORS.gold, 800, "right");
-      this.drawProgress(ctx, game);
+    // Equipment stays in the same compact rail, including during flagships.
+    panel(ctx,11,102,518,36,.9);
+    text(ctx,'PWR '+Math.max(1,Number(player.level||player.power)||1),25,120,15,COLORS.gold,800);
+    if(this.recoverTime>0&&this.recoveredType==='power')rule(ctx,25,129,82,129,'rgba(255,245,200,.8)');
+    const slots=[['E',player.escorts,'#6bff95','escort'],['M',player.sidewinder,'#ff9f43','sidewinder'],['★',player.signature,'#fff2a6','signature'],['S',player.shield,'#5ce1ff','shield']];
+    for(let i=0;i<slots.length;i++){
+      const [glyph,value,col,type]=slots[i],x=137+i*72;
+      text(ctx,glyph+' '+(value||0),x,120,12,value?col:COLORS.muted,800);
+      if(this.recoverTime>0&&this.recoveredType===type)rule(ctx,x,129,x+35,129,'rgba(255,245,200,.7)');
     }
+    text(ctx,'R',434,120,10,player.reflector>0?'#c3a3ff':COLORS.muted,800);
+    ctx.fillStyle='rgba(195,163,255,.18)';ctx.fillRect(448,117,63,6);
+    if(player.reflector>0){ctx.fillStyle=player.reflector<2?COLORS.coral:'#c3a3ff';ctx.fillRect(448,117,63*clamp(player.reflector/6,0,1),6);}
+    if(this.recoverTime>0&&this.recoveredType==='reflector')rule(ctx,434,129,511,129,'rgba(255,245,200,.7)');
+    if (boss && boss.hp > 0) this.drawBossMeter(ctx,boss);
+    else this.drawProgress(ctx,game);
     this.drawBottomRail(ctx, game);
   }
 
@@ -290,7 +307,7 @@ export class HUD {
   }
 
   drawBossMeter(ctx, boss) {
-    const y = 102;
+    const y = 148;
     panel(ctx, 11, y, 518, 36, 0.99);
     const bossName = boss.name || (boss.type ? String(boss.type).replace(/[_-]/g, " ").toUpperCase() : "HOSTILE FLAGSHIP");
     text(ctx, bossName, 25, y + 10, 10, COLORS.coral, 800, "left", 1.2);

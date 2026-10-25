@@ -7,15 +7,17 @@ const hz = midi => 440 * Math.pow(2, (midi - 69) / 12);
 
 // Events resolved before the high-volume shot and hit streams.
 export const PRIORITY_EVENTS = new Set([
+  'squadronBonus', 'arsenalScatter', 'salvageRecover', 'escortJoin', 'reflectorUp', 'reflectorDown', 'signatureUp', 'shieldUp',
   'playerHit', 'lifeLost', 'bomb', 'shieldBreak', 'shieldRestore', 'powerUp', 'wakeRoll', 'wakeReady',
   'wakeConvert', 'bossDown', 'bossPhase', 'bossEnter', 'reactorBreak', 'reactorOpen', 'lanceLock',
   'lanceFire', 'lanceCancel', 'stage', 'extend', 'gameover', 'victory',
 ]);
+export const RECOVERY_FOLLOW_ON_EVENTS = new Set(['powerUp','shieldUp','shieldRestore','escortJoin','signatureUp','reflectorUp']);
 
 // Mix trims, set from offline renders through the full chain so the hierarchy reads:
 // UI and fire at the back, hits and pickups above fire, warnings and milestones clearly on top.
 const TRIM = {
-  shoot: 1, droneFire: 1, missileLaunch: 1.3, roll: 3.4, wakeRoll: 2.8, wakeConvert: 1.2, drop: 1.5,
+  shoot: 1, missileLaunch: 1.3, roll: 3.4, wakeRoll: 2.8, wakeConvert: 1.2, drop: 1.5,
   'pickup-power': 2, 'pickup-shield': 2.1, 'pickup-life': 2.3, 'pickup-score': 1.9, 'pickup-bomb': 1.15,
   powerUp: 2.2, wakeReady: 1.7, shieldBreak: 1.5, shieldRestore: 1.7,
   'bomb-barrier': 2.3, 'bomb-storm': 1.9, bossGuard: 1.7, reactorOpen: 1.7, lanceLock: 2.8,
@@ -35,6 +37,7 @@ export class SfxLibrary {
     this.serial = 0;
     this.shots = 0;
     this.batch = null;
+    this.recoveryCount = 0;
     this.scale = 1;
   }
 
@@ -56,8 +59,10 @@ export class SfxLibrary {
     const types = new Set();
     for (const event of events) if (event?.type) types.add(event.type);
     this.batch = types;
+    this.recoveryCount=0;
+    for(const event of events)if(event?.type==='salvageRecover')this.recoveryCount+=Math.max(1,Number(event.amount)||1);
   }
-  endBatch() { this.batch = null; }
+  endBatch() { this.batch = null; this.recoveryCount = 0; }
   inBatch(type) { return Boolean(this.batch?.has(type)); }
 
   // Shared voice tail: filters, optional drive, envelope, pan, destination and reverb send.
@@ -199,6 +204,8 @@ export class SfxLibrary {
 
   // ------------------------------------------------------------------- events
   play(event, game, t) {
+    // Recovery is one compact musical gesture, including the equipment tick-in events.
+    if(this.inBatch('salvageRecover')&&RECOVERY_FOLLOW_ON_EVENTS.has(event?.type))return;
     const handler = this.handlers[event?.type];
     if (!handler) return;
     this.scale = TRIM[event.type + '-' + event.value] ?? TRIM[event.type] ?? 1;
@@ -362,10 +369,70 @@ export class SfxLibrary {
 
 // One handler per game event type. `this` is the SfxLibrary.
 const HANDLERS = {
+  arsenalScatter(ev,game,t){
+    if(!this.rate('arsenalScatter',.4))return;
+    this.engine.duck('all',.35,.25,.5);
+    this.noise({at:t,dur:.35,color:'crackle',vol:.16,filter:{type:'highpass',freq:1500,end:400},bus:this.alert});
+    [1700,2370,3180].forEach((freq,i)=>this.osc({at:t+i*.025,dur:.22,type:'glass',freq,end:freq*.33,vol:.045,pan:(i-1)*.5,bus:this.alert}));
+    [0,.16].forEach(d=>this.osc({at:t+d,dur:.14,type:'triangle',freq:230,end:110,vol:.075,bus:this.alert}));
+  },
+  salvageRecover(ev,game,t){
+    if(t<(this.recoveryUntil||0)||!this.rate('salvageRecover',.095))return;
+    const count=Math.min(4,this.recoveryCount||1),steps=[0,4,7,12];
+    this.recoveryNote=t-(this.recoveryLast||0)<.8?((this.recoveryNote||0)+1)%5:0;
+    this.recoveryLast=t;this.recoveryUntil=t+(count-1)*.045+.13;
+    for(let i=0;i<count;i++)this.osc({at:t+i*.045,dur:.095,type:'glass',freq:hz(79+this.recoveryNote*2+steps[i]),vol:.043,pan:this.pan(ev.x),bus:this.alert});
+  },
+  squadronBonus(ev,game,t){
+    if(!this.rate('squadronBonus',.28))return;
+    [0,7,12].forEach((step,i)=>this.osc({at:t+i*.065,dur:.16,type:'triangle',freq:hz(79+step),vol:.065,bus:this.alert}));
+  },
+  salvageExpire(ev,game,t){
+    if(!this.rate('salvageExpire',.18))return;
+    this.noise({at:t,dur:.09,vol:.014,filter:{type:'highpass',freq:4500,end:800},bus:this.combat});
+  },
+  sidewinderLaunch(ev,game,t){
+    if(!this.rate('sidewinderLaunch',.18))return;
+    this.noise({at:t,dur:.15,attack:.025,color:'pink',vol:.035,filter:{type:'bandpass',freq:450,end:2700,q:1},bus:this.combat});
+  },
+  reflect(ev,game,t){
+    if(!this.rate('reflect',.10))return;
+    this.osc({at:t,dur:.09,type:'glass',freq:2200,end:3200,vol:.025,bus:this.combat});
+  },
+  torpedoLaunch(ev,game,t){
+    if(!this.rate('torpedoLaunch',.35))return;
+    this.osc({at:t,dur:.17,type:'hollow',freq:115,end:42,vol:.06,bus:this.combat});
+    this.noise({at:t,dur:.2,attack:.04,color:'brown',vol:.04,filter:{freq:800,end:1800},bus:this.combat});
+  },
+  orbitalEat(ev,game,t){
+    if(!this.rate('orbitalEat',.13))return;
+    this.noise({at:t,dur:.045,color:'crackle',vol:.04,filter:{type:'bandpass',freq:1900,end:600,q:2},bus:this.combat});
+    this.osc({at:t,dur:.055,type:'triangle',freq:220,end:75,vol:.03,bus:this.combat});
+  },
+  escortJoin(ev,game,t){
+    if(!this.rate('escortJoin',.18))return;
+    [0,7,12].forEach((step,i)=>this.osc({at:t+i*.065,dur:.24,type:'hollow',freq:hz(72+step),vol:.055,pan:(i-1)*.4,bus:this.alert}));
+  },
+  reflectorUp(ev,game,t){
+    if(!this.rate('reflectorUp',.2))return;
+    this.osc({at:t,dur:.45,type:'glass',freq:420,end:1680,vol:.05,bus:this.alert});
+  },
+  reflectorDown(ev,game,t){
+    if(!this.rate('reflectorDown',.2))return;
+    this.osc({at:t,dur:.22,type:'sine',freq:1100,end:220,vol:.035,bus:this.alert});
+  },
+  signatureUp(ev,game,t){
+    if(!this.rate('signatureUp',.2))return;
+    [0,4,11,16].forEach((step,i)=>this.osc({at:t+i*.045,dur:.25,type:'glass',freq:hz(72+step),vol:.045,bus:this.alert}));
+  },
+  shieldUp(ev,game,t){
+    if(!this.rate('shieldUp',.2))return;
+    [880,1320].forEach((freq,i)=>this.osc({at:t+i*.08,dur:.28,type:'sine',freq,vol:.045,bus:this.alert}));
+  },
   shoot(ev, game, t) {
-    if (!this.rate('shoot', 0.045)) return;
+    if (!this.rate('shoot', (game.player?.level||1)>7?0.085:0.055)) return;
     const p = game.player || {}, B = this.combat, pan = this.pan(ev.x), v = this.vary(0.045);
-    const weight = 1 + clamp((p.level || 1) - 1, 0, 4) * 0.06, focus = Boolean(p.focus);
+    const weight = 1 + .45 * Math.log1p(Math.max(0,(p.level||1)-1)) / (2 + Math.log1p(Math.max(0,(p.level||1)-1))), focus = Boolean(p.focus);
     this.shots++;
     if (p.weaponType === 'pierce') {
       // Wraith: a dry electric crack, a falling zip and a short chest thump.
@@ -384,11 +451,7 @@ const HANDLERS = {
       this.osc({ at: t, dur: 0.058, type: 'triangle', freq: 212 * v, end: 86, vol: 0.075 * weight, filter: { freq: focus ? 1200 : 1600 }, pan: pan + side, bus: B });
     }
   },
-  droneFire(ev, game, t) {
-    if (!this.rate('droneFire', 0.12)) return;
-    const side = this.shots % 2 ? 0.35 : -0.35;
-    this.osc({ at: t, dur: 0.045, type: 'sine', freq: 1500 * this.vary(0.04), end: 780, vol: 0.014, pan: this.pan(ev.x) + side, bus: this.combat });
-  },
+
   missileLaunch(ev, game, t) {
     if (!this.rate('missileLaunch', 0.14)) return;
     const pan = this.pan(ev.x);
@@ -444,6 +507,7 @@ const HANDLERS = {
   },
   pickup(ev, game, t) {
     const type = String(ev.value || '');
+    if(this.inBatch('salvageRecover')||type==='power'&&this.inBatch('powerUp'))return;
     if (this.inBatch('extend') && ['life', 'shield', 'bomb'].includes(type)) return;
     if (!this.rate('pickup', 0.05)) return;
     const pan = this.pan(ev.x);
@@ -472,7 +536,7 @@ const HANDLERS = {
   },
   powerUp(ev, game, t) {
     if (!this.rate('powerUp', 0.2)) return;
-    const level = clamp(Number(ev.value) || 1, 1, 5), root = 60 + level * 2, pan = this.pan(ev.x);
+    const level = Math.max(1,Number(ev.value)||1), root = 62 + 8*Math.log2(1+level)/Math.log2(14), pan = this.pan(ev.x);
     this.osc({ at: t, dur: 0.33, type: 'sawtooth', freq: 220, end: 1400, vol: 0.026, filter: { type: 'bandpass', freq: 600, end: 3000, q: 2.5 }, pan });
     [0, 4, 7, 12].forEach((step, i) => this.osc({ at: t + 0.04 + i * 0.035, dur: 0.34, type: 'brass', freq: hz(root + step), vol: 0.034, filter: { freq: 2800 }, pan, send: 0.15 }));
     this.noise({ at: t, dur: 0.3, vol: 0.014, attack: 0.08, filter: { type: 'highpass', freq: 6000 }, pan });

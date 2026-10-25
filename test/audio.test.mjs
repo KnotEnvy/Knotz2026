@@ -390,7 +390,7 @@ test('every gameplay event and interface cue plays without errors', async () => 
     const warn = console.warn;
     console.warn = (...args) => warnings.push(args.join(' '));
     try {
-      const types = ['shoot', 'droneFire', 'missileLaunch', 'missileHit', 'hit', 'railHit', 'bossArmorHit', 'bossCoreHit', 'explode',
+      const types = ['shoot', 'missileLaunch', 'missileHit', 'hit', 'railHit', 'bossArmorHit', 'bossCoreHit', 'explode',
         'reactorBreak', 'pickup', 'drop', 'powerUp', 'graze', 'wakeReady', 'roll', 'wakeRoll', 'wakeConvert', 'rollStrike', 'shieldHit',
         'shieldBreak', 'shieldRestore', 'playerHit', 'lifeLost', 'bomb', 'bossEnter', 'bossPhase', 'bossGuard', 'bossGuardEnd', 'bossShot',
         'reactorOpen', 'lanceLock', 'lanceFire', 'lanceCancel', 'flank', 'wave', 'lane', 'extend', 'stage', 'bossDown', 'gameover', 'victory'];

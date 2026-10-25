@@ -7,13 +7,15 @@ test('flagship drills use sector weapons, end after one boss and preserve campai
   for(const stage of [1,2,3]){
     const g=new Game();g.selectShip('manta');g.best=23000;g.startDrill(stage);
     assert.equal(g.mode,'playing');assert.equal(g.practiceStage,stage);assert.ok(g.boss);
-    assert.equal(g.player.level,stage+2);assert.equal(g.player.shield,2);
+    assert.equal(g.player.level,[0,6,8,10][stage]);assert.equal(g.player.power,g.player.level);
+    assert.equal(g.player.escorts,[0,2,4,4][stage]);assert.equal(g.player.sidewinder,[0,1,1,2][stage]);
+    assert.equal(g.player.signature,[0,0,1,2][stage]);assert.equal(g.player.shield,2);
     const lives=g.player.lives;g._awardScore(999999);
     assert.equal(g.best,23000);assert.equal(g.player.lives,lives,'practice does not farm score extends');
     g._killEnemy(g.boss);g._advanceStage();
     assert.equal(g.mode,'victory');assert.equal(g.stage,stage);assert.equal(g.summary.practiceStage,stage);
     assert.equal(g.stats.bossesDefeated,1);assert.equal(g.best,23000);
-    g._start();assert.equal(g.practiceStage,0);assert.equal(g.player.level,1);
+    g._start();assert.equal(g.practiceStage,0);assert.equal(g.player.level,2,'sorties start at power 2');
     g._awardScore(30000);assert.equal(g.best,30000,'campaign scoring works after leaving a drill');
   }
 });

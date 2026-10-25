@@ -639,7 +639,7 @@ const BP_H = 400, BP_CY = 194;
 const CALLOUTS = {
   kestrel: [[[237, 146], 'A / WING GEOMETRY', -1, 92], [[342, 221], 'B / POWER CORE', 1, 262], [[300, 84], 'C / CANNON ARRAY', 1, 62]],
   manta: [[[218, 196], 'A / SHIELD LATTICE', -1, 104], [[372, 214], 'B / MISSILE BAYS ×4', 1, 262], [[300, 108], 'C / BARRIER EMITTER', 1, 62]],
-  wraith: [[[300, 72], 'A / PIERCING RAIL', -1, 70], [[228, 232], 'B / DRONE CRADLES', -1, 300], [[318, 214], 'C / PHASE CORE', 1, 262]],
+  wraith: [[[300, 72], 'A / PIERCING RAIL', -1, 70], [[228, 232], 'B / ORBITAL CRADLES', -1, 300], [[318, 214], 'C / PHASE CORE', 1, 262]],
 };
 const READOUTS = {
   kestrel: ['MASS 17.8 T', 'THRUST 2 × 118 KN', 'ROLE / AIR SUPERIORITY'],

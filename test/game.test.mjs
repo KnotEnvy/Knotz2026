@@ -231,7 +231,8 @@ test('boss armor cue holds each phase long enough, then releases damage at the u
   boss.age = 12;
   boss.hp = boss.maxHp / 3 + 20;
   game._damageEnemy(boss, 400);
-  assert.equal(boss.guardUntil, 18);
+  // A sliver of learn age was bought by the soaked phase-one damage.
+  assert.ok(boss.guardUntil <= 18 && boss.guardUntil > 17.9);
   boss.age = 18;
   game.update(1/60, {});
   assert.equal(boss.phase, 3);
@@ -245,7 +246,7 @@ test('boss armor cue holds each phase long enough, then releases damage at the u
   boss.hp = 20;
   game._damageEnemy(boss, 100);
   assert.equal(boss.hp, 1);
-  assert.equal(boss.guardUntil, 22);
+  assert.ok(boss.guardUntil <= 22 && boss.guardUntil > 21.9);
   boss.age = 22;
   game.update(1/60, {});
   assert.equal(boss.guard, false);
@@ -357,37 +358,50 @@ test('Aurelia final phase alternates wing spirals without a pressure spike', () 
     'the central final-phase fan remains persistent');
 });
 
-test('a three-sector clear reaches visible level five before the final encounter', () => {
+test('a three-sector clear keeps growing power through collected flagship spoils, past five with no cap', () => {
   const game = new Game(); start(game);
+  game.player.invuln = 999;
   // Fixture: resolve each boss after its combat phase to isolate campaign rewards.
-  for (const stage of [1, 2]) {
+  for (const stage of [1, 2, 3]) {
     game.stage = stage;
     game._spawnBoss();
+    game._beatIndex = 99; game._laneIndex = 99;
+    game.boss.y = 285;
     game._killEnemy(game.boss);
-    game._advanceStage();
+    if (stage < 3) {
+      step(game, 230);
+      assert.equal(game.stage, stage + 1);
+      assert.equal(game.pickups.length, 0, 'the interlude collects every flagship spoil');
+    }
   }
-  assert.equal(game.stage, 3);
-  assert.equal(game.player.level, 5);
-  assert.equal(game.player.power, 5);
-  assert.ok(game.events.some(event => event.type === 'powerUp' && event.value === 5));
-  assert.equal(game.stats.powerPeak, 5);
+  // Sortie power 2, one power spoil per flagship plus ladder bonuses (escort, sidewinder).
+  assert.equal(game.player.level, 4);
+  assert.equal(game.player.power, game.player.level);
+  assert.equal(game.player.escorts, 2);
+  assert.equal(game.player.sidewinder, 1);
+  assert.equal(game.stats.powerPeak, 4);
+  game.player.x = game.pickups[0].x; game.player.y = game.pickups[0].y;
+  for (const item of [...game.pickups]) { item.x = game.player.x; item.y = game.player.y; }
+  game._collide();
+  assert.equal(game.player.level, 5, 'the final flagship drops power too');
+  assert.equal(game.player.signature, 1);
+  for (let i = 0; i < 8; i++) game.pickups.push({x: game.player.x, y: game.player.y, r: 16, type: 'power', age: 0, vy: 0});
+  game._collide();
+  assert.equal(game.player.level, 13, 'no sector or final-boss cap holds power back');
 });
 
-test('earned power is paced across sectors and reaches five by the last boss', () => {
+test('score no longer buys power, and pickups raise power without a cap', () => {
   const game = new Game(); start(game);
   game._awardScore(50000);
-  assert.equal(game.player.level, 3, 'sector one holds power at level three');
-  game._advanceStage();
-  assert.equal(game.stage, 2);
-  assert.equal(game.player.level, 4, 'banked score releases level four in sector two');
-  game._advanceStage();
-  assert.equal(game.stage, 3);
-  assert.equal(game.player.level, 5, 'banked score releases level five in sector three');
-
-  const lowScore = new Game(); start(lowScore);
-  lowScore.stage = 3;
-  lowScore._spawnBoss();
-  assert.equal(lowScore.player.level, 5, 'final boss guarantees maximum power on a clear path');
+  assert.equal(game.player.level, 2, 'score extends stay, power milestones are gone (sorties start at 2)');
+  const p = game.player;
+  for (let i = 0; i < 14; i++) { game.pickups.push({x: p.x, y: p.y, r: 16, type: 'power', age: 0, vy: 0}); }
+  game._collide();
+  assert.equal(p.level, 16);
+  assert.equal(p.power, 16);
+  assert.deepEqual(game.events.filter(e => e.type === 'powerUp').map(e => e.value), Array.from({length: 14}, (_, i) => i + 3));
+  game.stage = 3; game._spawnBoss();
+  assert.equal(p.level, 16, 'the final boss neither caps nor grants power');
 });
 
 test('selection persists into a run and three ships fire distinct primary weapons', () => {
@@ -399,7 +413,6 @@ test('selection persists into a run and three ships fire distinct primary weapon
     assert.equal(game.player.shipId, id);
     assert.equal(game.player.weaponType, game.selectedShip.weapon);
     game.player.level = game.player.power = 5;
-    game.player.drones = id === 'wraith' ? 2 : 0;
     game._fire();
     modes.push(game.shots.map(shot => shot.kind));
     if (id === 'manta') {
@@ -408,7 +421,8 @@ test('selection persists into a run and three ships fire distinct primary weapon
     }
     if (id === 'wraith') {
       assert.ok(game.shots.some(shot => shot.kind === 'pierce'));
-      assert.equal(game.shots.filter(shot => shot.kind === 'drone').length, 2);
+      assert.equal(game.shots.filter(shot => shot.kind === 'drone').length, 0, 'drones are deprecated');
+      assert.equal(game.player.drones, 0);
     }
   }
   assert.notDeepEqual(modes[0], modes[1]);
@@ -428,7 +442,7 @@ test('all aircraft remain fully inside the playfield at both horizontal edges', 
   }
 });
 
-test('missiles home toward targets and drones and piercing shots damage enemies', () => {
+test('missiles home toward targets and escort rails and piercing shots damage enemies', () => {
   const manta = new Game(); manta.selectShip('manta'); start(manta);
   manta._enemy('bomber', 390, 470, {fireAt: 99, vy: 0});
   manta._fire();
@@ -438,9 +452,10 @@ test('missiles home toward targets and drones and piercing shots damage enemies'
 
   const wraith = new Game(); wraith.selectShip('wraith'); start(wraith);
   wraith.player.level = wraith.player.power = 4;
-  wraith.player.drones = 2;
+  wraith._addEscorts(1);
   wraith._fire();
-  assert.equal(wraith.shots.filter(shot => shot.kind === 'drone').length, 2);
+  assert.equal(wraith.shots.filter(shot => shot.kind === 'escort' && shot.style === 'rail').length, 2);
+  wraith.shots = wraith.shots.filter(shot => shot.kind === 'pierce');
   const target = wraith._enemy('bomber', 270, 500, {fireAt: 99, vy: 0});
   const pierce = wraith.shots.find(shot => shot.kind === 'pierce');
   pierce.x = target.x; pierce.y = target.y;
