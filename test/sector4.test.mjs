@@ -79,7 +79,7 @@ test('drills 1-4 start at their flagship with the sector kit, and drill 4 uses t
   assert.deepEqual([p.level, p.power, p.escorts, p.sidewinder, p.signature, p.shield], [25, 25, 6, 4, 4, 3]);
   assert.equal(game.boss.name, 'LEVIATHAN'); assert.equal(game.boss.w, 210); assert.equal(game.boss.h, 80);
   assert.equal(game.boss.turrets.length, 4); assert.equal(game.boss.turretsAlive, 4);
-  assert.ok(game.threat > .8 && game.threat < 1, 'the reference kit sits near threat 0.9: ' + game.threat);
+  assert.ok(game.threat > .64 && game.threat < .74, 'the reference kit sits near threat 0.69: ' + game.threat);
   const clamped = new Game(); clamped.startDrill(99); assert.equal(clamped.stage, CAMPAIGN_STAGES);
 });
 
@@ -134,6 +134,7 @@ test('surface ships never hurt on contact; shots over a live turret strike the t
   assert.equal(count(game.events, 'playerHit'), 0); assert.equal(count(game.events, 'shieldHit'), 0);
   boat.dead = true; game._cleanup();
   const turret = game.enemies.find(e => e.type === 'hullTurret');
+  game.threat = .7; // a kitted ship: no weak-kit turret bonus
   const hullHp = hull.hp, turretHp = turret.hp;
   game.shots.push({ x: turret.x, y: hull.y + hull.h * .8, vx: 0, vy: -900, r: 4, damage: 10, kind: 'shot', age: 0 });
   for (let i = 0; i < 40 && game.shots.length; i++) { game._updateShots(1 / 120); game._collide(); game._cleanup(); }
@@ -309,7 +310,7 @@ test('threat follows the arsenal: a bare ship sees slower fire and rescue drops,
   game.events = []; game._killEnemy(lead);
   assert.ok(game.events.some(e => e.type === 'drop' && e.value === 'power'), 'rescue power for a weak ship');
   kit(game, REFERENCE); step(game, 8);
-  assert.ok(game.threat > .85, 'threat rises toward the kit: ' + game.threat);
+  assert.ok(game.threat > .66 && game.threat < .72, 'threat rises toward the reference kit (0.69): ' + game.threat);
   assert.ok(game._pace() < slow * .6);
   const lead2 = game._enemy('interceptor', 270, 300, { rescue: true, path: 'loop', side: 1 });
   game.events = []; game._killEnemy(lead2);
@@ -336,5 +337,335 @@ test('the authored sector plays every beat: hulls, squadrons, gunboats, minefiel
   assert.ok(count(events, 'squadronBonus') >= 15, 'the reference kit melts the squadrons');
   assert.equal(count(events, 'lane'), 5);
   assert.equal(count(events, 'hullDown'), 2, 'the reference kit sinks both hulls');
+  assert.ok(count(events, 'flakEat') > 0, 'the Kestrel flak screen eats bullets');
   assert.ok(peak < ACT_TWO_BULLET_CAP);
+});
+
+// ---- Sector 4 round 2 (docs/design/act-two.md, "Simulation notes (sector 4, round 2)") ----
+
+const ARRIVAL = {
+  kestrel: { level: 39, escorts: 6, sidewinder: 14, signature: 12, shield: 2 },
+  manta: { level: 48, escorts: 6, sidewinder: 16, signature: 12, shield: 3 },
+  wraith: { level: 37, escorts: 6, sidewinder: 21, signature: 11, shield: 2 }
+};
+const MID = { level: 12, escorts: 2, sidewinder: 1, signature: 1, shield: 1 };
+const BARE = { level: 2, escorts: 0, sidewinder: 0, signature: 0, shield: 0 };
+// A kitted quiet sector with threat already at the kit's level.
+const rankedSector4 = (ship, loadout) => {
+  const game = quietSector4(ship); kit(game, loadout); game.threat = game._threatTarget();
+  return game;
+};
+const countCalls = (game, name) => {
+  const original = game[name], tally = { n: 0 };
+  game[name] = (...args) => { tally.n++; return original.apply(game, args); };
+  return tally;
+};
+
+test('Kestrel flak eats one ordinary bullet per shot near the wing; void rounds pass and one coalesced flakEat reports the count', () => {
+  const game = quietSector4('kestrel'); kit(game, { signature: 2 });
+  const flak = (x, y, age = 0) => { const s = { x, y, vx: 0, vy: -760, r: 3.2, damage: 6, kind: 'flak', age }; game.shots.push(s); return s; };
+  const a = flak(150, 400), b = flak(300, 400);
+  const red1 = game._bullet(150, 402, Math.PI / 2, 0, 'red', 4.6), red2 = game._bullet(150, 397, Math.PI / 2, 0, 'red', 4.6);
+  const red3 = game._bullet(300, 401, Math.PI / 2, 0, 'amber', 4.6);
+  game.events = []; game._collide();
+  assert.ok(a.dead && b.dead, 'each flak shot is spent on its eat');
+  assert.equal([red1, red2].filter(x => x.dead).length, 1, 'one flak shot eats exactly one bullet');
+  assert.ok(red3.dead);
+  const eats = game.events.filter(e => e.type === 'flakEat');
+  assert.equal(eats.length, 1, 'coalesced per frame'); assert.equal(eats[0].value, 2);
+  assert.equal(game.stats.flakEats, 2);
+
+  game.shots.length = 0; game.bullets.length = 0; game.events = [];
+  const c = flak(200, 400);
+  const voidRound = game._bullet(200, 400, Math.PI / 2, 0, 'void', 5);
+  game._collide();
+  assert.ok(!voidRound.dead && !c.dead, 'flak cannot eat a void round');
+  assert.equal(count(game.events, 'flakEat'), 0);
+
+  game.shots.length = 0; game.bullets.length = 0;
+  const far = flak(250, 300, .31);
+  const red4 = game._bullet(250, 300, Math.PI / 2, 0, 'red', 4.6);
+  game._collide();
+  assert.ok(!far.dead && !red4.dead, 'flak far past the wing (age > 0.3 s) no longer screens');
+
+  const manta = quietSector4('manta'); kit(manta, { signature: 2 });
+  manta.shots.push({ x: 200, y: 400, vx: 0, vy: -760, r: 3.2, damage: 6, kind: 'flak', age: 0 });
+  const red5 = manta._bullet(200, 400, Math.PI / 2, 0, 'red', 4.6);
+  manta._collide(); assert.ok(!red5.dead, 'only the Kestrel signature screens');
+});
+
+test('Kestrel and Wraith share a 7 px hurtbox; Manta keeps 9', () => {
+  for (const [ship, r] of [['kestrel', 7], ['manta', 9], ['wraith', 7]]) {
+    const game = new Game(); game.selectShip(ship); assert.equal(game.player.r, r, ship);
+    game.update(0, { start: true }); assert.equal(game.player.r, r, ship + ' after launch');
+  }
+  const fresh = new Game(); assert.equal(fresh.player.r, 7, 'the default airframe is the Kestrel');
+});
+
+test('threat curve: 0 bare, ~0.25 mid, ~0.69 reference, 0.85-0.88 Crown arrival, saturating and monotone', () => {
+  const game = quietSector4();
+  const at = loadout => { kit(game, loadout); return game._threatTarget(); };
+  assert.equal(at(BARE), 0);
+  const mid = at(MID), ref = at(REFERENCE);
+  assert.ok(mid > .2 && mid < .3, 'mid kit ' + mid);
+  assert.ok(ref > .66 && ref < .72, 'reference kit ' + ref);
+  for (const [ship, loadout] of Object.entries(ARRIVAL)) {
+    const t = at(loadout);
+    assert.ok(t > .84 && t < .88, ship + ' arrival ' + t);
+    assert.ok(t - ref > .12, 'the rank still separates arrival kits from the reference kit');
+  }
+  const extreme = at({ level: 9999, escorts: 6, sidewinder: 99, signature: 99, shield: 3 });
+  assert.ok(extreme <= .88 && extreme > .879, 'saturates at 0.88: ' + extreme);
+  let last = -1;
+  for (let level = 1; level <= 90; level += 1) {
+    const t = at({ level, escorts: 6, sidewinder: 4, signature: 4, shield: 3 });
+    assert.ok(t >= last, 'monotone in the arsenal'); last = t;
+  }
+  // Fire cadence: 1.8x slower bare, ~0.74 for the reference kit, ~0.62 for an arrival kit.
+  game.threat = 0; assert.equal(game._pace(), 1.8);
+  game.threat = ref; assert.ok(Math.abs(game._pace() - .74) < .02, 'reference pace ' + game._pace());
+  game.threat = .87; assert.ok(Math.abs(game._pace() - .62) < .02, 'arrival pace ' + game._pace());
+  game.threat = ref; assert.ok(Math.abs(game._bossPace() - .96) < .02, 'LEVIATHAN pace for the reference kit ' + game._bossPace());
+});
+
+test('a scatter eases threat while the ship rebuilds, and recovering the salvage restores it', () => {
+  const game = quietSector4(); const p = game.player;
+  kit(game, REFERENCE); step(game, 8);
+  const before = game.threat;
+  p.invuln = 0; p.shield = 0; game._hurtPlayer(p.x, p.y);
+  game._scavengerCall = 0; // isolate the rank from the scavenger race
+  step(game, 1.5);
+  assert.ok(game.threat < before - .4, `threat falls after the scatter: ${before.toFixed(2)} -> ${game.threat.toFixed(2)}`);
+  for (const item of game.pickups) if (item.salvage && !item.dead) { item.dead = true; game._collect(item); }
+  const target = game._threatTarget();
+  assert.ok(target > .58, 'the recovered kit (power burned 20%, shields spent) targets ~0.62: ' + target);
+  step(game, 4);
+  assert.ok(game.threat > .5, 'the rank climbs back at 0.15/s: ' + game.threat);
+});
+
+test('a non-finite arsenal degrades threat to 0 instead of silencing Act II fire', () => {
+  const game = quietSector4();
+  game.player.sidewinder = NaN; game._syncArsenal();
+  step(game, 1);
+  assert.equal(game.threat, 0);
+  assert.ok(Number.isFinite(game._pace()) && Number.isFinite(game._bossPace()));
+  game.player.sidewinder = Infinity; game._syncArsenal(); assert.equal(game._threatTarget(), 0);
+  game.player.sidewinder = NaN; game._syncArsenal();
+  const boat = game._enemy('gunboat', 270, 100, { fireAt: .2 }); boat.vy = 0;
+  const before = game.bullets.length; step(game, 1);
+  assert.ok(game.bullets.length > before, 'Act II sources still fire');
+});
+
+test('hull turrets take +50% damage from a stripped ship (threat < 0.3); hulls and kitted ships are unchanged', () => {
+  const game = quietSector4();
+  const hull = game._spawnHull('cruiser', 270, [[0, 0, 'void']], null);
+  const turret = game.enemies.find(e => e.type === 'hullTurret');
+  assert.equal(turret.maxHp, 1600, 'cruiser turrets carry 1,600 HP');
+  const dealt = (target, threat) => { game.threat = threat; const hp = target.hp; game._damageEnemy(target, 100); return hp - target.hp; };
+  assert.equal(dealt(turret, 0), 150); assert.equal(dealt(turret, .29), 150);
+  assert.equal(dealt(turret, .3), 100); assert.equal(dealt(turret, .8), 100);
+  assert.equal(dealt(hull, 0), 35, 'the hull itself keeps its x0.35 armor rule');
+  const drill = new Game(); drill.startDrill(4); kit(drill, BARE); drill.threat = 0;
+  const deck = drill.enemies.find(e => e.type === 'hullTurret'), hp = deck.hp;
+  drill._damageEnemy(deck, 100); assert.equal(hp - deck.hp, 150, 'LEVIATHAN deck turrets too');
+});
+
+test('a kitted ship meets interceptor entry bursts at the field edge as 3-way rounds plus a third burst; a stripped ship meets only the mid-path burst', () => {
+  const pass = loadout => {
+    const game = rankedSector4('kestrel', loadout);
+    const bullets = countCalls(game, '_bullet');
+    game._spawnSquadron('loop', 1, 1);
+    const craft = game.enemies.find(e => e.type === 'interceptor');
+    let entry = null, entryY = null, maxFired = 0;
+    for (let i = 0; i < 60 * 7 && !craft.dead && game.enemies.includes(craft); i++) {
+      game.update(1 / 60, {});
+      if (craft.fired >= 1 && entryY === null && craft.burstLeft > 0) entryY = craft.y;
+      if (craft.fired === 1 && craft.burstLeft === 0 && entry === null) entry = bullets.n;
+      maxFired = Math.max(maxFired, craft.fired);
+    }
+    return { entry, entryY, maxFired, total: bullets.n, threat: game.threat };
+  };
+  const kitted = pass(REFERENCE);
+  assert.equal(kitted.entry, 12, 'four 3-way rounds on entry');
+  assert.ok(kitted.entryY < 40, 'the entry burst fires as the craft clears the edge: y ' + kitted.entryY);
+  assert.equal(kitted.maxFired, 3, 'a third burst follows the mid-path burst');
+  const stripped = pass(BARE);
+  assert.equal(stripped.maxFired, 2, 'the entry burst is skipped');
+  assert.equal(stripped.total, 1, 'one single round, mid-path');
+});
+
+test('gunboats add a re-aimed follow-up burst for a kitted ship only', () => {
+  const volleys = loadout => {
+    const game = rankedSector4('kestrel', loadout);
+    const spreads = countCalls(game, '_spread');
+    const boat = game._enemy('gunboat', 270, 100, { fireAt: .1 }); boat.vy = 0;
+    step(game, 1.3);
+    return spreads.n;
+  };
+  assert.equal(volleys(REFERENCE), 6, '4 volleys, then a 2-volley follow-up');
+  assert.equal(volleys(BARE), 2, 'a bare ship meets 2 volleys and no follow-up');
+});
+
+test('the cruiser fires torpedo pairs every 3.2 s; mines fuse in 3.5-5.0 s; the opening squadron waits for the intro card', () => {
+  const game = quietSector4();
+  game._spawnActTwoBeat('cruiser');
+  const cruiser = game.enemies.find(e => e.type === 'hull');
+  assert.ok(game.enemies.filter(e => e.parentId === cruiser.id).every(t => t.maxHp === 1600));
+  const launches = [];
+  for (let i = 0; i < 60 * 14; i++) { game.update(1 / 60, {}); if (game.events.some(e => e.type === 'torpedoLaunch' && e.value === 'enemy')) launches.push(cruiser.age); }
+  assert.ok(launches.length >= 2, 'torpedo pairs launched: ' + launches.length);
+  assert.ok(Math.abs(launches[1] - launches[0] - 3.2) < .02, 'cycle ' + (launches[1] - launches[0]).toFixed(3));
+
+  const field = quietSector4();
+  field._spawnActTwoBeat('minefield'); field.stageTime = 60; field._spawnActTwoBeat('minefield');
+  const fuses = field.enemies.filter(e => e.type === 'mine').map(e => e.fuse);
+  assert.ok(fuses.length >= 12 && fuses.every(f => f >= 3.5 && f <= 5.0), 'fuses ' + Math.min(...fuses).toFixed(2) + '-' + Math.max(...fuses).toFixed(2));
+
+  const opening = sortie(); opening.stage = 4; opening.stageTime = 0; opening._beatIndex = 0; opening._laneIndex = 0;
+  opening.player.invuln = 999;
+  assert.equal(count(step(opening, 2.4), 'squadronEnter'), 0, 'nothing enters under the 3.4 s intro card before 2.5 s');
+  assert.equal(count(step(opening, .2), 'squadronEnter'), 1);
+});
+
+test('a sector scatter calls two scavengers 0.6 s later: from the side edges for a kitted ship, from the top for a stripped one', () => {
+  const callIn = loadout => {
+    const game = rankedSector4('wraith', loadout), p = game.player;
+    p.invuln = 0; p.shield = 0; game._hurtPlayer(p.x, p.y);
+    assert.ok(Math.abs(game._scavengerCall - game.time - .6) < 1e-9);
+    const salvage = game.pickups.filter(i => i.salvage && !i.dead);
+    step(game, .5); assert.ok(!game.enemies.some(e => e.type === 'scavenger'), 'not before the call-in');
+    step(game, .15);
+    return { scavengers: game.enemies.filter(e => e.type === 'scavenger'), salvage };
+  };
+  const kitted = callIn(REFERENCE);
+  assert.equal(kitted.scavengers.length, 2);
+  for (const s of kitted.scavengers) {
+    assert.ok(s.x < 60 || s.x > 480, 'cuts in from a side edge: x ' + s.x.toFixed(0));
+    assert.ok(s.y > 140 && s.y < 760, 'level with the salvage: y ' + s.y.toFixed(0));
+  }
+  const stripped = callIn({ level: 4, escorts: 0, sidewinder: 0, signature: 0, shield: 0 });
+  assert.equal(stripped.scavengers.length, 2);
+  assert.ok(stripped.scavengers.every(s => s.y < 120), 'a ship that was already stripped meets the top dive');
+});
+
+test('void rounds are never smaller than r 5', () => {
+  const game = quietSector4();
+  assert.equal(game._bullet(270, 100, 1, 100, 'void', 4.4).r, 5);
+  assert.equal(game._bullet(270, 100, 1, 100, 'void', 5.6).r, 5.6);
+  assert.equal(game._bullet(270, 100, 1, 100, 'red', 4.4).r, 4.4);
+  const wraith = rankedSector4('wraith', REFERENCE);
+  wraith._spawnSquadron('loop', 1, 1);
+  step(wraith, 4);
+  const voids = wraith.bullets.filter(b => b.kind === 'void');
+  assert.ok(voids.length > 0 && voids.every(b => b.r >= 5), 'interceptor void rounds read at r 5');
+});
+
+test('LEVIATHAN sways within the field: bow, stern and the rolled-out broadside stay inside 0-540', () => {
+  const game = new Game(); game.selectShip('wraith'); game.startDrill(4);
+  const boss = game.boss;
+  let minX = 999, maxX = -999;
+  for (let f = 0; f < 60 * 40 && game.boss; f++) {
+    game.player.invuln = 99; game.update(1 / 60, {});
+    minX = Math.min(minX, boss.x); maxX = Math.max(maxX, boss.x);
+    assert.ok(boss.x - boss.w - 22 >= 0 && boss.x + boss.w + 22 <= 540, 'inside the field at x ' + boss.x.toFixed(1));
+  }
+  assert.ok(maxX - 270 > 19 && 270 - minX > 19, 'it still sways about +/-20');
+  assert.equal(boss.w, 210, 'the collision ellipse keeps the drawn 210x80 hull');
+});
+
+test('LEVIATHAN death carries its last pose for the sinking hull, and takes turrets, torpedoes and mines with it', () => {
+  const game = new Game(); game.selectShip('manta'); game.startDrill(4);
+  const boss = game.boss;
+  boss.phase = 2; boss.broadside = .6; boss.core = .2; boss.angle = .01; boss.x = 281; boss.y = 190;
+  const torpedo = game._enemy('torpedoEnemy', 270, 300, {});
+  const mine = game._enemy('mine', 200, 200, { fuse: 30 });
+  const turrets = game.enemies.filter(e => e.type === 'hullTurret');
+  game.events = []; game._killEnemy(boss);
+  const down = game.events.find(e => e.type === 'bossDown');
+  assert.deepEqual({ x: down.x, y: down.y, value: down.value, w: down.w, h: down.h, angle: down.angle, broadside: down.broadside, core: down.core },
+    { x: 281, y: 190, value: 4, w: 210, h: 80, angle: .01, broadside: .6, core: .2 });
+  assert.equal(game.boss, null);
+  assert.ok(turrets.every(t => t.dead) && torpedo.dead && mine.dead, 'children go down with the flagship');
+  assert.equal(count(game.events, 'turretDown'), 0, 'deck turrets lost with the hull are not reported as shot down');
+  step(game, .2);
+  assert.ok(!game.enemies.some(e => !e.dead && ['torpedoEnemy', 'mine', 'hullTurret'].includes(e.type)));
+  const crown = sortie(); crown.stage = 3; crown._spawnBoss(); crown.events = []; crown._killEnemy(crown.boss);
+  assert.equal(crown.events.find(e => e.type === 'bossDown').broadside, undefined, 'earlier flagships keep the plain event');
+});
+
+test('pause freezes LEVIATHAN and resumes it', () => {
+  const game = new Game(); game.selectShip('kestrel'); game.startDrill(4);
+  step(game, 2);
+  const age = game.boss.age, time = game.time, bullets = game.bullets.length;
+  game.update(1 / 60, { pause: true }); assert.equal(game.mode, 'paused');
+  game.update(1 / 60, {}); game.update(1 / 60, {});
+  assert.equal(game.boss.age, age); assert.equal(game.time, time); assert.equal(game.bullets.length, bullets);
+  game.update(1 / 60, { pause: true }); assert.equal(game.mode, 'playing');
+  step(game, .5); assert.ok(game.boss.age > age, 'the fight resumes');
+});
+
+test('a bomb damages LEVIATHAN in every phase, through the deck armor rule', () => {
+  const game = new Game(); game.selectShip('kestrel'); game.startDrill(4);
+  const boss = game.boss, p = game.player;
+  const bomb = () => { p.bombs = 1; const hp = boss.hp; game._bomb(); return hp - boss.hp; };
+  assert.equal(bomb(), 97.5, 'phase 1 with deck turrets alive: 390 x 0.25');
+  for (const t of game.enemies.filter(e => e.type === 'hullTurret')) game._killEnemy(t, false, true);
+  for (const phase of [1, 2, 3]) { boss.phase = phase; assert.equal(bomb(), 390, 'phase ' + phase + ' with the deck cleared'); }
+  const hull = rankedSector4('kestrel', REFERENCE);
+  const destroyer = hull._spawnHull('destroyer', 270, [[0, -60, 'triple']], null), gun = hull.enemies.find(e => e.type === 'hullTurret');
+  hull.player.bombs = 1; const dh = destroyer.hp, gh = gun.hp; hull._bomb();
+  assert.ok(Math.abs(dh - destroyer.hp - 140) < 1e-9); assert.equal(gh - gun.hp, 400);
+});
+
+test('scavenger edge cases: stale targets, the interlude, stolen salvage across a sector change, and the stats', () => {
+  // The player collects the target first: the scavenger retargets with no phantom steal.
+  const stale = quietSector4();
+  stale.pickups.push({ id: 4242, x: 270, y: 600, r: 18, type: 'power', age: 3, vx: 0, vy: 0, salvage: true, value: 2, life: 9 });
+  const hunter = stale._enemy('scavenger', 270, 200); hunter.targetPickupId = 4242;
+  stale.pickups[0].dead = true; stale.events = [];
+  for (let i = 0; i < 120; i++) stale._updateScavenger(hunter, 1 / 60, stale.player);
+  assert.ok(!hunter.carrying); assert.equal(count(stale.events, 'scavengerSteal'), 0);
+
+  // A carrier still alive when LEVIATHAN arrives takes its salvage along, counted once.
+  const arrival = quietSector4();
+  const carrier = arrival._enemy('scavenger', 270, 300); carrier.carrying = { type: 'power', value: 3, life: 6 };
+  const lostBefore = arrival.stats.salvageLost;
+  arrival._spawnBoss();
+  assert.equal(arrival.stats.salvageLost, lostBefore + 3); assert.equal(arrival.boss.name, 'LEVIATHAN');
+
+  // An escape counts as lost exactly once.
+  const escape = quietSector4();
+  const thief = escape._enemy('scavenger', 270, 300); thief.carrying = { type: 'escort', value: 2, life: 6 };
+  thief.vy = -400; thief.y = -29;
+  const lostEscape = escape.stats.salvageLost;
+  const escaped = step(escape, 1);
+  assert.ok(thief.dead); assert.equal(count(escaped, 'scavengerEscape'), 1);
+  assert.equal(escape.stats.salvageLost, lostEscape + 2);
+
+  // Shot down during the act break: the salvage falls back and the interlude
+  // collects it on the way into sector 4; nothing is lost or counted twice.
+  const crown = sortie(); crown.player.invuln = 999; crown.stage = 3; crown._spawnBoss(); crown.boss.y = 285;
+  const runner = crown._enemy('scavenger', 270, 400); runner.carrying = { type: 'signature', value: 2, life: 7 };
+  crown._killEnemy(crown.boss);
+  assert.ok(runner.dead, 'everything the flagship fielded goes down with it');
+  const back = crown.pickups.find(i => i.salvage && !i.dead && i.type === 'signature');
+  assert.ok(back && back.value === 2 && back.life >= 5, 'the carried salvage falls back as salvage');
+  const recovered = crown.stats.salvageRecovered, lost = crown.stats.salvageLost, signature = crown.player.signature;
+  const late = crown._enemy('scavenger', 200, 420); late.carrying = { type: 'escort', value: 1, life: 6 };
+  crown.events = []; crown._killEnemy(late);
+  assert.equal(count(crown.events, 'scavengerDrop'), 1, 'killed during the interlude, it drops its salvage');
+  step(crown, 7);
+  assert.equal(crown.stage, 4);
+  assert.equal(crown.stats.salvageRecovered, recovered + 3, 'both pieces are collected by the interlude');
+  assert.equal(crown.stats.salvageLost, lost); assert.equal(crown.player.signature, signature + 2);
+});
+
+test('Crown-arrival kits kill LEVIATHAN in 52-72 s (pinned)', () => {
+  for (const [ship, loadout] of Object.entries(ARRIVAL)) {
+    const game = new Game(); game.selectShip(ship); game.startDrill(4); kit(game, loadout);
+    const boss = game.boss;
+    for (let f = 0; f < 60 * 120 && game.mode === 'playing'; f++) { game.player.invuln = 99; game.update(1 / 60, tracker(game)); }
+    assert.equal(game.mode, 'victory', ship);
+    assert.ok(boss.age >= 52 && boss.age <= 72, `${ship} arrival kill ${boss.age.toFixed(1)} s`);
+  }
 });

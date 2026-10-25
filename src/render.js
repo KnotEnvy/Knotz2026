@@ -1,7 +1,7 @@
 // Authored craft and terrain with procedural light, atmosphere and combat.
 import { drawAtlasScenery, drawAtlasClouds, WorldAmbience, worldPaintsStage } from './background.js';
 import { CAMPAIGN_STAGES } from './game.js';
-import { drawCraft, drawCoast, drawWreck, prepareWaterMaps } from './art.js';
+import { drawCraft, drawCoast, drawWreck, prepareWaterMaps, monsoonSea } from './art.js';
 const W = 540, H = 900, TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hash = n => { const v = Math.sin(n * 127.1 + 31.7) * 43758.5453; return v - Math.floor(v); };
@@ -218,7 +218,10 @@ export class Renderer {
         c.fillStyle=glow;c.fillRect(-extent,-extent,extent*2,extent*2);
         oval(c,0,0,r+1.7,r+1.7,'#07101e');
         oval(c,0,0,r,r,shell);
-        if(kind==='void')oval(c,0,0,r,r,'#ebc5ff',true,1.8);
+        if(kind==='void'){
+          oval(c,0,0,r,r,'#100c1c');
+          oval(c,0,0,r,r,'#d9a7f4',true,2.3);
+        }
         if(kind!=='void')oval(c,-r*.2,-r*.23,r*.52,r*.52,core);
         if(r>5)oval(c,0,0,r*1.42,r*1.42,'rgba('+ring+',.72)',true,1);
         sprites[kind][half]=s;
@@ -735,6 +738,15 @@ export class Renderer {
     if(game.mode!=='paused') {this.time+=step;this.travel+=step*105;}
     const t=Number.isFinite(game.time)?game.time:this.time;
     const scroll=Number.isFinite(game.scroll)?game.scroll:this.travel;
+    if(!this.monsoonWarmed&&(this.currentStage===4||(game.events||[]).some(e=>e.type==='actTwo'))){
+      // A real blit plus a one-pixel read forces rasterization before the first
+      // strike. Alpha zero (or an immediately covered blit) can be culled.
+      c.save();c.setTransform(1,0,0,1,0,0);c.globalCompositeOperation='lighter';
+      c.drawImage(monsoonSea().lit,0,0);
+      const storm=this.ambience.monsoonSprites();
+      for(const tile of [storm.shipLit,...storm.scudLit,storm.flash])c.drawImage(tile,0,0);
+      c.getImageData(0,0,1,1);c.restore();this.monsoonWarmed=true;
+    }
     c.setTransform(1,0,0,1,0,0);c.fillStyle='#061b2b';c.fillRect(0,0,W,H);
     c.save();
     this.playerPoint=game.player;
@@ -751,6 +763,7 @@ export class Renderer {
       for(const e of enemies)if(e.type==='hull'||e.type==='gunboat')this.enemy(e,t);
       for(const e of enemies)if(e.type==='hullTurret'&&e.parentId!==game.boss?.id)this.enemy(e,t);
       for(const e of enemies)if(e.type==='hull'&&!e.dead)this.fleetTurretWrecks(e,t);
+      for(const fx of this.impacts)if(fx.fleet&&fx.type==='bossDown')this.sinkingLeviathan(fx,t);
     }
     this.pickups(game.pickups||[],t);
     if(!fleet){this.projectiles(game.shots||[],true,t);this.arsenalCraft(game.player,t);}
@@ -800,9 +813,14 @@ export class Renderer {
           }
           const origin=type==='scavengerSteal'?this.fleetPickupPoints?.filter(p=>p.type===event.value).sort((a,b)=>Math.hypot(a.x-event.x,a.y-event.y)-Math.hypot(b.x-event.x,b.y-event.y))[0]:null;
           this.impacts.push({id:++this.effectId,type,fleet:true,fromX:origin?.x,fromY:origin?.y,x:event.x??270,y:event.y??280,value:event.value,age:0,
+            hull:type==='bossDown'?{w:event.w??210,h:event.h??80,angle:event.angle??0,broadside:event.broadside??0,core:event.core??0}:null,
             life:type==='bossDown'?2.8:type==='hullDown'?2.1:1,size:type==='bossDown'?270:type==='hullDown'?130:type==='turretDown'?35:type==='coreExposed'?150:55});
           continue;
         }
+      }
+      if(type==='flakEat'){
+        this.impacts.push({id:++this.effectId,type,x:event.x??270,y:event.y??750,value:event.value,age:0,life:.18,size:12});
+        continue;
       }
       if(['squadronBonus','arsenalScatter','salvageRecover','salvageExpire','escortJoin','sidewinderLaunch','reflect','reflectorUp','reflectorDown','signatureUp','shieldUp','orbitalEat'].includes(type)){
         if(['reflect','orbitalEat','sidewinderLaunch'].includes(type)&&this.impacts.some(f=>f.type===type&&f.age<.1))continue;
@@ -952,6 +970,15 @@ export class Renderer {
       const rimProfile=violet?'rimViolet':cool?'rimCool':gold?'rimGold':'rimFire';
       const coreProfile=violet?'coreViolet':cool?'coreCool':gold?'coreGold':'coreFire';
       c.save();
+      if(fx.type==='flakEat'){
+        c.globalAlpha=fade;
+        oval(c,fx.x,fx.y,2.5*(1-p),2.5*(1-p),'#fff5d4');
+        for(let i=0;i<5;i++){
+          const a=i*TAU/5+fx.id,d=3+p*10;
+          line(c,[fx.x+Math.cos(a)*d*.4,fx.y+Math.sin(a)*d*.4,fx.x+Math.cos(a)*d,fx.y+Math.sin(a)*d],'#ffce88',1.4);
+        }
+        c.restore();continue;
+      }
       if(['squadronBonus','arsenalScatter','salvageRecover','salvageExpire','escortJoin','sidewinderLaunch','reflect','reflectorUp','reflectorDown','signatureUp','shieldUp','orbitalEat'].includes(fx.type)){
         const scatter=fx.type==='arsenalScatter',fizzle=fx.type==='salvageExpire';
         const col=scatter?'#ff775f':fizzle?'#8394ae':fx.type==='signatureUp'?'#cab8ff':'#a0fff0';
@@ -1708,8 +1735,9 @@ export class Renderer {
       poly(c,[-7,-9,-29,7,-27,10,-8,2,8,2,27,10,29,7,7,-9],'#a93535');
       poly(c,[0,-30,-4,-10,-3,22,0,26,3,22,4,-10],'#e45c48','#6b2529',1);
       poly(c,[-3,-10,0,-17,3,-10,3,1,-3,1],'#091c25','#a5ddd0',1);
-      for(const side of [-1,1]){oval(c,side*22,6,3,3,'#f4c7a4');oval(c,side*22,6,1.5,1.5,'#b33035');}
       }
+      // Keep the identification lamps visible on the authored sprite as well.
+      for(const side of [-1,1]){oval(c,side*25,6,4.2,2.6,'#f4c7a4');oval(c,side*25,6,2,1.4,'#ff765c');}
     }else if(type==='scavenger'){
       const col=PICKUP_THEMES[e.carrying?.type]?.[1]||'#ffdf7c';
       if(e.carrying){
@@ -1732,7 +1760,8 @@ export class Renderer {
       c.rotate(Math.atan2(e.vy||110,e.vx||0)-Math.PI/2);
       line(c,[-6,-11,-10,-42],'rgba(194,228,208,.6)',2);line(c,[6,-11,10,-42],'rgba(194,228,208,.6)',2);
       poly(c,[0,21,-7,9,-6,-16,-12,-23,-3,-20,3,-20,12,-23,6,-16,7,9],'#14252b','#aab6a0',1.5);
-      line(c,[-5,6,5,6],'#f39e61',3);oval(c,0,14,3,3,'#ffdb96');
+      bloom(c,0,7,18,'rgba(255,185,103,.25)','hitMissile',.25);
+      line(c,[-5,6,5,6],'#ffc27a',4);oval(c,0,14,3,3,'#ffdb96');
     }
     if(e.flash>0){c.globalAlpha=Math.min(.65,e.flash);oval(c,0,0,type==='hull'?e.w:19,type==='hull'?e.h:15,'#fff3ca');}
     c.restore();return true;
@@ -1781,6 +1810,57 @@ export class Renderer {
     // Child coordinates are authoritative: no decorative guns that survive a kill.
     for(const e of this.fleetEnemies||[])if(e.type==='hullTurret'&&e.parentId===b.id&&!e.dead&&e.hp>0)this.enemy(e,t);
   }
+  sinkingLeviathan(fx,t) {
+    const c=this.ctx,{w,h,angle,broadside,core}=fx.hull,p=fx.age/fx.life;
+    const fade=Math.min(1,(1-p)*3),sink=p*p*85;
+    c.save();c.translate(fx.x+Math.sin(p*2)*8,fx.y+sink);
+    c.rotate(angle+p*.13);c.scale(1,1-p*.36);c.globalAlpha=fade;
+    c.drawImage(this.fleetHull(w,h,true),-w-32,-h-32);
+    // Batteries fold down with the listing deck; the engine is extinguished.
+    for(const side of [-1,1])for(let i=0;i<5;i++){
+      const x=side*(w*.85+broadside*22),y=-h*.52+i*h*.26;
+      line(c,[x,y,x+side*(9+broadside*12)*(1-p),y+8*p],'#7c8d82',5);
+    }
+    oval(c,0,18,42+core*12,34,'#0b1519');
+    oval(c,0,18,42+core*12,34,'#7d887a',true,2);
+    // Persistent fires stay attached to the deck. Only their small lobes move.
+    for(let i=0;i<7;i++){
+      const x=(i/6-.5)*w*1.55,y=(hash(i*17+8)-.5)*h;
+      const fire=(9+hash(i+4)*10)*(1+Math.sin(t*19+i*3)*.15)*(1-p*.7);
+      oval(c,x,y,fire*1.4,fire*.65,'#0a1519');
+      bloom(c,x,y,fire*2.4,'rgba(255,178,116,.5)','rimFire',.5*fade);
+      poly(c,[x-fire,y,x-fire*.4,y-fire*1.4,x+2,y-fire*2.2,x+fire*.4,y-fire,x+fire,y+2],'#d86432');
+      oval(c,x,y-fire*.4,fire*.45,fire*.75,'#ffda8c');
+    }
+    c.restore();
+    // A widening waterline and individual spray jets frame the whole wreck.
+    c.save();c.globalAlpha=fade*.65;
+    for(let ring=0;ring<3;ring++){
+      const q=(p+ring*.24)%1;
+      oval(c,fx.x,fx.y+h*.35+sink*.65,w*(.85+q*.5),h*(.6+q*.8),'rgba(198,234,219,'+((1-q)*.7)+')',true,2-q);
+    }
+    for(let i=0;i<24;i++){
+      const a=i*TAU/24,q=(p*2.2+hash(i*3))%1;
+      const x=fx.x+Math.cos(a)*w*(.92+q*.23),y=fx.y+sink*.7+Math.sin(a)*h*.7;
+      line(c,[x,y,x+Math.cos(a)*q*17,y-Math.sin(q*Math.PI)*24],'rgba(216,245,229,'+((1-q)*.8)+')',1.5);
+    }
+    // Cache a neutral steam lobe; its upward drift follows the storm wind.
+    if(!this.fleetSteam){
+      this.fleetSteam=surface(96,96);const sc=this.fleetSteam.getContext('2d');
+      for(let i=0;i<6;i++){
+        const x=30+hash(i*7)*36,y=28+hash(i*11)*36,rad=21;
+        const g=sc.createRadialGradient(x,y,0,x,y,rad);
+        g.addColorStop(0,'rgba(178,193,181,.32)');g.addColorStop(1,'rgba(121,145,135,0)');
+        sc.fillStyle=g;sc.fillRect(x-rad,y-rad,rad*2,rad*2);
+      }
+    }
+    for(let i=0;i<7;i++){
+      const q=(p*.85+i/7)%1,sz=48+q*76;
+      c.globalAlpha=Math.sin(q*Math.PI)*.75*fade;
+      c.drawImage(this.fleetSteam,fx.x+(hash(i*7)-.5)*w*.5+q*48-sz*.5,fx.y+sink*.3-q*130-sz*.5,sz,sz);
+    }
+    c.restore();
+  }
   fleetEffects(t) {
     const c=this.ctx;
     for(const fx of this.impacts){
@@ -1798,11 +1878,13 @@ export class Renderer {
           line(c,[fx.x-12,fx.y-7,fx.x+8,fx.y+8],'#d78b56',3);
           poly(c,[fx.x-10,fx.y+7,fx.x+5,fx.y-8,fx.x+13,fx.y+4],'#0b171c');
         }
-        const n=fx.type==='bossDown'?13:fx.type==='hullDown'?7:3;
+        const n=fx.type==='bossDown'?17:fx.type==='hullDown'?7:3;
         for(let i=0;i<n;i++){
-          const age=p-i*.045;if(age<0)continue;
+          const death=fx.type==='bossDown',age=death?(fx.age-i*.135)/.72:p-i*.045;
+          if(age<0||(death&&age>1))continue;
           c.globalAlpha=Math.max(.15,1-age*1.4)*Math.min(1,(1-p)*3);
-          const x=fx.x+(hash(i+fx.id)-.5)*fx.size*1.5,y=fx.y+(hash(i*19+fx.id)-.5)*fx.size*.55;
+          const x=fx.x+(death?(i/(n-1)-.5)*fx.hull.w*1.7:(hash(i+fx.id)-.5)*fx.size*1.5),
+            y=fx.y+(hash(i*19+fx.id)-.5)*(death?fx.hull.h:fx.size*.55)+(death?p*p*65:0);
           const r=(fx.type==='bossDown'?23+age*65:fx.type==='hullDown'?17+age*47:9+age*23)*(1-age*.5);
           oval(c,x-8*age,y-45*age,r*1.2,r,'rgba(17,25,28,.7)');
           bloom(c,x,y,Math.min(94,r*2.3),'rgba(255,178,116,.7)','rimFire',.7);

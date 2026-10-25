@@ -36,6 +36,7 @@ const REFLECT_COST = .06;          // reflector seconds burned per reflected bul
 const ORBIT_RADIUS = 46;
 const ORBITAL_COOL = .6;           // seconds before an orbital can eat again
 const ORBITALS_SHOWN = 6;
+const FLAK_SCREEN_TIME = .3;       // s (~230 px): Kestrel flak eats bullets only this close to the wing
 const PARTICLE_CAP = 380;          // non-critical particles are dropped at the cap
 const PARTICLE_HARD_CAP = 520;     // critical feedback (phase, scatter, bomb...) may overflow to here
 const CRITICAL_PARTICLES = new Set(["boss","phase","ring","bomb","scatter","damage","shield","power","pickup","roll","explode"]);
@@ -78,21 +79,35 @@ const ACT_TWO_SPECS = {interceptor:[55,14,0,260],gunboat:[900,21,52,900],
   hullTurret:[1100,16,0,1500],scavenger:[45,11,0,450],mine:[120,13,50,180],torpedoEnemy:[42,9,0,160]};
 const HULL_CLASSES = {
   destroyer:{hp:5600,w:46,h:132,vy:40,value:9000,turretHp:1100},
-  cruiser:{hp:9000,w:62,h:176,vy:38,value:20000,turretHp:1250}
+  cruiser:{hp:9000,w:62,h:176,vy:38,value:20000,turretHp:1600}
 };
 const HULL_ARMOR = .35;            // hull damage share while any of its turrets lives
 const LEVIATHAN_ARMOR = .25;       // core damage share while any deck turret lives
 const LEVIATHAN_HP = 145000;
 const LEVIATHAN_TURRET_HP = 1800;
+const LEVIATHAN_SWAY = 20;         // px each side of centre
+const VOID_MIN_RADIUS = 5;
 const SCAVENGER_CAP = 4;           // live scavengers at once
+const SCAVENGER_CALL = .6;         // seconds from a sector-4 scatter to the scavenger call-in
+const SCAVENGER_SPEED = 330;       // px/s while flying at a salvage target
+const CRUISER_TORPEDO_CYCLE = 3.2; // seconds between cruiser torpedo pairs
 // Threat rank (Act II is "aware of the arsenal"): game.threat follows the
-// carried arsenal, 0 for a bare ship to THREAT_MAX for a Crown-arrival kit
-// (the power-25 reference kit sits near 0.9). It sets Act II fire cadence
-// (a bare ship sees it 1.8x slower, a full kit up to 1.45x faster than
-// authored), bullet speed (+10%) and volley size. It rises
-// slowly, so each sector opens on a power trip, and falls faster after a
-// scatter, so a stripped ship can rebuild.
-const THREAT_FLOOR = 6, THREAT_SPAN = 44, THREAT_MAX = 1.25, THREAT_RISE = .15, THREAT_FALL = .35;
+// carried arsenal on a saturating curve, THREAT_MAX*tanh((arsenal-FLOOR)/SPAN).
+// A bare ship sits at 0, a power-12 mid kit near 0.25, the power-25 reference
+// kit near 0.69 and Crown-arrival kits at 0.85-0.87, so the rank still moves
+// across real kits instead of pinning at a cap. It sets Act II fire cadence
+// (_pace), bullet speed and volley size. It rises slowly, so each sector
+// opens on a power trip, and falls after a scatter, so a stripped ship can
+// rebuild while it chases its salvage.
+const THREAT_FLOOR = 6, THREAT_SPAN = 37, THREAT_MAX = .88, THREAT_RISE = .15, THREAT_FALL = .35;
+// Threat gates (on the curve above). LOW: a stripped ship (interceptors skip
+// their entry burst; hull turrets take +50% damage). SECOND_BURST, a kitted
+// ship: interceptors fire their entry burst at the field edge as narrow 3-way
+// rounds and add a third burst; gunboats add a re-aimed follow-up burst.
+const LOW_THREAT = .3, SECOND_BURST_THREAT = .65, WEAK_KIT_TURRET_BONUS = 1.5;
+// Volley sizes grow with threat and are full from VOLLEY_FULL (about a
+// power-30 full kit) upward.
+const VOLLEY_FULL = .75;
 // Rescue drops, the other half of the rank: squadron leads and gunboats carry
 // a power level only while threat is below this (a stripped or bare ship),
 // so a weak pilot can rebuild without feeding a full kit's snowball.
@@ -159,12 +174,14 @@ const STAGE_BEATS = [null,
    [25,"curtain"],[29,"flank"],[35,"wing"],[39,"pincer"],[43,"relay"],
    [47,"mini"],[51,"drift"],[57,"curtain"],[62,"flank"],[66,"ace"],
    [70,"turret"],[74,"pincer"],[78,"relay"]],
-  // Sector 4, IRON MONSOON (~95 s). 1: squadrons to melt (0-11 s). 2: the
+  // Sector 4, IRON MONSOON (~95 s). 1: squadrons to melt (2.5-12 s; the first
+  // waits out the 3.4 s intro card, and the four stay ~2.3 s apart so a weak
+  // ship can wipe each and catch its rescue drop). 2: the
   // destroyer hull. 3: scavengers in a curtain. 4: twin gunboat lines.
   // 5: the minefield corridor. 6: the cruiser peak. 7: a breather, then the
   // interceptor pincer with lane sweeps.
-  [[.8,"loopL"],[3.6,"loopR"],[6.4,"riseL"],[9,"sweepL"],
-   [11.5,"destroyer"],[15,"loopR"],[18.5,"sweepR"],
+  [[2.5,"loopL"],[4.9,"loopR"],[7.2,"riseL"],[9.5,"sweepL"],
+   [12,"destroyer"],[15,"loopR"],[18.5,"sweepR"],
    [24,"scavCurtain"],[30.5,"loopL"],
    [33.5,"boatLines"],[39,"riseR"],
    [46,"minefield"],[50,"sweepL"],[52.5,"minefield"],[56.5,"loopR"],
@@ -180,7 +197,7 @@ export class Game {
     this.stageGoal = [0, 62, 73, 82, 95];
     this.shipId=SHIP_DEFS[this.shipId] ? this.shipId : "kestrel";
     this.selectedShip=SHIP_DEFS[this.shipId];
-    this.player = {x:270,y:750,r:this.shipId==="manta"?9:this.shipId==="wraith"?7:8,hp:4,maxHp:4,lives:3,bombs:2,power:SORTIE_POWER,level:SORTIE_POWER,
+    this.player = {x:270,y:750,r:this.shipId==="manta"?9:7,hp:4,maxHp:4,lives:3,bombs:2,power:SORTIE_POWER,level:SORTIE_POWER,
       shipId:this.shipId,weaponType:this.selectedShip.weapon,specialType:this.selectedShip.special,
       shield:this.shipId==="manta"?1:0,maxShield:this.shipId==="manta"?1:0,shieldCap:SHIELD_CAP,drones:0,
       escorts:0,escortSlots:[],sidewinder:0,reflector:0,signature:0,orbitals:[],arsenal:0,magnetBoost:0,
@@ -188,14 +205,14 @@ export class Game {
     this.enemies=[]; this.bullets=[]; this.shots=[]; this.pickups=[]; this.particles=[];
     this.stats={kills:0,grazes:0,shotsFired:0,shotsHit:0,pickups:0,powerPeak:SORTIE_POWER,arsenalPeak:0,
       bombsUsed:0,rolls:0,conversions:0,hitsTaken:0,livesLost:0,bossesDefeated:0,reactorsBroken:0,
-      scatters:0,salvageRecovered:0,salvageLost:0,reflected:0,orbitalEats:0,squadronBonuses:0};
+      scatters:0,salvageRecovered:0,salvageLost:0,reflected:0,orbitalEats:0,flakEats:0,squadronBonuses:0};
     this.summary=null;
     this.boss=null; this.events=[]; this._seed=20261942; this._acc=0;
     this._beatIndex=0; this._laneIndex=0; this._transition=0; this._transitionLength=INTERLUDE; this._fireClock=0; this._comboClock=0;
     this._id=0; this._last={}; this._hitAudioClock=0; this._missileClock=0; this._rollSerial=0;
     this._sidewinderClock=0; this._signatureClock=0; this._escortVolley=0; this._bonusIndex=0;
     this._squads=new Map(); this._squadId=0;
-    this._pickupId=0; this._scavengerCall=0; this.threat=0;
+    this._pickupId=0; this._scavengerCall=0; this._scavengerFlank=false; this.threat=0;
     this._syncArsenal();
   }
   selectShip(id) {
@@ -204,7 +221,8 @@ export class Game {
     const p=this.player;
     p.shipId=id;p.weaponType=this.selectedShip.weapon;p.specialType=this.selectedShip.special;
     p.shield=id==="manta"?1:0;p.maxShield=id==="manta"?1:0;p.shieldCap=SHIELD_CAP;
-    p.r=id==="manta"?9:id==="wraith"?7:8;
+    // Hurtbox radius: Manta 9, Kestrel and Wraith 7 (Kestrel was 8 until sector-4 round 2).
+    p.r=id==="manta"?9:7;
     // A new airframe starts bare (the sortie loadout), never with the last ship's kit.
     p.level=p.power=SORTIE_POWER;p.escorts=0;p.escortSlots=[];p.sidewinder=0;p.signature=0;
     p.reflector=0;p.orbitals=[];p.drones=0;p.magnetBoost=0;
@@ -383,7 +401,9 @@ export class Game {
     // Act II: a scatter mid-sector calls scavengers in after the salvage.
     if(this._scavengerCall&&this.time>=this._scavengerCall) {
       this._scavengerCall=0;
-      if(this._transition<=0&&!this.boss)this._launchScavengers(2,null);
+      // A kit worth racing for: they cut in from the sides, level with the
+      // salvage. A ship that was already stripped meets the slower top dive.
+      if(this._transition<=0&&!this.boss)this._launchScavengers(2,null,false,this._scavengerFlank?this._salvageHeight():null);
     }
     if(this.mode!=='playing')return;
     this._updateEnemies(h); this._updateBullets(h); this._applyReactorCover(); this._updateShots(h);
@@ -791,15 +811,23 @@ export class Game {
   }
 
   // ---- Act II: sector 4, IRON MONSOON ------------------------------------
-  _threatTarget() { return this._clamp((this.player.arsenal-THREAT_FLOOR)/THREAT_SPAN,0,THREAT_MAX); }
+  // A non-finite arsenal (never produced by play) degrades to threat 0
+  // instead of poisoning every Act II cooldown with NaN.
+  _threatTarget() {
+    const raw=(this.player.arsenal-THREAT_FLOOR)/THREAT_SPAN;
+    return Number.isFinite(raw)?THREAT_MAX*Math.tanh(Math.max(0,raw)):0;
+  }
   // Cooldown multiplier and bullet speed for Act II sources at the current threat.
   // A bare ship (threat 0) sees fire 1.8x slower than authored; the
-  // reference kit (~0.9) about 1.35x faster; a Crown-arrival kit 1.45x.
-  _pace() { return 1.8/(1+1.61*this.threat); }
-  _vel(speed) { return speed*(1+.1*this.threat); }
+  // reference kit (~0.69) about 1.35x faster; a Crown-arrival kit (~0.86) 1.6x.
+  _pace() { const t=this.threat;return 1.8/(1+1.61*t+.66*t*t); }
+  _vel(speed) { const t=this.threat;return speed*(1+.1*t+.05*t*t); }
+  // 0..1 share of the full Act II volley size at the current threat.
+  _volley() { return Math.min(1,this.threat/VOLLEY_FULL); }
   // Void rounds are the counter to a maxed loadout: when the ship flies
   // ghost orbitals (2+) or a live reflector, the last round of each
   // interceptor burst and every third gunboat or turret volley is void.
+  // Kestrel flak cannot eat them either.
   _voidAware() { const p=this.player;return p.orbitals.length>=2||p.reflector>0; }
   _voidVolley() {
     if(!this._voidAware())return "red";
@@ -807,8 +835,8 @@ export class Game {
     return this._voidCount%3===0?"void":"red";
   }
   // LEVIATHAN's own guns lean less on the rank: 1.35x slower for a bare ship,
-  // about authored pace for the reference kit, 1.16x faster at the top.
-  _bossPace() { return 1.35/(1+.45*this.threat); }
+  // about authored pace for the reference kit, 1.15x faster at the top.
+  _bossPace() { const t=this.threat;return 1.35/(1+.45*t+.2*t*t); }
   // HP grows +35% per Act II sector past the first.
   _actTwoScale() { return 1+Math.max(0,this.stage-ACT_TWO_STAGE)*.35; }
   _actTwoEnemy(type,x,y,o={}) {
@@ -831,7 +859,7 @@ export class Game {
     } else if(type==="hull") {
       const c=HULL_CLASSES[o.hullClass]||HULL_CLASSES.destroyer;
       Object.assign(e,{hullClass:o.hullClass||"destroyer",w:c.w,h:c.h,turrets:[],turretsAlive:0,
-        torpedoAt:o.torpedoes?4.5:Infinity});
+        torpedoAt:o.torpedoes?3.5:Infinity});
     } else if(type==="hullTurret") {
       Object.assign(e,{parentId:o.parent.id,ox:o.ox,oy:o.oy,gun:o.gun,aim:Math.PI/2,burstLeft:0,burstClock:0,
         x:o.parent.x+o.ox,y:o.parent.y+o.oy});
@@ -888,7 +916,7 @@ export class Game {
       for(let row=0;row<3;row++)for(let k=0;k<4;k++) {
         if((row+k)%2===(first?0:1)&&k%3!==0)continue;   // the corridor through the field
         const x=72+k*132+this._range(-16,16),y=-24-row*96;
-        this._enemy("mine",x,y,{fuse:5.2+row*.75+this._range(0,.5),amp:this._range(-14,14),freq:.9,phase:this._rand()*6});
+        this._enemy("mine",x,y,{fuse:3.5+row*.6+this._range(0,.3),amp:this._range(-14,14),freq:.9,phase:this._rand()*6});
       }
     }
   }
@@ -912,15 +940,28 @@ export class Game {
     this._event("hullEnter",x,0,hullClass);
     return hull;
   }
-  _launchScavengers(count,from,beat=false) {
+  // from: launch beside a ship (LEVIATHAN). flankY: cut in from both side
+  // edges at that height (the scatter call-in, level with the salvage).
+  // Otherwise they dive from the top corners.
+  _launchScavengers(count,from,beat=false,flankY=null) {
     let live=0;for(const e of this.enemies)if(e.type==="scavenger"&&!e.dead)live++;
     count=Math.min(count,SCAVENGER_CAP-live);
     for(let i=0;i<count;i++) {
       const side=i%2?1:-1;
+      if(flankY!=null) {
+        this._enemy("scavenger",side>0?552:-12,flankY-i*40,{vx:-side*SCAVENGER_SPEED*.8,vy:0,leaveAt:8,fireAt:1.4+i*.3});
+        continue;
+      }
       const x=from?from.x+side*(70+i*18):side>0?520:20,y=from?from.y+30:-18-i*20;
       this._enemy("scavenger",x,y,{vx:-side*60,vy:from?160:120,leaveAt:beat?11:8,fireAt:1.4+i*.3});
     }
     return count;
+  }
+  // Mean height of the floating salvage (scavenger call-in line), or null.
+  _salvageHeight() {
+    let sum=0,n=0;
+    for(const item of this.pickups)if(item.salvage&&!item.dead){sum+=item.y;n++;}
+    return n?this._clamp(sum/n-40,140,720):null;
   }
   // Path state for an interceptor at its own age: [x, y, vx, vy].
   _interceptorPath(e) {
@@ -954,19 +995,33 @@ export class Game {
       e.x=x;e.y=y;e.vx=vx;e.vy=vy;e.angle=Math.atan2(-vx,vy);
       e.hidden=e.age<0||y>905||x<-20||x>560;
       if(e.age<0)return;
-      // Two short aimed bursts per pass (on entry, then mid-path), only from
-      // above the player.
-      // A low-threat ship (bare or stripped) only meets the second burst.
-      if(e.fired===0&&this.threat<.3)e.fired=.5;
-      const trigger=e.fired===0?(e.path==="rise"?y<p.y-170&&y<600:e.path==="loop"?y>40:x>40&&x<500):
-        e.fired<=1?(e.path==="loop"?e.y>=e.loopY-4&&e.vy<0:e.path==="rise"?y<260:e.side>0?x>330:x<210):false;
-      if(trigger&&!e.hidden&&y>20&&y<p.y-120){e.fired=Math.floor(e.fired)+1;e.burstLeft=1+Math.round(3*Math.min(1,this.threat));e.burstClock=0;}
+      // Short aimed bursts, only from above the player: one on entry and one
+      // mid-path (e.fired counts them). A low-threat ship (bare or stripped)
+      // only meets the mid-path burst. A kitted ship (SECOND_BURST_THREAT)
+      // meets the entry burst as soon as the craft clears the edge (popcorn
+      // dies within ~0.3 s of a full kit), as narrow 3-way rounds, and a third
+      // burst 0.85 s after the second.
+      if(e.fired===0&&this.threat<LOW_THREAT)e.fired=1;
+      const early=this.threat>=SECOND_BURST_THREAT;
+      const trigger=e.fired===0?(e.path==="rise"?y<p.y-170&&y<600:e.path==="loop"?y>(early?20:40):early?x>0&&x<540:x>40&&x<500):
+        e.fired===1?(e.path==="loop"?e.y>=e.loopY-4&&e.vy<0:e.path==="rise"?y<260:e.side>0?x>330:x<210):
+        e.fired===2&&e.extraAt>0&&e.age>=e.extraAt;
+      if(trigger&&!e.hidden&&y>20&&y<p.y-120) {
+        e.fired++;e.burstLeft=1+Math.round(3*this._volley());e.burstClock=0;e.wide=e.fired===1&&early;
+        e.extraAt=e.fired===2&&this.threat>=SECOND_BURST_THREAT?e.age+.85:0;
+      }
       if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
-        this._aimed(e.x,e.y+10,p.x,p.y,this._vel(280),e.burstLeft===1&&this._voidAware()?"void":"red",4.4);e.burstLeft--;e.burstClock=.075;
+        const round=e.burstLeft===1&&this._voidAware()?"void":"red";
+        this._spread(e.x,e.y+10,p.x,p.y,e.wide?3:1,.07,this._vel(280),round,4.4);e.burstLeft--;e.burstClock=.075;
       }
     } else if(e.type==="gunboat") {
       e.y+=e.vy*h;e.x=e.baseX+e.vx*e.age+e.amp*Math.sin(e.age*e.freq+e.phase);
-      if(e.age>=e.fireAt&&e.y>30&&e.y<560){e.burstLeft=2+Math.round(2*Math.min(1,this.threat));e.burstClock=0;e.fireAt=e.age+e.fireRate*this._pace();}
+      if(e.age>=e.fireAt&&e.y>30&&e.y<560) {
+        e.burstLeft=2+Math.round(2*this._volley());e.burstClock=0;e.fireAt=e.age+e.fireRate*this._pace();
+        // A kitted ship meets a re-aimed follow-up burst after the first.
+        e.followAt=this.threat>=SECOND_BURST_THREAT?e.age+.9:0;
+      }
+      if(e.followAt>0&&e.age>=e.followAt&&e.y<560){e.followAt=0;e.burstLeft=2;e.burstClock=0;}
       if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
         this._spread(e.x,e.y+12,p.x,p.y,3,.1,this._vel(255),this._voidVolley(),4.6);e.burstLeft--;e.burstClock=.14;
       }
@@ -974,7 +1029,7 @@ export class Game {
       e.y+=e.vy*h;
       if(e.age>=e.torpedoAt&&e.y>40&&e.y<520) {
         for(const side of [-1,1])this._enemy("torpedoEnemy",e.x+side*26,e.y+e.h*.72,{heading:Math.PI/2+side*.35,speed:70});
-        e.torpedoAt=e.age+4.4;
+        e.torpedoAt=e.age+CRUISER_TORPEDO_CYCLE;
         this._eventCoalesced("torpedoLaunch",e.x,e.y+e.h*.7,"enemy");
       }
     } else if(e.type==="hullTurret") {
@@ -990,14 +1045,14 @@ export class Game {
         e.fireAt=e.age+e.fireRate*this._pace();
       }
       if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
-        this._spread(e.x,e.y,p.x,p.y,this.threat>.6?5:3,.1,this._vel(265),this._voidVolley(),4.8);e.burstLeft--;e.burstClock=.15;
+        this._spread(e.x,e.y,p.x,p.y,this.threat>.55?5:3,.1,this._vel(265),this._voidVolley(),4.8);e.burstLeft--;e.burstClock=.15;
       }
     } else if(e.type==="scavenger") this._updateScavenger(e,h,p);
     else if(e.type==="mine") {
       e.y+=e.vy*h;e.x=e.baseX+e.amp*Math.sin(e.age*e.freq+e.phase);e.fuse-=h;
       if(e.fuse<=0) {
         // Left alone, a mine bursts into a ring with readable spokes.
-        this._radial(e.x,e.y,12+Math.round(6*this.threat),this._vel(145),e.seed*Math.PI*2,"magenta",4.6);
+        this._radial(e.x,e.y,12+Math.round(6*this._volley()),this._vel(145),e.seed*Math.PI*2,"magenta",4.6);
         this._burst(e.x,e.y,14,"magenta",150,"explode");
         this._eventCoalesced("mineBurst",e.x,e.y);
         e.dead=true;
@@ -1016,18 +1071,18 @@ export class Game {
   // Turret guns. Act II streams run ~20% faster than sector 3.
   _turretFire(e,p,deck) {
     const x=e.x,y=e.y,pace=deck?.85:1;
-    const t=this.threat;
+    const t=this.threat,v=this._volley();
     if(e.gun==="triple") {
-      this._spread(x,y,p.x,p.y,t>.6?5:3,.1,this._vel(265),"red",4.8);e.burstLeft=1;e.burstClock=.15;e.fireRate=1.8*pace;
+      this._spread(x,y,p.x,p.y,t>.55?5:3,.1,this._vel(265),"red",4.8);e.burstLeft=1;e.burstClock=.15;e.fireRate=1.8*pace;
     } else if(e.gun==="fan") {
-      this._radial(x,y,9+Math.round(3*t),this._vel(178),Math.sin(e.age*1.3)*.45,"cyan",4.6,Math.PI*.12,Math.PI*.88);e.fireRate=1.1*pace;
+      this._radial(x,y,9+Math.round(3*v),this._vel(178),Math.sin(e.age*1.3)*.45,"cyan",4.6,Math.PI*.12,Math.PI*.88);e.fireRate=1.1*pace;
     } else if(e.gun==="flak") {
       // A slow shell that bursts into a ring short of the player.
       const speed=this._vel(205),dist=Math.hypot(p.x-x,p.y-y),shell=this._bullet(x,y,Math.atan2(p.y-y,p.x-x),speed,"amber",7);
-      if(shell){shell.fuse=Math.max(.45,(dist-130)/speed);shell.burst={count:10+Math.round(4*t),speed:125,kind:"amber",r:4.4,offset:e.seed*6};}
+      if(shell){shell.fuse=Math.max(.45,(dist-130)/speed);shell.burst={count:10+Math.round(5*v),speed:125,kind:"amber",r:4.4,offset:e.seed*6};}
       e.fireRate=2.3*pace;
     } else if(e.gun==="void") {
-      this._spread(x,y,p.x,p.y,t>.8?5:3,.17,this._vel(205),"void",5.6);e.fireRate=2.1*pace;
+      this._spread(x,y,p.x,p.y,t>.65?5:3,.17,this._vel(205),"void",5.6);e.fireRate=2.1*pace;
     } else if(e.gun==="broadside") {
       // A short diagonal row rolling outward from the hull's side.
       const side=Math.sign(e.ox)||1,angle=Math.PI/2-side*.5;
@@ -1058,7 +1113,7 @@ export class Game {
       e.targetPickupId=target?.id??null;
     }
     let tx,ty,speed;
-    if(target){tx=target.x;ty=target.y;speed=285;}
+    if(target){tx=target.x;ty=target.y;speed=SCAVENGER_SPEED;}
     else if(e.age<e.leaveAt){tx=p.x+Math.sin(e.age*1.1+e.seed*6)*140;ty=Math.max(110,p.y-330);speed=210;}
     else {tx=e.x;ty=-80;speed=300;}
     const dx=tx-e.x,dy=ty-e.y,len=Math.hypot(dx,dy)||1,k=Math.min(1,h*4);
@@ -1111,7 +1166,7 @@ export class Game {
         e.wallGap=lo+70+this._rand()*(hi-lo-140);
         this._broadsideRow(e,lo,hi,e.wallGap);
         // The follow-up row (gap moved) is for a ship that still carries a kit.
-        e.wallRowAt=this.threat>.8?e.age+.5:Infinity;e.wallAt=e.age+3*this._bossPace();
+        e.wallRowAt=this.threat>.6?e.age+.5:Infinity;e.wallAt=e.age+3*this._bossPace();
         this._event("broadside",e.x+e.broadsideSide*170,e.y+60,e.broadsideSide);
       }
       if(e.age>=e.wallRowAt) {
@@ -1124,7 +1179,7 @@ export class Game {
         e.torpedoAt=e.age+3.6*this._bossPace();this._eventCoalesced("torpedoLaunch",e.x,e.y+52,"enemy");
       }
       if(e.age>=e.voidAt) {
-        this._spread(e.x,e.y+66,p.x,p.y,this.threat>.7?5:3,.15,this._vel(205),"void",5.6);
+        this._spread(e.x,e.y+66,p.x,p.y,this.threat>.6?5:3,.15,this._vel(205),"void",5.6);
         e.voidAt=e.age+2.3*this._bossPace();this._event("bossShot",e.x,e.y);
       }
     } else {
@@ -1168,9 +1223,11 @@ export class Game {
       if(e.type==="boss") {
         if(e.leviathan) {
           // A super-dreadnought: slow entrance, a narrow sway, a gentle roll.
+          // The sway keeps bow, stern and the rolled-out broadside inside the
+          // 540 field (270 +/- (20 + 210 + 22)).
           const entrance=Math.min(1,e.age/3.4);
           e.y=-210+(1-(1-entrance)**3)*400;
-          e.x=270+Math.sin(Math.max(0,e.age-3.4)*.32)*34;
+          e.x=270+Math.sin(Math.max(0,e.age-3.4)*.32)*LEVIATHAN_SWAY;
           e.angle=Math.sin(e.age*.7)*.015;
         } else {
         const entrance=Math.min(1,e.age/2.8);
@@ -1349,6 +1406,8 @@ export class Game {
   _damageEnemy(e,amount) {
     // Armored hulls take a share of the damage while any of their turrets lives.
     if(e.type==="hull"&&e.turretsAlive>0)amount*=HULL_ARMOR;
+    // A stripped or bare ship can still silence a hull inside its lifetime.
+    if(e.type==="hullTurret"&&this.threat<LOW_THREAT)amount*=WEAK_KIT_TURRET_BONUS;
     if(e.type!=="boss") {e.hp-=amount;return;}
     if(e.turretsAlive>0)amount*=LEVIATHAN_ARMOR;
     // One threshold per learned pattern. Incoming fire still shows impacts,
@@ -1393,6 +1452,8 @@ export class Game {
   get bulletCap() { return this.stage>=ACT_TWO_STAGE?ACT_TWO_BULLET_CAP:BULLET_CAP; }
   _bullet(x,y,angle,speed,kind,r) {
     if(this.bullets.length>=this.bulletCap) return null;
+    // Void rounds are never smaller than r 5, so their ring edge stays readable.
+    if(kind==="void"&&r<VOID_MIN_RADIUS)r=VOID_MIN_RADIUS;
     const b={x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
       r,kind,color:kind,age:0,grazed:false};
     this.bullets.push(b);return b;
@@ -1660,6 +1721,7 @@ export class Game {
         if(e.hp<=0)this._killEnemy(e);
       }
     }
+    if(p.signature>0&&p.shipId==="kestrel")this._flakScreen();
     let reflected=0,eats=0;
     const flushDefense=()=>{
       if(reflected){this.stats.reflected+=reflected;this._event("reflect",p.x,p.y,reflected);}
@@ -1740,6 +1802,34 @@ export class Game {
         item.dead=true;this._collect(item);
       }
     }
+  }
+  // Kestrel "Hellfire Wings" screen: in its first FLAK_SCREEN_TIME of flight
+  // (~230 px from the wing) each flak shot eats one ordinary enemy bullet on
+  // contact and is spent. Void rounds pass through. One coalesced flakEat
+  // event per frame carries the count.
+  _flakScreen() {
+    let eaten=0,ex=0,ey=0;
+    const bullets=this.bullets;
+    for(const shot of this.shots) {
+      if(shot.dead||shot.kind!=="flak"||shot.age>FLAK_SCREEN_TIME)continue;
+      const sx=shot.x,sy=shot.y,sr=shot.r;
+      for(const b of bullets) {
+        if(b.dead||b.kind==="void")continue;
+        const dx=b.x-sx,r=sr+b.r;
+        if(dx>r||dx<-r)continue;
+        const dy=b.y-sy;
+        if(dx*dx+dy*dy<r*r) {
+          b.dead=true;shot.dead=true;
+          if(!eaten){ex=b.x;ey=b.y;}
+          eaten++;this._particle(b.x,b.y,0,0,.2,4,"gold","spark");
+          break;
+        }
+      }
+    }
+    if(!eaten)return;
+    this.stats.flakEats+=eaten;
+    const existing=this.events.find(event=>event.type==="flakEat");
+    if(existing)existing.value+=eaten;else this._event("flakEat",ex,ey,eaten);
   }
   // Returns the live child turret the shot overlaps, true if one lies ahead
   // in the shot's path (the shot flies on over the hull), or null.
@@ -1828,7 +1918,9 @@ export class Game {
     this.stats.scatters++;
     // Act II: scavengers are called in after the salvage (sector only; the
     // flagship launches its own in phase 3).
-    if(this.stage>=ACT_TWO_STAGE&&!this.boss&&this._transition<=0)this._scavengerCall=this.time+1.1;
+    if(this.stage>=ACT_TWO_STAGE&&!this.boss&&this._transition<=0) {
+      this._scavengerCall=this.time+SCAVENGER_CALL;this._scavengerFlank=this.threat>=RESCUE_THREAT;
+    }
     this._burst(x,y,30,"gold",240,"scatter");
     this.events.push({type:"arsenalScatter",x,y,value:dropped,tokens:tokens.length,burned});
     return tokens.length;
@@ -1871,6 +1963,9 @@ export class Game {
       // Flagship spoils: collected automatically during the interlude.
       this._dropMany(e.x,e.y,["power",this._bonusDropType()]);
       this._event("bossDown",e.x,e.y,this.stage);
+      // LEVIATHAN's last pose, so presentation can sink the hull after boss is null.
+      if(e.leviathan)Object.assign(this.events[this.events.length-1],
+        {w:e.w,h:e.h,angle:e.angle||0,broadside:e.broadside||0,core:e.core||0});
       if(actBreak)this._event("actTwo",e.x,e.y,ACT_TWO_STAGE);
     } else if(silent) {
       // Gone with its hull: score and wreckage, no drops or combo.

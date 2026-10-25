@@ -483,6 +483,10 @@ const HANDLERS = {
     this.noise({at:t,dur:.045,color:'crackle',vol:.04,filter:{type:'bandpass',freq:1900,end:600,q:2},bus:this.combat});
     this.osc({at:t,dur:.055,type:'triangle',freq:220,end:75,vol:.03,bus:this.combat});
   },
+  flakEat(ev,game,t){
+    if(!this.rate('flakEat',.12))return;
+    this.noise({at:t,dur:.035,color:'crackle',vol:.022,filter:{type:'highpass',freq:2400,end:1100},pan:this.pan(ev.x),bus:this.combat});
+  },
   escortJoin(ev,game,t){
     if(!this.rate('escortJoin',.18))return;
     [0,7,12].forEach((step,i)=>this.osc({at:t+i*.065,dur:.24,type:'hollow',freq:hz(72+step),vol:.055,pan:(i-1)*.4,bus:this.alert}));

@@ -929,11 +929,13 @@ export class WorldAmbience {
     // Whitecaps break, tear downwind and collapse; quieter through the central fire lane.
     const t=this.clock,cell=44,top=-this.travel,wind=MONSOON_WIND;
     for(let r=Math.floor((top-cell)/cell);r<=Math.floor((top+FH)/cell);r++)for(let col=0;col<13;col++){
-      const n=noise(r*19.7+col*4.3);if(n>.34)continue;
+      const n=noise(r*19.7+col*4.3),gy=r*cell+noise(n*29)*cell,y=gy+this.travel;
+      const lower=Math.max(0,Math.min(1,(y-550)/230));
+      if(n>.34+lower*.16)continue;
       const ph=(t/(1.6+n*4)+n*9)%1;if(ph>.6)continue;
-      const x=col*cell+noise(n*13)*cell,gy=r*cell+noise(n*29)*cell;
+      const x=col*cell+noise(n*13)*cell;
       const life=ph/.6,s=.6+noise(n*41)*.7;
-      c.globalAlpha=Math.sin(life*Math.PI)*(x>180&&x<360?.4:.62);
+      c.globalAlpha=Math.sin(life*Math.PI)*(x>180&&x<360?.4:.62)*(1+lower*.18);
       c.drawImage(m.crest,x+life*wind.x*14-18*s,gy+this.travel+life*wind.y*14-16*s,56*s,56*s);
     }
   }
