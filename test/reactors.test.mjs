@@ -48,7 +48,10 @@ test('piercing fire strikes a reactor once per projectile, and specials cannot b
 });
 test('a centered firing plan leaves the optional reactors intact for every airframe',()=>{
   for(const ship of ['kestrel','manta','wraith'])for(const focus of [false,true]){
+    // Bare main gun at the old drill power: flank-covering arsenal pieces
+    // (escorts, Kestrel flak) can legitimately reach the side reactors.
     const g=new Game();g.selectShip(ship);g.startDrill(2);const phases=new Set();
+    Object.assign(g.player,{level:4,power:4,escorts:0,sidewinder:0,signature:0});g._syncEscortSlots();g._syncOrbitals();
     for(let frame=0;frame<60*75&&g.mode==='playing';frame++){
       g.update(1/60,{fire:true,focus});if(g.boss)phases.add(g.boss.phase);
     }

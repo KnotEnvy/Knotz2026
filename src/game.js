@@ -1,7 +1,47 @@
 // 2026: deterministic, asset-free arcade simulation.
 const SCORE_EXTENDS = [50000, 160000, 350000, 700000];
-// Score milestones bank at sector power caps; the final boss guarantees level five.
-const POWER_MILESTONES = [3000, 10000, 25000, 35000];
+// Arsenal tuning (docs/design/act-two.md, Part 1). Power is uncapped: the
+// main gun reaches its structural stream ceiling at level 8, then each level
+// adds 6% damage and slightly larger shots.
+const STREAM_CEILING = 8;
+const OVERPOWER_DAMAGE = .06;
+const MAX_ESCORTS = 6;
+const SHOT_BUDGET = 650;           // live player shots; oldest small shots go first
+const BULLET_CAP = 700;            // enemy bullets (Act II raises this to ~900)
+const SALVAGE_LIFE = 9;            // seconds; tokens blink for their last 2.5 s
+const SALVAGE_MAX_TOKENS = 10;
+const SALVAGE_GRACE = .6;          // burst phase: no magnet or pickup, so a hit always scatters
+const SCATTER_BURN = .2;           // share of scattered power that burns away
+const SCATTER_INVULN = 1.6;        // was 2.35 s before salvage existed
+const SALVAGE_BOUNDS = {left:24,right:516,top:70,bottom:860};
+const REFLECTOR_PICKUP = 6;        // seconds per R pickup
+const REFLECTOR_RADIUS = 44;
+const REFLECT_COST = .06;          // reflector seconds burned per reflected bullet
+const ORBIT_RADIUS = 46;
+const ORBITAL_COOL = .6;           // seconds before an orbital can eat again
+const ORBITALS_SHOWN = 6;
+// Random drop weights. Power dominates so the main gun visibly grows; the
+// equipment share keeps a sector-1 run collecting a full kit.
+const DROP_WEIGHTS = [["power",50],["escort",12],["sidewinder",12],["signature",9],["shield",9],["reflector",8]];
+// Carriers, minibosses and bosses add bonus items from a fixed ladder, so every
+// run sees escorts, a sidewinder rack and a signature level in sector 1.
+// Sector 1 awards the first six rungs (3 carriers, the miniboss, Vesper).
+const BONUS_LADDER = ["escort","sidewinder","signature","power","reflector","shield","escort","sidewinder","signature","power"];
+// Chance that an ordinary kill drops a random item (old flat rate was 4.5%).
+// Sector 1 has ~90 kills: ~5 random drops on top of 4 authored power drops,
+// 6 ladder bonuses and the flagship spoils, so a no-hit run reaches about
+// power 8 at Vesper and 9-10 after it, with 1-3 escort pairs, a sidewinder
+// rack and a signature level.
+const DROP_CHANCE = {scout:.035,wing:.04,bomber:.25,ace:.15,turret:.25,carrier:1,mini:1};
+// Bonus items on top of the authored drop: carriers/minis drop 2-3 in total.
+const BONUS_DROPS = {carrier:1,mini:2};
+const BIG_TARGETS = new Set(["boss","bomber","turret","carrier","mini"]);
+const SMALL_SHOTS = new Set(["shot","lance","escort","flak","orbital","reflect"]);
+const DRILL_LOADOUTS = [null,
+  {level:6,escorts:2,sidewinder:1,signature:0},    // Vesper
+  {level:8,escorts:4,sidewinder:1,signature:1},    // Aurelia
+  {level:10,escorts:4,sidewinder:2,signature:2}    // The Crown
+];
 export const SHIP_IDS = ["kestrel", "manta", "wraith"];
 export const SHIP_DEFS = {
   kestrel: {id:"kestrel",name:"KESTREL",role:"Balanced striker",weapon:"spread",special:"nova",
@@ -44,24 +84,28 @@ export class Game {
     this.selectedShip=SHIP_DEFS[this.shipId];
     this.player = {x:270,y:750,r:this.shipId==="manta"?9:this.shipId==="wraith"?7:8,hp:4,maxHp:4,lives:3,bombs:2,power:1,level:1,
       shipId:this.shipId,weaponType:this.selectedShip.weapon,specialType:this.selectedShip.special,
-      shield:this.shipId==="manta"?1:0,maxShield:this.shipId==="manta"?2:0,drones:0,
+      shield:this.shipId==="manta"?1:0,maxShield:this.shipId==="manta"?1:0,drones:0,
+      escorts:0,escortSlots:[],sidewinder:0,reflector:0,signature:0,orbitals:[],arsenal:0,
       focus:false,invuln:0,roll:0,rollCooldown:0,rollX:0,rollY:-1,rollCharged:false,wake:0,firePulse:0,trail:[]};
     this.enemies=[]; this.bullets=[]; this.shots=[]; this.pickups=[]; this.particles=[];
-    this.stats={kills:0,grazes:0,shotsFired:0,shotsHit:0,pickups:0,powerPeak:1,
-      bombsUsed:0,rolls:0,conversions:0,hitsTaken:0,livesLost:0,bossesDefeated:0,reactorsBroken:0};
+    this.stats={kills:0,grazes:0,shotsFired:0,shotsHit:0,pickups:0,powerPeak:1,arsenalPeak:0,
+      bombsUsed:0,rolls:0,conversions:0,hitsTaken:0,livesLost:0,bossesDefeated:0,reactorsBroken:0,
+      scatters:0,salvageRecovered:0,salvageLost:0,reflected:0,orbitalEats:0};
     this.summary=null;
     this.boss=null; this.events=[]; this._seed=20261942; this._acc=0;
     this._beatIndex=0; this._laneIndex=0; this._transition=0; this._fireClock=0; this._comboClock=0;
-    this._id=0; this._last={}; this._hitAudioClock=0; this._powerScoreIndex=0; this._missileClock=0; this._rollSerial=0;
+    this._id=0; this._last={}; this._hitAudioClock=0; this._missileClock=0; this._rollSerial=0;
+    this._sidewinderClock=0; this._signatureClock=0; this._escortVolley=0; this._bonusIndex=0;
+    this._syncArsenal();
   }
   selectShip(id) {
     if(!SHIP_DEFS[id] || !["title","gameover","victory"].includes(this.mode)) return false;
     this.shipId=id;this.selectedShip=SHIP_DEFS[id];
     const p=this.player;
     p.shipId=id;p.weaponType=this.selectedShip.weapon;p.specialType=this.selectedShip.special;
-    p.shield=id==="manta"?1:0;p.maxShield=id==="manta"?2:0;
+    p.shield=id==="manta"?1:0;p.maxShield=id==="manta"?1:0;
     p.r=id==="manta"?9:id==="wraith"?7:8;
-    p.drones=id==="wraith"?Math.floor(p.level/2):0;
+    p.drones=0;this._syncArsenal();
     this._event("shipSelect",p.x,p.y,id);
     return true;
   }
@@ -77,10 +121,6 @@ export class Game {
     this.score += points;
     if(this.practiceStage)return;
     this.best = Math.max(this.best, this.score);
-    while(this._powerScoreIndex<POWER_MILESTONES.length && this.score>=POWER_MILESTONES[this._powerScoreIndex]) {
-      if(!this._increasePower())break;
-      this._powerScoreIndex++;
-    }
     // Four finite score extends give a good run a path through the long campaign.
     // The HUD has four life icons, so a stocked pilot receives a useful reserve instead.
     while (this._nextExtend < SCORE_EXTENDS.length && this.score >= SCORE_EXTENDS[this._nextExtend]) {
@@ -97,24 +137,72 @@ export class Game {
       this._event("extend", p.x, p.y, SCORE_EXTENDS[this._nextExtend - 1]);
     }
   }
-  _increasePower() {
-    const p=this.player;
-    const cap=this.stage===1?3:this.stage===2?4:5;
-    if(p.level>=cap)return false;
-    p.level++;p.power=p.level;
-    p.drones=p.shipId==="wraith"?Math.floor(p.level/2):0;
+  // Power has no cap. One powerUp event per pickup carries the new level.
+  _increasePower(amount=1) {
+    const p=this.player;amount=Math.max(1,Math.floor(amount));
+    p.level+=amount;p.power=p.level;p.drones=0;
     this.stats.powerPeak=Math.max(this.stats.powerPeak,p.level);
     this.flash=Math.max(this.flash,.25);
     this._burst(p.x,p.y,25,"cyan",125,"power");
     this._event("powerUp",p.x,p.y,p.level);
+    this._syncArsenal();
     return true;
+  }
+  _addEscorts(pairs=1) {
+    const p=this.player;let converted=0;
+    for(let i=0;i<pairs;i++) {
+      if(p.escorts<MAX_ESCORTS)p.escorts+=2;else converted+=2;
+    }
+    this._syncEscortSlots(true);
+    if(pairs*2>converted)this._event("escortJoin",p.x,p.y,p.escorts);
+    // A full wing is never wasted: each surplus pair becomes two levels.
+    if(converted)this._increasePower(converted);
+    this._syncArsenal();
+  }
+  _addShield(charges) {
+    const p=this.player;p.shield+=charges;
+    p.maxShield=Math.max(p.maxShield,p.shield);
+    this._event("shieldUp",p.x,p.y,p.shield);this._syncArsenal();
+  }
+  _addReflector(seconds) {
+    const p=this.player,was=p.reflector;p.reflector+=seconds;
+    if(was<=0)this._event("reflectorUp",p.x,p.y,p.reflector);
+  }
+  _addSignature(levels) {
+    const p=this.player;p.signature+=levels;
+    this._syncOrbitals();this._event("signatureUp",p.x,p.y,p.signature);this._syncArsenal();
+  }
+  _syncArsenal() {
+    const p=this.player;
+    p.arsenal=p.level-1+p.escorts+p.sidewinder*1.5+p.signature*1.5+p.shield;
+    if(this.stats)this.stats.arsenalPeak=Math.max(this.stats.arsenalPeak||0,p.arsenal);
+  }
+  _syncOrbitals() {
+    const p=this.player,count=p.shipId==="wraith"?Math.min(ORBITALS_SHOWN,p.signature):0;
+    while(p.orbitals.length>count)p.orbitals.pop();
+    while(p.orbitals.length<count)p.orbitals.push({x:p.x,y:p.y,angle:0,cool:0,fire:0});
+    p.orbitals.forEach((o,i)=>{o.angle=(p.orbitAngle||0)+i/count*Math.PI*2;});
+  }
+  _syncEscortSlots(snapNew=false) {
+    const p=this.player;
+    while(p.escortSlots.length>p.escorts)p.escortSlots.pop();
+    while(p.escortSlots.length<p.escorts) {
+      const i=p.escortSlots.length,side=i%2?1:-1;
+      // New escorts sweep in from behind the wing instead of popping in place.
+      p.escortSlots.push({x:p.x+side*90,y:Math.min(900,p.y+110),side,rank:Math.floor(i/2)});
+    }
   }
   _start() { const best=this.best,id=this.shipId; this.reset(); this.shipId=id; this.best=best; this.mode="playing"; this._event("stage",270,170,1); }
   startDrill(stage) {
     stage=Math.max(1,Math.min(3,Math.floor(Number(stage)||1)));
     this._start();this.practiceStage=stage;this.stage=stage;this.stageTime=this.stageGoal[stage];
-    const p=this.player;p.level=stage+2;p.power=p.level;p.drones=p.shipId==="wraith"?Math.floor(p.level/2):0;
-    p.shield=p.maxShield;p.invuln=2;this.stats.powerPeak=p.level;
+    // Drills start with a loadout matching the sector a campaign pilot would bring.
+    const p=this.player,kit=DRILL_LOADOUTS[stage];
+    p.level=p.power=kit.level;p.escorts=kit.escorts;p.sidewinder=kit.sidewinder;p.signature=kit.signature;
+    p.drones=0;p.shield=p.maxShield=p.shipId==="manta"?2:0;
+    this._syncEscortSlots();for(const slot of p.escortSlots){slot.x=p.x+slot.side*(42+slot.rank*30);slot.y=p.y+14;}
+    this._syncOrbitals();this._syncArsenal();
+    p.invuln=2;this.stats.powerPeak=p.level;
     this.events=[];this._spawnBoss();return true;
   }
   update(dt,input={}) {
@@ -149,10 +237,14 @@ export class Game {
     if (this._comboClock<=0&&this.combo>1) this.combo=Math.max(1,this.combo-h*.9);
     this._movePlayer(h,input);
     this._fireClock-=h;this._missileClock=Math.max(0,this._missileClock-h);
-    if (input.fire&&this._fireClock<=0&&this._transition<=0) {
+    this._sidewinderClock=Math.max(0,this._sidewinderClock-h);this._signatureClock=Math.max(0,this._signatureClock-h);
+    const firing=!!input.fire&&this._transition<=0;
+    if (firing&&this._fireClock<=0) {
       this._fire(); this._fireClock=p.focus?.092:.105;
     }
+    if (firing) this._fireSupport();
     if (!input.fire) this._fireClock=Math.min(0,this._fireClock);
+    this._updateArsenal(h,firing);
     if (this._transition>0) {
       this._transition-=h; if (this._transition<=0) this._advanceStage();
     } else if (!this.boss&&this.stageTime>=this.stageGoal[this.stage]) this._spawnBoss();
@@ -171,6 +263,7 @@ export class Game {
     if(this.mode!=='playing')return;
     this._updateEnemies(h); this._updateBullets(h); this._applyReactorCover(); this._updateShots(h);
     this._updatePickups(h); this._updateParticles(h); this._collide(); this._cleanup();
+    this._enforceShotBudget();
   }
   _movePlayer(h,input) {
     const p=this.player; p.focus=!!input.focus;
@@ -233,7 +326,8 @@ export class Game {
     // The Manta trades damage for restored armor. The Wraith converts the
     // whole field into score; the Kestrel retains the high-impact nova.
     if(special==="barrier") {
-      p.shield=Math.min(p.maxShield,p.shield+1);
+      // Restores a spent charge; growth beyond the life's best comes from S pickups.
+      p.shield=Math.min(Math.max(1,p.maxShield),p.shield+1);this._syncArsenal();
       this._event("shieldRestore",p.x,p.y,p.shield);
     } else if(special==="storm" && erased) {
       const points=erased*120;
@@ -253,55 +347,173 @@ export class Game {
     this._event("bomb",p.x,p.y,special);
     this._event("special",p.x,p.y,special);
   }
+  _shot(shot) { this.shots.push(shot); this.stats.shotsFired++; return shot; }
+  // Main gun. Measured single-target DPS (fire held, unfocused; balance bot):
+  //   power 1: 110-165, power 5: 245-330, power 10: 480-690, power 15: 610-880.
+  // Kestrel trades single-target damage for width (best row DPS).
+  // Streams stop growing at STREAM_CEILING; damage keeps scaling with no maximum.
   _fire() {
-    const p=this.player,level=p.level;
+    const p=this.player,level=p.level,structural=Math.min(level,STREAM_CEILING);
+    const over=Math.max(0,level-STREAM_CEILING),scale=1+over*OVERPOWER_DAMAGE,grow=Math.min(2.5,over*.12);
     if(p.weaponType==="spread") {
-      const n=level+1,center=(n-1)/2;
+      // Kestrel: 2 streams at power 1, 9 at power 8. The core columns stay
+      // parallel (1942 tracer wall); only the outermost pair fans out.
+      const n=structural+1,center=(n-1)/2,core=Math.max(1.5,center-1);
       for(let i=0;i<n;i++) {
-        const off=i-center,ang=p.focus?off*.022:off*.072;
-        this.shots.push({x:p.x+off*(p.focus?10:12),y:p.y-20,
-          vx:ang*800,vy:-870,r:level>=4?4.5:3.5,
-          damage:p.focus?8:7,kind:p.focus?"lance":"shot",age:0});
+        const off=i-center,fan=Math.max(0,Math.abs(off)-core)*Math.sign(off);
+        this._shot({x:p.x+off*(p.focus?6:8),y:p.y-20,
+          vx:fan*(p.focus?16:62),vy:-870,r:(level>=4?4.5:3.5)+grow,
+          damage:(p.focus?8:7)*scale,kind:p.focus?"lance":"shot",age:0});
       }
-      this.stats.shotsFired+=n;
     } else if(p.weaponType==="missile") {
-      const n=level>=4?4:2,center=(n-1)/2;
+      // Manta: twin guns to quad guns by power 5, plus homing salvos that grow
+      // from 1 to 4 missiles and speed up to the ceiling.
+      const n=Math.min(4,1+Math.ceil(structural/2)),center=(n-1)/2;
       for(let i=0;i<n;i++) {
         const off=i-center;
-        this.shots.push({x:p.x+off*13,y:p.y-20,vx:off*(p.focus?12:55),vy:-800,
-          r:3.8,damage:p.focus?8:7,kind:"shot",age:0});
+        this._shot({x:p.x+off*13,y:p.y-20,vx:off*(p.focus?12:48),vy:-800,
+          r:3.8+grow,damage:(p.focus?8:7)*scale,kind:"shot",age:0});
       }
-      this.stats.shotsFired+=n;
       if(this._missileClock<=0) {
-        const count=level>=5?2:1;
+        const count=Math.min(4,1+Math.floor((structural-1)/2));
         for(let i=0;i<count;i++) {
-          const side=count===1?0:i?1:-1;
-          this.shots.push({x:p.x+side*21,y:p.y-12,vx:side*95,vy:-460,
-            r:6,damage:level>=5?30:25+level*2,kind:"missile",age:0,targetId:null});
+          const side=count===1?0:(i%2?1:-1)*(1+Math.floor(i/2));
+          this._shot({x:p.x+side*17,y:p.y-12,vx:side*80,vy:-460,
+            r:6+grow*.5,damage:(25+structural*2)*scale,kind:"missile",age:0,targetId:null});
         }
-        this.stats.shotsFired+=count;
-        this._missileClock=level>=4?.52:.6;
+        this._missileClock=Math.max(.42,.62-structural*.025);
         this._event("missileLaunch",p.x,p.y,p.shipId);
       }
     } else {
-      const n=level>=4?2:1;
+      // Wraith: one rail, twin rails at 3, triple rails at 6; each level adds
+      // rail damage and pierce up to the ceiling, then 6% damage per level.
+      const n=structural>=6?3:structural>=3?2:1;
+      const damage=((p.focus?14:12)+(structural-1)*1.6)*scale;
       for(let i=0;i<n;i++) {
-        const off=n===1?0:i?9:-9;
-        this.shots.push({x:p.x+off,y:p.y-22,vx:0,vy:-1020,
-          r:4,damage:p.focus?13:11,kind:"pierce",age:0,pierceRemaining:level>=3?3:2,hitIds:[]});
-      }
-      this.stats.shotsFired+=n;
-      if(p.drones) {
-        for(let i=0;i<p.drones;i++) {
-          const side=i?1:-1;
-          this.shots.push({x:p.x+side*34,y:p.y+4,vx:side*35,vy:-780,
-            r:3,damage:level>=5?6:4,kind:"drone",age:0});
-        }
-        this.stats.shotsFired+=p.drones;
-        this._event("droneFire",p.x,p.y,p.drones);
+        const off=n===1?0:n===2?(i?9:-9):(i-1)*12;
+        this._shot({x:p.x+off,y:p.y-22,vx:0,vy:-1020,
+          r:4+structural*.15+grow,damage,kind:"pierce",age:0,pierceRemaining:2+Math.floor(structural/2),hitIds:[]});
       }
     }
+    this._fireEscorts();
     p.firePulse=1;this._event("shoot",p.x,p.y-20);
+  }
+  // Escorts fire a light copy of the ship's weapon on every main-gun tick.
+  // ~75 DPS per escort at power 1, +4% per level (uncapped).
+  _fireEscorts() {
+    const p=this.player;if(!p.escorts)return;
+    const scale=1+(p.level-1)*.04;
+    this._escortVolley++;
+    for(const slot of p.escortSlots) {
+      const spread=p.focus?0:slot.side*(.035+slot.rank*.02);
+      if(p.shipId==="kestrel") {
+        for(const dx of [-3,3])this._shot({x:slot.x+dx,y:slot.y-12,vx:spread*870,vy:-880,
+          r:2.8,damage:4*scale,kind:"escort",style:"cannon",age:0});
+      } else if(p.shipId==="manta") {
+        this._shot({x:slot.x,y:slot.y-12,vx:spread*700,vy:-700,
+          r:3.4,damage:8*scale,kind:"escort",style:"rocket",age:0});
+      } else {
+        this._shot({x:slot.x,y:slot.y-14,vx:0,vy:-1000,r:2.6,damage:6.5*scale,
+          kind:"escort",style:"rail",age:0,pierceRemaining:2,hitIds:[]});
+      }
+    }
+  }
+  _fireSupport() {
+    const p=this.player;
+    // Sidewinders: volley 2*min(level,3); cadence 1.05 s down to a 0.35 s floor
+    // at level 6; damage +25% per level past 3 (uncapped).
+    if(p.sidewinder>0&&this._sidewinderClock<=0) {
+      const count=2*Math.min(p.sidewinder,3);
+      const damage=14*(1+Math.max(0,p.sidewinder-3)*.25);
+      for(let i=0;i<count;i++) {
+        const side=i%2?1:-1,rank=Math.floor(i/2);
+        this._shot({x:p.x+side*(24+rank*9),y:p.y+2+rank*4,vx:side*(150+rank*45),vy:-240+rank*30,
+          r:4,damage,kind:"sidewinder",age:0,targetId:null});
+      }
+      this._sidewinderClock=Math.max(.35,1.05-(p.sidewinder-1)*.14);
+      this._event("sidewinderLaunch",p.x,p.y,count);
+    }
+    if(p.signature>0&&this._signatureClock<=0) {
+      if(p.shipId==="kestrel")this._fireFlak();
+      else if(p.shipId==="manta")this._fireTorpedoes();
+    }
+  }
+  // Kestrel "Hellfire Wings": each level adds a gun pair (forward flak, rear
+  // guns, wide flak, steep rear) up to four pairs, then +10% damage per level.
+  // Cadence 0.275 s at level 1 down to a 0.1 s floor.
+  _fireFlak() {
+    const p=this.player,sig=p.signature,pairs=Math.min(4,sig);
+    const damage=6*(1+Math.max(0,sig-4)*.1);
+    // Angles are measured from straight up; values past PI/2 point backward.
+    const mounts=[[.38,20],[Math.PI-.5,12],[.72,28],[Math.PI-.2,6]];
+    for(let k=0;k<pairs;k++) {
+      const [angle,wing]=mounts[k];
+      for(const side of [-1,1]) {
+        const a=side*angle;
+        this._shot({x:p.x+side*wing,y:p.y+(angle>1.6?12:-6),vx:Math.sin(a)*760,vy:-Math.cos(a)*760,
+          r:3.2,damage,kind:"flak",age:0});
+      }
+    }
+    this._signatureClock=Math.max(.1,.3-sig*.025);
+  }
+  // Manta "Hammer Torpedoes": slow-accelerating boss-killers. 1 torpedo per
+  // 1.38 s at level 1 (~40 DPS), 2 at level 3, 3 at level 5; +15% damage per
+  // level (uncapped); cadence floor 0.55 s.
+  _fireTorpedoes() {
+    const p=this.player,sig=p.signature,count=Math.min(3,1+Math.floor((sig-1)/2));
+    for(let i=0;i<count;i++) {
+      const off=count===1?0:count===2?(i?16:-16):(i-1)*22;
+      this._shot({x:p.x+off,y:p.y-4,vx:0,vy:-120,r:6.5,damage:55*(1+(sig-1)*.15),
+        kind:"torpedo",age:0,pierceRemaining:99,hitIds:[]});
+    }
+    this._signatureClock=Math.max(.55,1.5-sig*.12);
+    this._event("torpedoLaunch",p.x,p.y,count);
+  }
+  _updateArsenal(h,firing) {
+    const p=this.player;
+    if(p.reflector>0) {
+      p.reflector=Math.max(0,p.reflector-h);
+      if(p.reflector<=0)this._event("reflectorDown",p.x,p.y,0);
+    }
+    // Escorts follow with a spring lag: wide flank cover, or a tight forward
+    // column while focused.
+    this._syncEscortSlots();
+    for(const slot of p.escortSlots) {
+      const tx=p.focus?p.x+slot.side*(20+slot.rank*13):p.x+slot.side*(42+slot.rank*30);
+      const ty=p.focus?p.y-8-slot.rank*12:p.y+14+slot.rank*16;
+      const k=Math.min(1,h*(10-slot.rank*2));
+      slot.x+=(this._clamp(tx,12,528)-slot.x)*k;slot.y+=(ty-slot.y)*k;
+    }
+    // Wraith "Ghost Orbitals": count = signature (up to 6 shown); levels past 6
+    // speed the 0.6 s eat cooldown and the 0.32 s rail cadence by 15% each.
+    if(p.orbitals.length) {
+      const haste=1+Math.max(0,p.signature-ORBITALS_SHOWN)*.15;
+      p.orbitAngle=((p.orbitAngle||0)+h*2.4)%(Math.PI*2);
+      const n=p.orbitals.length,scale=1+(p.level-1)*.04;
+      p.orbitals.forEach((o,i)=>{
+        o.angle=p.orbitAngle+i/n*Math.PI*2;
+        o.x=p.x+Math.cos(o.angle)*ORBIT_RADIUS;o.y=p.y+Math.sin(o.angle)*ORBIT_RADIUS*.82;
+        o.cool=Math.max(0,o.cool-h*haste);o.fire=Math.max(0,(o.fire||0)-h);
+        if(firing&&o.fire<=0) {
+          this._shot({x:o.x,y:o.y-6,vx:0,vy:-960,r:2.6,damage:6*scale,kind:"orbital",age:0});
+          o.fire=.32/haste;
+        }
+      });
+    }
+  }
+  // Keep at most SHOT_BUDGET live player shots, dropping the oldest small
+  // shots first so missiles, rails and torpedoes survive dense scenes.
+  _enforceShotBudget() {
+    let excess=this.shots.length-SHOT_BUDGET;if(excess<=0)return;
+    for(const pass of [true,false]) {
+      let write=0;
+      for(let read=0;read<this.shots.length;read++) {
+        const shot=this.shots[read];
+        if(excess>0&&(!pass||SMALL_SHOTS.has(shot.kind))){excess--;continue;}
+        this.shots[write++]=shot;
+      }
+      this.shots.length=write;if(excess<=0)return;
+    }
   }
   _enemy(type,x,y,o={}) {
     const specs={scout:[22,15,150,160],wing:[30,17,155,220],bomber:[72,25,98,470],
@@ -416,7 +628,6 @@ export class Game {
     this._event("flank",270,y,0);
   }
   _spawnBoss() {
-    if(this.stage===3)while(this.player.level<5)this._increasePower();
     this.enemies=[];this.bullets.length=0;
     const names=["","VESPER","AURELIA","THE CROWN"];
     const hp=[0,2600,4700,5800][this.stage];
@@ -612,14 +823,19 @@ export class Game {
     for(let i=0;i<count;i++) this._bullet(x,y,offset+from+i/count*(to-from),speed,kind,r);
   }
   _bullet(x,y,angle,speed,kind,r) {
-    if(this.bullets.length>=700) return;
+    if(this.bullets.length>=BULLET_CAP) return;
     this.bullets.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
       r,kind,color:kind,age:0,grazed:false});
   }
   _updateBullets(h) { for(const b of this.bullets) {b.x+=b.vx*h;b.y+=b.vy*h;b.age+=h;} }
   _updateShots(h) {
     for(const shot of this.shots) {
-      if(shot.kind==="missile") {
+      const homing=shot.kind==="missile"||shot.kind==="sidewinder";
+      if(shot.kind==="torpedo") {
+        // Hammer torpedoes start slow and accelerate to 900 px/s.
+        shot.vy=Math.max(-900,shot.vy-h*1100);
+        if(this._rand()<h*30)this._particle(shot.x,shot.y+10,0,60,.22,3,"cyan","engine");
+      } else if(homing) {
         let target=this.enemies.find(e=>e.id===shot.targetId&&!e.dead&&e.y>-50);
         if(!target) {
           let nearestDistance=Infinity;
@@ -636,29 +852,93 @@ export class Game {
         }
         if(target) {
           const dx=target.x-shot.x,dy=target.y-shot.y,len=Math.hypot(dx,dy)||1;
-          const speed=560,turn=Math.min(1,h*5);
+          const sidewinder=shot.kind==="sidewinder";
+          const speed=sidewinder?680:560,turn=Math.min(1,h*(sidewinder?7:5));
           shot.vx=shot.vx*(1-turn)+dx/len*speed*turn;
           shot.vy=shot.vy*(1-turn)+dy/len*speed*turn;
           const v=Math.hypot(shot.vx,shot.vy);
           if(v>speed){shot.vx*=speed/v;shot.vy*=speed/v;}
         }
-        if(this._rand()<h*50)this._particle(shot.x,shot.y,0,55,.18,3,"amber","engine");
+        if(this._rand()<h*(shot.kind==="sidewinder"?28:50))
+          this._particle(shot.x,shot.y,0,55,shot.kind==="sidewinder"?.32:.18,3,shot.kind==="sidewinder"?"white":"amber",shot.kind==="sidewinder"?"smoke":"engine");
       }
       shot.x+=shot.vx*h;shot.y+=shot.vy*h;shot.age+=h;
     }
   }
-  _drop(x,y,type) {this.pickups.push({x,y,r:16,type,age:0,vy:95});this._event("drop",x,y,type);}
+  _drop(x,y,type,vx=0) {
+    const item={x,y,r:16,type,age:0,vy:95};if(vx)item.vx=vx;
+    this.pickups.push(item);this._event("drop",x,y,type);return item;
+  }
+  _randomDropType() {
+    let roll=this._rand()*DROP_WEIGHTS.reduce((sum,[,w])=>sum+w,0);
+    for(const [type,weight] of DROP_WEIGHTS){if((roll-=weight)<0)return type;}
+    return "power";
+  }
+  _bonusDropType() { return BONUS_LADDER[this._bonusIndex++%BONUS_LADDER.length]; }
+  // Several items from one kill fan out sideways so each is readable.
+  _dropMany(x,y,types) {
+    types.forEach((type,i)=>this._drop(x,y,type,(i-(types.length-1)/2)*70));
+  }
   _updatePickups(h) {
-    const p=this.player;
+    const p=this.player,interlude=this._transition>0;
     for(const item of this.pickups) {
-      item.age+=h;item.y+=item.vy*h;item.x+=Math.sin(item.age*2.2)*h*14;
+      if(item.dead)continue;
+      item.age+=h;
       const dx=p.x-item.x,dy=p.y-item.y,dist=Math.hypot(dx,dy);
-      const attract=p.focus?105:70;
+      if(interlude) {
+        // Sector clears are celebratory: anything still on screen homes in.
+        if(item.y>-20&&dist>1){
+          const speed=Math.min(900,260+item.age*120);
+          item.x+=dx/dist*Math.min(dist,speed*h);item.y+=dy/dist*Math.min(dist,speed*h);
+        }
+        continue;
+      }
+      if(item.salvage) {
+        // Burst (travels ~115-200 px), damp toward a slow sinking drift,
+        // bounce off the field edges.
+        const damp=Math.min(1,h*1.4);
+        item.vx-=item.vx*damp;item.vy+=(24-item.vy)*damp;
+        item.x+=item.vx*h;item.y+=item.vy*h;
+        const b=SALVAGE_BOUNDS;
+        if(item.x<b.left){item.x=b.left;item.vx=Math.abs(item.vx)*.8;}
+        else if(item.x>b.right){item.x=b.right;item.vx=-Math.abs(item.vx)*.8;}
+        if(item.y<b.top){item.y=b.top;item.vy=Math.abs(item.vy)*.8;}
+        else if(item.y>b.bottom){item.y=b.bottom;item.vy=-Math.abs(item.vy)*.6;}
+        item.life-=h;
+        if(item.life<=0) {
+          item.dead=true;this.stats.salvageLost+=item.value||1;
+          this._burst(item.x,item.y,8,"white",70,"fizzle");
+          this._event("salvageExpire",item.x,item.y,item.type);
+          continue;
+        }
+      } else {
+        item.y+=item.vy*h;item.x+=Math.sin(item.age*2.2)*h*14;
+        if(item.vx){item.x=this._clamp(item.x+item.vx*h,24,516);item.vx*=1-Math.min(1,h*3);}
+      }
+      // Salvage gets a wider magnet (wider again in focus) so a sweep recovers it.
+      if(item.salvage&&item.age<SALVAGE_GRACE)continue;
+      // Salvage magnet: 84 px, 130 px in focus (pickups: 70 / 105 px).
+      const attract=item.salvage?(p.focus?130:84):(p.focus?105:70);
       if(dist<attract&&dist>1) {
         const speed=230+(attract-dist)*3;
         item.x+=dx/dist*speed*h;item.y+=dy/dist*speed*h;
       }
     }
+  }
+  _collect(item) {
+    const p=this.player,value=Math.max(1,Math.floor(item.value||1));
+    this.stats.pickups++;
+    if(item.type==="power") this._increasePower(value);
+    else if(item.type==="escort") this._addEscorts(value);
+    else if(item.type==="sidewinder") {p.sidewinder+=value;this._syncArsenal();}
+    else if(item.type==="shield") this._addShield(value*(p.shipId==="manta"?2:1));
+    else if(item.type==="reflector") this._addReflector(REFLECTOR_PICKUP*value);
+    else if(item.type==="signature") this._addSignature(value);
+    else if(item.type==="bomb") p.bombs=Math.min(4,p.bombs+1);
+    else this._awardScore(Math.round(1500*this.combo));
+    this._burst(item.x,item.y,22,"gold",140,"pickup");
+    this._event("pickup",item.x,item.y,item.type);
+    if(item.salvage){this.stats.salvageRecovered+=value;this._event("salvageRecover",item.x,item.y,item.type);}
   }
   _particle(x,y,vx,vy,life,size,color,kind) {
     if(this.particles.length>380) this.particles.shift();
@@ -677,6 +957,8 @@ export class Game {
     }
   }
 
+  // Rails, escort rails and torpedoes pass through targets (torpedoes only small ones).
+  _pierces(shot) { return !!shot.hitIds&&(shot.kind==="pierce"||shot.kind==="torpedo"||shot.style==="rail"); }
   _collide() {
     const p=this.player;
     for(const shot of this.shots) {
@@ -687,7 +969,7 @@ export class Game {
         if(reactor&&!reactor.broken&&e.age>=reactor.opensAt&&!shot.hitIds?.includes(reactor.id)&&Math.hypot(shot.x-reactor.x,shot.y-reactor.y)<reactor.r+shot.r){
           if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
           reactor.hp-=shot.damage;
-          if(shot.kind==='pierce'){shot.hitIds.push(reactor.id);if(--shot.pierceRemaining<=0)shot.dead=true;}
+          if(this._pierces(shot)){shot.hitIds.push(reactor.id);if(--shot.pierceRemaining<=0||shot.kind==="torpedo")shot.dead=true;}
           else shot.dead=true;
           if(this._hitAudioClock<=0){this._event('bossCoreHit',reactor.x,reactor.y,'reactor');this._event('hit',reactor.x,reactor.y,'reactor');this._hitAudioClock=.065;}
           if(reactor.hp<=0)this._breakReactor(e);
@@ -702,24 +984,29 @@ export class Game {
         const previousHp=e.hp;
         this._damageEnemy(e,shot.damage);
         const armorStopped=e.type==="boss"&&e.hp===previousHp;
-        e.flash=shot.kind==="missile"?.95:shot.kind==="pierce"?.72:.5;
-        if(shot.kind==="pierce") {
+        const heavy=shot.kind==="missile"||shot.kind==="torpedo";
+        e.flash=heavy?.95:shot.kind==="pierce"?.72:.5;
+        // Torpedoes pierce small craft and burst on big targets and bosses.
+        const burst=shot.kind==="missile"||(shot.kind==="torpedo"&&BIG_TARGETS.has(e.type));
+        if(this._pierces(shot)&&!burst) {
           shot.hitIds.push(e.id);
           shot.pierceRemaining--;
           if(shot.pierceRemaining<=0)shot.dead=true;
         } else shot.dead=true;
-        if(shot.kind==="missile") {
-          this._burst(shot.x,shot.y,14,"amber",110,"missile");
+        if(burst) {
+          const torpedo=shot.kind==="torpedo",radius=torpedo?70:52;
+          this._burst(shot.x,shot.y,torpedo?22:14,torpedo?"cyan":"amber",torpedo?160:110,"missile");
           for(const other of this.enemies) {
             if(other===e||other.dead)continue;
-            if(Math.hypot(other.x-shot.x,other.y-shot.y)<52) {
-              this._damageEnemy(other,shot.damage*.45);
+            if(Math.hypot(other.x-shot.x,other.y-shot.y)<radius) {
+              this._damageEnemy(other,shot.damage*(torpedo?.5:.45));
               if(other.hp<=0)this._killEnemy(other);
             }
           }
           this._event(armorStopped?"bossArmorHit":"missileHit",shot.x,shot.y,e.type);
+          if(torpedo)this.events[this.events.length-1].torpedo=true;
         }
-        if(shot.kind!=="missile"&&(!e.impactCooldown||shot.kind==="pierce")) {
+        if(!burst&&(!e.impactCooldown||shot.kind==="pierce")) {
           const contact=armorStopped?"bossArmorHit":e.type==="boss"?"bossCoreHit":
             shot.kind==="pierce"?"railHit":"chipHit";
           this._event(contact,shot.x,shot.y,e.type);
@@ -746,6 +1033,13 @@ export class Game {
         if(e.hp<=0)this._killEnemy(e);
       }
     }
+    let reflected=0,eats=0;
+    const flushDefense=()=>{
+      if(reflected){this.stats.reflected+=reflected;this._event("reflect",p.x,p.y,reflected);}
+      if(eats)this._event("orbitalEat",p.x,p.y,eats);
+      if(reflected&&p.reflector<=0)this._event("reflectorDown",p.x,p.y,0);
+      reflected=eats=0;
+    };
     for(const b of this.bullets) {
       if(b.dead) continue;
       const dx=b.x-p.x,dy=b.y-p.y,d2=dx*dx+dy*dy;
@@ -762,9 +1056,26 @@ export class Game {
         else this.events.push({type:"wakeConvert",x:b.x,y:b.y,value:1,points,resource:p.wake-previousWake});
         continue;
       }
+      // Reflector ring and ghost orbitals stop ordinary bullets; void rounds pass.
+      if(b.kind!=="void") {
+        if(p.reflector>0&&d2<REFLECTOR_RADIUS*REFLECTOR_RADIUS) {
+          b.dead=true;this._reflectBullet(b);reflected++;continue;
+        }
+        let eaten=false;
+        for(const o of p.orbitals) {
+          if(o.cool>0)continue;
+          const ox=b.x-o.x,oy=b.y-o.y;
+          if(ox*ox+oy*oy<(9+b.r)**2){o.cool=ORBITAL_COOL;eaten=true;break;}
+        }
+        if(eaten) {
+          b.dead=true;eats++;this.stats.orbitalEats++;
+          this._particle(b.x,b.y,0,0,.25,5,"cyan","ring");
+          continue;
+        }
+      }
       const hitRadius=p.r+b.r*.68;
       if(d2<hitRadius*hitRadius&&p.invuln<=0) {
-        b.dead=true;this._hurtPlayer(b.x,b.y);
+        b.dead=true;flushDefense();this._hurtPlayer(b.x,b.y);
         if(this.mode==='gameover')return;
       } else if(!b.grazed&&d2<(p.r+b.r+23)**2) {
         b.grazed=true;this.graze++;this.stats.grazes++;
@@ -777,6 +1088,7 @@ export class Game {
         this._particle(b.x,b.y,this._range(-20,20),-30,.25,2,"cyan","graze");
       }
     }
+    flushDefense();
     if(p.invuln<=0) {
       for(const e of this.enemies) {
         if(e.dead)continue;
@@ -794,24 +1106,15 @@ export class Game {
       this._hurtPlayer(lance.x,p.y);if(this.mode==='gameover')return;
     }
     for(const item of this.pickups) {
+      if(item.dead||(item.salvage&&item.age<SALVAGE_GRACE&&this._transition<=0))continue;
       const dx=item.x-p.x,dy=item.y-p.y;
       if(dx*dx+dy*dy<(item.r+16)**2) {
-        item.dead=true;
-        this.stats.pickups++;
-        if(item.type==="power") {
-          if(!this._increasePower())this._awardScore(Math.round(1000*this.combo));
-        } else if(item.type==="shield") {
-          if(p.maxShield&&p.shield<p.maxShield) {
-            p.shield++;this._event("shieldRestore",p.x,p.y,p.shield);
-          } else p.hp=Math.min(p.maxHp,p.hp+1);
-        }
-        else if(item.type==="bomb") p.bombs=Math.min(4,p.bombs+1);
-        else this._awardScore(Math.round(1500*this.combo));
-        this._burst(item.x,item.y,22,"gold",140,"pickup");
-        this._event("pickup",item.x,item.y,item.type);
+        item.dead=true;this._collect(item);
       }
     }
   }
+  // Hit order: a shield charge absorbs the hit outright; otherwise the
+  // arsenal scatters as salvage, then the hull takes the hit.
   _hurtPlayer(x,y) {
     const p=this.player;if(p.invuln>0)return;
     if(p.shield>0) {
@@ -819,9 +1122,11 @@ export class Game {
       this._burst(p.x,p.y,22,"cyan",150,"shield");
       this._event("shieldHit",x,y,p.shield);
       if(p.shield===0)this._event("shieldBreak",p.x,p.y,0);
+      this._syncArsenal();
       return;
     }
-    p.hp--;this.stats.hitsTaken++;p.invuln=2.35;this.combo=1;this._comboClock=0;
+    this._scatterArsenal(x,y);
+    p.hp--;this.stats.hitsTaken++;p.invuln=SCATTER_INVULN;this.combo=1;this._comboClock=0;
     this.shake=13;this.flash=.5;this._burst(p.x,p.y,32,"cyan",220,"damage");
     this._event("playerHit",x,y,p.hp);
     if(p.hp<=0) {
@@ -831,12 +1136,70 @@ export class Game {
         this._finishRun("defeat");
         this._event("gameover",p.x,p.y,this.score);
       } else {
-        p.hp=p.maxHp;p.level=Math.max(1,p.level-1);p.power=p.level;
-        p.drones=p.shipId==="wraith"?Math.floor(p.level/2):0;
+        // Losing a life scatters anything still held; the new ship is bare and
+        // the salvage from this hit keeps floating.
+        this._scatterArsenal(p.x,p.y);
+        p.hp=p.maxHp;p.level=p.power=1;p.drones=0;
+        p.shield=p.maxShield=p.shipId==="manta"?1:0;
         p.x=270;p.y=750;p.invuln=3.2;
         this.bullets=this.bullets.filter(b=>Math.hypot(b.x-p.x,b.y-p.y)>190);
+        this._syncArsenal();
       }
     }
+  }
+  // Everything above a bare ship drops as at most SALVAGE_MAX_TOKENS tokens:
+  // power splits into a few multi-level tokens, each equipment level is its
+  // own token (bundled only when the token budget runs out). 20% of the power
+  // burns away. Reflector time is lost, not dropped.
+  _scatterArsenal(x,y) {
+    const p=this.player;
+    const levels=p.level-1,burned=Math.floor(levels*SCATTER_BURN),kept=levels-burned;
+    const pools=[["power",kept,Math.min(kept,6,Math.ceil(kept/3))],["escort",p.escorts/2,p.escorts/2],
+      ["sidewinder",p.sidewinder,p.sidewinder],["signature",p.signature,p.signature]]
+      .filter(([,amount])=>amount>0).map(([type,amount,tokens])=>({type,amount,tokens:Math.max(1,tokens)}));
+    if(p.reflector>0){p.reflector=0;this._event("reflectorDown",p.x,p.y,0);}
+    if(!levels&&!pools.length)return 0;
+    let total=pools.reduce((sum,pool)=>sum+pool.tokens,0);
+    while(total>SALVAGE_MAX_TOKENS) {
+      // Bundle the most fragmented pool first (fewest levels per token).
+      let pick=null;
+      for(const pool of pools)if(pool.tokens>1&&(!pick||pool.amount/pool.tokens<pick.amount/pick.tokens))pick=pool;
+      if(!pick)break;pick.tokens--;total--;
+    }
+    const tokens=[];
+    for(const pool of pools)
+      for(let i=0;i<pool.tokens;i++) {
+        const value=Math.floor(pool.amount/pool.tokens)+(i<pool.amount%pool.tokens?1:0);
+        tokens.push({type:pool.type,value});
+      }
+    const offset=this._rand()*Math.PI*2;
+    tokens.forEach((token,i)=>{
+      const angle=offset+i/tokens.length*Math.PI*2+this._range(-.25,.25),speed=this._range(160,280);
+      this.pickups.push({x:this._clamp(x,SALVAGE_BOUNDS.left,SALVAGE_BOUNDS.right),
+        y:this._clamp(y,SALVAGE_BOUNDS.top,SALVAGE_BOUNDS.bottom),r:18,type:token.type,age:0,
+        vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,salvage:true,value:token.value,life:SALVAGE_LIFE});
+    });
+    const dropped=tokens.reduce((sum,token)=>sum+token.value,0);
+    p.level=p.power=1;p.escorts=0;p.escortSlots.length=0;p.sidewinder=0;p.signature=0;p.drones=0;
+    this._syncOrbitals();this._syncArsenal();
+    this.stats.scatters++;
+    this._burst(x,y,30,"gold",240,"scatter");
+    this.events.push({type:"arsenalScatter",x,y,value:dropped,tokens:tokens.length,burned});
+    return tokens.length;
+  }
+  // A reflected bullet flies back at the nearest enemy as a player shot.
+  _reflectBullet(b) {
+    const p=this.player;
+    p.reflector=Math.max(0,p.reflector-REFLECT_COST);
+    let target=null,best=Infinity;
+    for(const e of this.enemies) {
+      if(e.dead||e.y< -40)continue;
+      const d=(e.x-b.x)**2+(e.y-b.y)**2;if(d<best){best=d;target=e;}
+    }
+    const angle=target?Math.atan2(target.y-b.y,target.x-b.x):-Math.PI/2;
+    this._shot({x:b.x,y:b.y,vx:Math.cos(angle)*760,vy:Math.sin(angle)*760,r:4,
+      damage:12+p.level*.5,kind:"reflect",age:0});
+    this._particle(b.x,b.y,0,0,.22,5,"violet","ring");
   }
   _killEnemy(e,bomb=false) {
     if(e.dead)return;e.dead=true;
@@ -847,6 +1210,8 @@ export class Game {
       this._particle(e.x,e.y,0,0,.75,16,"gold","ring");
       this.shake=18;this.flash=1;this.bullets.length=0;
       this.boss=null;this._transition=3.5;
+      // Flagship spoils: collected automatically during the interlude.
+      this._dropMany(e.x,e.y,["power",this._bonusDropType()]);
       this._event("bossDown",e.x,e.y,this.stage);
     } else {
       this.stats.kills++;
@@ -855,9 +1220,13 @@ export class Game {
       this._burst(e.x,e.y,e.type==="mini"?32:e.type==="bomber"||e.type==="carrier"?16:8,
         e.type==="ace"?"cyan":"amber",e.type==="mini"?220:130,"explode");
       this.shake=Math.max(this.shake,e.type==="mini"?7:e.type==="bomber"?4:2);
-      if(e.drop)this._drop(e.x,e.y,e.drop);
-      else if(this._rand()<(e.type==="carrier"?.6:e.type==="mini"?.45:.045))
-        this._drop(e.x,e.y,this._rand()<.68?"power":"shield");
+      // Authored drops stay; carriers and minibosses add ladder bonuses
+      // (2-3 items total); ordinary kills roll the weighted table.
+      const drops=[];
+      if(e.drop)drops.push(e.drop);
+      else if(this._rand()<(DROP_CHANCE[e.type]??.05))drops.push(this._randomDropType());
+      for(let i=0;i<(BONUS_DROPS[e.type]||0);i++)drops.push(this._bonusDropType());
+      if(drops.length)this._dropMany(e.x,e.y,drops);
       this._event("enemyDown",e.x,e.y,e.type);
     }
     this._event("explode",e.x,e.y,e.type);this.events[this.events.length-1].angle=e.angle||0;
@@ -874,6 +1243,8 @@ export class Game {
       this._finishRun("victory");
       this._event("victory",270,320,this.score);return;
     }
+    // Anything the interlude did not collect is off screen and is lost.
+    this.pickups.length=0;
     this.stage++;this.stageTime=0;this.wave=0;this._beatIndex=0;this._laneIndex=0;
     this._awardScore(0);
     this.enemies.length=0;this.bullets.length=0;
@@ -893,7 +1264,8 @@ export class Game {
     this.summary={outcome,shipId:this.shipId,score:this.score,grade,stage:this.stage,livesRemaining:p.lives,
       practiceStage:this.practiceStage,bombsRemaining:p.bombs,
       time:this.time,kills:s.kills,grazes:s.grazes,shotsFired:s.shotsFired,
-      shotsHit:s.shotsHit,accuracy,pickups:s.pickups,powerPeak:s.powerPeak,
+      shotsHit:s.shotsHit,accuracy,pickups:s.pickups,powerPeak:s.powerPeak,arsenalPeak:s.arsenalPeak,
+      scatters:s.scatters,salvageRecovered:s.salvageRecovered,
       bombsUsed:s.bombsUsed,rolls:s.rolls,conversions:s.conversions,
       hitsTaken:s.hitsTaken,livesLost:s.livesLost,bossesDefeated:s.bossesDefeated,reactorsBroken:s.reactorsBroken};
     this._event("summary",270,320,grade);
@@ -917,7 +1289,7 @@ export class Game {
     write=0;
     for(let read=0;read<this.shots.length;read++) {
       const s=this.shots[read];
-      if(!s.dead&&s.y> -40&&s.x> -30&&s.x<570)this.shots[write++]=s;
+      if(!s.dead&&s.y> -40&&s.y<940&&s.x> -30&&s.x<570)this.shots[write++]=s;
     }
     this.shots.length=write;
 

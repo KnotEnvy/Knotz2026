@@ -111,6 +111,34 @@ Keep every existing event. Add these:
 
 Audio must voice-limit the new high-rate events (`reflect`, `orbitalEat`, `sidewinderLaunch`), so that full power never turns to noise.
 
+### Simulation notes (arsenal round 1)
+
+These are additions and refinements made while building the simulation. Every field and event above is unchanged.
+
+- **Player shot kinds:** `shot`, `lance`, `missile` and `pierce` are unchanged. The new kinds are `escort`, `sidewinder`, `flak`, `torpedo`, `orbital` and `reflect`.
+  - Escort shots carry a `style` field: `"cannon"` (Kestrel), `"rocket"` (Manta) or `"rail"` (Wraith; these pierce).
+  - Kestrel's rear flak moves downward (`vy > 0`).
+  - The kind `drone` is no longer emitted.
+- **Extra event fields:**
+  - `arsenalScatter` also has `burned` (power levels lost). Its `value` is the total of the token values (power levels plus equipment levels).
+  - Torpedo bursts reuse `missileHit`, with `torpedo: true`.
+  - New optional event `torpedoLaunch {value: count}`. Presentation may ignore it.
+- **`powerUp`:** fires once per pickup, with `value` set to the new level. A multi-level salvage token raises several levels with one event.
+- **Salvage tokens:**
+  - Escort tokens carry pairs in `value`. Sidewinder and signature tokens carry levels.
+  - For the first 0.6 s after a scatter, tokens cannot be magnetized or collected. This is the burst phase, so a hit always actually scatters.
+  - Tokens burst to about 115–200 px, then sink at 24 px/s.
+  - The salvage magnet is 84 px, or 130 px in focus. Ordinary pickups stay at 70 / 105 px.
+  - Salvage life is paused during the sector-clear interlude. Whatever the interlude does not collect is cleared at the next sector.
+- **Manta shield:** `maxShield` starts at 1 for Manta (it was 2). Drills give Manta 2 charges.
+- **Drops:**
+  - Ordinary kills drop from the weight table at these rates: scout 3.5%, wing 4%, ace 15%, bomber 25%, turret 25%.
+  - Carriers add 1 bonus item and minibosses add 2, on top of their authored drop.
+  - Each flagship drops 1 power plus 1 bonus item, collected automatically during the interlude.
+  - Bonus items follow a fixed ladder: escort, sidewinder, signature, power, reflector, shield, escort, sidewinder, signature, power, and so on. So sector 1 always yields one escort pair, a sidewinder rack and a signature level.
+- **Summary and stats:** new fields `arsenalPeak`, `scatters` and `salvageRecovered`. Stats also track `salvageLost`, `reflected` and `orbitalEats`.
+- **Orbitals:** orbital objects also carry an internal `fire` clock.
+
 ### HUD
 
 - Replace the five-pip "LV" meter and the mobile `n/5` text with an uncapped power number plus a compact equipment row: E count, M level, ★ level, S charges, and an R bar while active.

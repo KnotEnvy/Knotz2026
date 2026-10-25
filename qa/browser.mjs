@@ -147,7 +147,7 @@ try{
   assert.ok(record.saved>=record.score);await terminal.locator('#retryButton').click();assert.equal(await terminal.locator('#app').getAttribute('data-screen'),'play');
   assert.deepEqual(terminalErrors,[]);report.checks.terminalFlows.push({outcome,...record,errors:terminalErrors});await terminal.close();
  }
- // A conversion can cross two upgrade milestones in one event batch. Assert
+ // A conversion can land with two power upgrades in one event batch. Assert
  // the actual drawn text remains distinct and in the field, including edges.
  const reward=await fresh({},true);await reward.locator('#enterHangarButton').click();await reward.locator('[data-ship="wraith"]').click();await reward.locator('#launchButton').click();
  await reward.evaluate(()=>{
@@ -162,7 +162,9 @@ try{
   await reward.evaluate(position=>{
    window.__qaRewardLabels={};__qaLayoutRenderer.impacts.length=0;const g=__qaLayoutGame;g._start();Object.assign(g.player,position);g.score=2500;
    for(let i=0;i<100;i++)g._bullet(50+i*4,100,Math.PI/2,100,'amber',5);
-   let first=true;g.update=dt=>{if(first){g._bomb();first=false;}else g.events=[];g._updateParticles(dt);};
+   // Score no longer buys power (uncapped arsenal), so the fixture collects two
+   // power levels in the same batch as the conversion.
+   let first=true;g.update=dt=>{if(first){g._bomb();g._increasePower();g._increasePower();first=false;}else g.events=[];g._updateParticles(dt);};
   },position);await reward.waitForTimeout(200);
   const labels=await reward.evaluate(()=>Object.values(__qaRewardLabels));
   assert.equal(labels.length,2,'simultaneous upgrades must coalesce to one power label beside conversion');
