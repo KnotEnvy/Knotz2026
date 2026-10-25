@@ -168,7 +168,7 @@ try{
   },position);await reward.waitForTimeout(200);
   const labels=await reward.evaluate(()=>Object.values(__qaRewardLabels));
   assert.equal(labels.length,2,'simultaneous upgrades must coalesce to one power label beside conversion');
-  assert.ok(labels.some(label=>label.text==='POWER 3'));
+  assert.ok(labels.some(label=>label.text==='POWER 4'),'sortie power 2 plus two upgrades');
   assert.ok(labels.some(label=>label.text==='+12000 CONVERT'));
   assert.ok(Math.abs(labels[0].y-labels[1].y)>22,'reward labels must have separate vertical lanes');
   for(const label of labels)assert.ok(label.x-label.width/2>=0&&label.x+label.width/2<=540,'reward labels must stay inside the field');

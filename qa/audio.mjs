@@ -64,7 +64,7 @@ try{
  });
  for(const [index,ship] of (process.env.QA_AUDIO_RECORD==='0'?[]:['kestrel','manta','wraith']).entries()){
   await page.evaluate(({ship,index})=>{
-   const {game:g,audio:a}=__qaSound;g.shipId=ship;g._start();g.stage=index+1;g._beatIndex=g._laneIndex=99;g.player.invuln=999;g.player.level=3;g.player.power=3;g.player.drones=ship==='wraith'?1:0;
+   const {game:g,audio:a}=__qaSound;g.shipId=ship;g._start();g.stage=index+1;g._beatIndex=g._laneIndex=99;g.player.invuln=999;g.player.level=3;g.player.power=3;g.player.drones=0;g.player.signature=ship==='wraith'?1:0;g._syncOrbitals();g._syncArsenal();
    a.setLevels(0,.8,.6);a.lastSound.clear();
    __qaSound.counts={};
   },{ship,index});

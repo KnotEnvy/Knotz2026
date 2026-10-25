@@ -7,6 +7,8 @@ const start = (ship = 'kestrel') => {
   game.update(0, { start: true }); game.update(1/60, { start: false });
   assert.equal(game.mode, 'playing');
   game._beatIndex = 999; game._laneIndex = 999; game.stageTime = -1e6;
+  // Sorties start at power 2; these unit checks start from a bare level-1 ship.
+  game.player.level = game.player.power = 1; game._syncArsenal();
   return game;
 };
 const step = (game, frames, input = {}) => { for (let i = 0; i < frames; i++) game.update(1/60, input); };
@@ -32,8 +34,19 @@ test('power is uncapped and keeps adding damage past the stream ceiling', () => 
   assert.equal(shots(20).length, 9);
   assert.ok(shots(20)[0].damage > shots(8)[0].damage * 1.7, 'each level past 8 adds about 6% damage');
   assert.ok(shots(20)[0].r > shots(8)[0].r, 'and slightly larger shots');
-  assert.equal(shots(6, 'wraith').length, 3, 'Wraith tops out at triple rails');
-  assert.ok(shots(14, 'wraith')[0].damage > shots(8, 'wraith')[0].damage);
+  assert.equal(shots(6, 'wraith').length, 3, 'Wraith reaches triple rails at the structural ceiling');
+  assert.equal(shots(9, 'wraith').length, 3);
+  assert.equal(shots(10, 'wraith').length, 4, 'a fourth rail at power 10');
+  assert.equal(shots(14, 'wraith').length, 5, 'a fifth rail at power 14');
+  const volley = (level, ship = 'wraith') => shots(level, ship).reduce((sum, s) => sum + s.damage, 0);
+  assert.ok(volley(14) > volley(8), 'Wraith volley damage still grows with power');
+  // Extra rails split the volley: single-target output stays on the 3-rail curve.
+  for (const level of [10, 13, 14, 20]) {
+    const n = level >= 14 ? 5 : 4, scale = 1 + (level - 8) * .06, base = (12 + 7 * 1.6) * scale;
+    assert.ok(Math.abs(volley(level) - 3 * base) < 1e-9, 'level ' + level + ' keeps three rails of damage across ' + n);
+  }
+  const spread = shots(14, 'wraith').map(s => s.x - shots(14, 'wraith')[0].x);
+  assert.deepEqual(spread.map(Math.round), [0, 12, 24, 36, 48], 'five parallel rails, 12 px apart');
   const game = start(); for (let i = 0; i < 40; i++) give(game, 'power');
   assert.equal(game.player.level, 41); assert.equal(game.player.power, 41);
 });
@@ -57,10 +70,9 @@ test('every pickup type applies its contract effect and event', () => {
   assert.equal(game.stats.pickups, 8);
 
   const manta = start('manta');
-  assert.equal(manta.player.shield, 1);
-  give(manta, 'shield'); assert.equal(manta.player.shield, 3, 'Manta gains two charges per pickup');
-  give(manta, 'shield'); assert.equal(manta.player.shield, 5, 'shield charges are uncapped');
-  assert.equal(manta.player.maxShield, 5);
+  assert.equal(manta.player.shield, 1); assert.equal(manta.player.shieldCap, 3);
+  give(manta, 'shield'); assert.equal(manta.player.shield, 3, 'Manta gains two charges per pickup, up to the cap');
+  assert.equal(manta.player.maxShield, 3);
 });
 
 test('escort pickups past six convert into two power levels and are never wasted', () => {
@@ -132,7 +144,9 @@ test('signature systems: Kestrel flak covers the rear, Manta torpedoes pierce sm
   const wraith = start('wraith'); kit(wraith, { signature: 8 });
   assert.equal(wraith.player.orbitals.length, 6, 'orbital count shows up to six');
   wraith.update(1/60, { fire: true });
-  assert.equal(wraith.shots.filter(s => s.kind === 'orbital').length, 6);
+  const orbitalShots = wraith.shots.filter(s => s.kind === 'orbital');
+  assert.equal(orbitalShots.length, 12, 'each orbital fires twin rails');
+  assert.ok(orbitalShots.every(s => Math.abs(s.damage - 3 * (1 + 0 * .04)) < 1e-9), 'at half damage each');
   for (const o of wraith.player.orbitals) {
     const d = Math.hypot(o.x - wraith.player.x, (o.y - wraith.player.y) / .82);
     assert.ok(Math.abs(d - 46) < 1);
@@ -151,7 +165,7 @@ test('a shield charge absorbs a hit before any scatter or hull loss', () => {
   p.invuln = 0; game.events = [];
   game._hurtPlayer(p.x, p.y);
   assert.equal(p.hp, 3); assert.equal(p.level, 1); assert.ok(types(game).includes('arsenalScatter'));
-  assert.ok(Math.abs(p.invuln - 1.6) < 1e-9, 'scatter hits give a shorter 1.6 s invuln');
+  assert.ok(Math.abs(p.invuln - 2) < 1e-9, 'scatter hits give a shorter 2.0 s invuln');
 });
 
 test('a scatter bundles the arsenal into at most ten tokens and burns about 20% of the power', () => {
@@ -171,7 +185,7 @@ test('a scatter bundles the arsenal into at most ten tokens and burns about 20% 
   assert.deepEqual([p.level, p.power, p.escorts, p.escortSlots.length, p.sidewinder, p.signature, p.reflector, p.drones], [1, 1, 0, 0, 0, 0, 0, 0]);
   for (const t of tokens) {
     const speed = Math.hypot(t.vx, t.vy);
-    assert.ok(speed >= 160 && speed <= 280); assert.equal(t.life, 9); assert.equal(t.salvage, true);
+    assert.ok(speed >= 200 && speed <= 340); assert.equal(t.life, 9); assert.equal(t.salvage, true);
   }
 
   const small = start(); kit(small, { level: 6, sidewinder: 2 });
@@ -197,8 +211,9 @@ test('salvage drifts and bounces inside the field, can be recovered, and expires
   p.x = token.x; p.y = token.y; game.events = [];
   game._collide();
   assert.equal(token.dead, true); assert.equal(p.level, 1 + token.value);
-  assert.ok(game.events.some(e => e.type === 'salvageRecover' && e.value === 'power'));
-  assert.ok(game.events.some(e => e.type === 'pickup' && e.value === 'power'));
+  assert.ok(game.events.some(e => e.type === 'salvageRecover' && e.value === 'power' && e.amount === token.value));
+  assert.ok(!types(game).includes('pickup'), 'salvage reports salvageRecover only, never pickup as well');
+  assert.ok(game.events.some(e => e.type === 'powerUp' && e.value === p.level), 'follow-on powerUp still fires');
   p.x = -2000; p.y = -2000; game.events = [];
   const left = game.pickups.filter(t => !t.dead);
   const expired = [];

@@ -17,12 +17,14 @@ Simulation (`src/game.js`) owns these fields. Presentation (`render.js`, `ui.js`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `level`, `power` | integer ≥ 1, uncapped | Main gun power. Keep both fields and keep them equal; existing readers use both. |
+| `level`, `power` | integer ≥ 1, uncapped | Main gun power. Keep both fields and keep them equal; existing readers use both. Sorties (and `selectShip`) start at 2; a scatter or respawn leaves 1. |
 | `escorts` | integer 0–6, even | Number of side fighters (1942 style). Pickups add a pair at a time. |
 | `escortSlots` | array of `{x, y, side, rank}` | World positions of each escort, updated every tick by the simulation. They follow the player with a spring lag. Focus pulls them into a tight forward formation. |
 | `sidewinder` | integer ≥ 0, uncapped | Sidewinder missile rack level. |
-| `shield` | integer ≥ 0, uncapped | Shield charges. Each charge fully absorbs one hit, with no scatter and no hull loss. |
-| `maxShield` | integer | Display hint only: the highest charge count reached this life (at least 1 for Manta). It is no longer a cap. |
+| `shield` | integer 0–`shieldCap` | Shield charges. Each charge fully absorbs one hit, with no scatter and no hull loss. |
+| `shieldCap` | integer, 3 | Most charges any ship can hold (round 2). S pickups at the cap become +1 power. |
+| `maxShield` | integer | Display hint only: the highest charge count reached this life (at least 1 for Manta). Never above `shieldCap`. |
+| `magnetBoost` | seconds ≥ 0 | Round 2. Time left on the roll-to-recover magnet pulse: 0.35 s after a roll ends, the pickup magnet is ×1.8. |
 | `reflector` | seconds ≥ 0 | Reflector shield time remaining. |
 | `signature` | integer ≥ 0, uncapped | Level of the ship-unique system (see below). |
 | `orbitals` | array of `{x, y, angle, cool}` | Wraith signature only; empty for the other ships. |
@@ -38,15 +40,16 @@ Pickups keep the existing shape `{x, y, r, type, age, vy}`. New optional fields:
 | `power` | P (gold) | `level += value` (value defaults to 1). |
 | `escort` | E (white-blue) | +2 escorts up to 6. Past 6, it gives +2 power instead. Never wasted. |
 | `sidewinder` | M (amber) | `sidewinder += 1`. |
-| `shield` | S (cyan) | `shield += 1` (Manta gets +2). This replaces the old non-Manta "+1 hull" behaviour. |
+| `shield` | S (cyan) | `shield += 1` (Manta gets +2), up to `shieldCap` (3). At the cap the pickup gives +1 power instead. This replaces the old non-Manta "+1 hull" behaviour. |
 | `reflector` | R (violet) | `reflector += 6` seconds. |
 | `signature` | ★ (ship colour) | `signature += 1`. |
-| `bomb` | B | Unchanged. |
+| `bomb` | B | +1 bomb, up to 4. With a full bay it gives +1 power instead. |
 
 Drops:
 - Authored `drop:` fields in sectors 1–3 stay as they are.
 - Add drops so a strong sector-1 run ends around power 8–10 with one or two escort pairs, a sidewinder rack and a signature level.
 - Random drops roll more often than before. Weights (tunable): power 50, escort 12, sidewinder 12, signature 9, shield 9, reflector 8.
+- Round 2: the opening beats of sector 1 carry guaranteed power, and wiping a whole formation drops a squadron bonus (see "Simulation notes (arsenal round 2)").
 - Carriers and minibosses drop two or three items.
 - The old `POWER_MILESTONES` cap and the "final boss guarantees level five" rule are removed. Score extends stay.
 
@@ -83,11 +86,11 @@ Order of resolution when a hit lands and `invuln <= 0`:
    - Everything above a bare ship drops: `level-1` power, all escorts, sidewinder, signature, and reflector time. Reflector time is lost, not dropped.
    - Bundle it into at most about 10 salvage tokens: power splits across several `power` tokens with `value` greater than 1, and each equipment level is its own token.
    - About 20% of the power value burns away and is lost (round down, minimum 0). The scatter itself has to hurt a little.
-   - Tokens burst outward at 160–280 px/s from the impact point. They then damp, drift and bounce off the playfield edges (x 24–516, y 70–860), sinking slowly.
+   - Tokens burst outward at 200–340 px/s from the impact point (round 2; was 160–280). They then damp, drift and bounce off the playfield edges (x 24–516, y 70–860), sinking slowly.
    - Each token lives 9 s and blinks for its last 2.5 s.
    - The collection magnet radius grows (focus makes it larger), so a brave sweep recovers most of the haul.
    - The player keeps level 1 and the base loadout.
-3. Then the existing hull logic runs: `hp--`, invuln, life loss and respawn. The invuln after a scatter hit should be about 1.6 s, shorter than today's 2.35 s, so recovering under fire is a decision. Losing a life also scatters if anything is still held. On respawn the ship is bare, and the tokens from that hit are still floating.
+3. Then the existing hull logic runs: `hp--`, invuln, life loss and respawn. The invuln after a scatter hit is 2.0 s (round 2; round 1 used 1.6 s), shorter than the old 2.35 s, so recovering under fire is a decision. Losing a life also scatters if anything is still held. On respawn the ship is bare, and the tokens from that hit are still floating.
 
 Salvage that is not picked up expires with a small fizzle. Salvage survives a sector transition only if it is on screen during the interlude; then it drifts toward the player and is collected automatically, because sector clears are celebratory.
 
@@ -98,7 +101,7 @@ Drills start with a loadout matching the sector (for example, Vesper: power 6, o
 Keep every existing event. Add these:
 
 - `arsenalScatter {x, y, value: levelsDropped, tokens}`
-- `salvageRecover {x, y, value: type}` (in addition to `pickup`)
+- `salvageRecover {x, y, value: type, amount}`. Round 2: this replaces `pickup` for salvage; ordinary pickups still emit `pickup`. `amount` is the levels the token carried.
 - `salvageExpire {x, y, value: type}`
 - `escortJoin {value: escortCount}`
 - `sidewinderLaunch {value: count}` (coalesce to one per tick)
@@ -108,6 +111,7 @@ Keep every existing event. Add these:
 - `shieldUp {value: charges}`
 - `orbitalEat {value: countThisTick}` (coalesce)
 - `powerUp {value: level}` already exists; it now fires at every level, uncapped.
+- `squadronBonus {x, y, value: craftWiped, drops: 2}` (round 2): the last kill of a fully wiped formation.
 
 Audio must voice-limit the new high-rate events (`reflect`, `orbitalEat`, `sidewinderLaunch`), so that full power never turns to noise.
 
@@ -126,18 +130,74 @@ These are additions and refinements made while building the simulation. Every fi
 - **`powerUp`:** fires once per pickup, with `value` set to the new level. A multi-level salvage token raises several levels with one event.
 - **Salvage tokens:**
   - Escort tokens carry pairs in `value`. Sidewinder and signature tokens carry levels.
-  - For the first 0.6 s after a scatter, tokens cannot be magnetized or collected. This is the burst phase, so a hit always actually scatters.
-  - Tokens burst to about 115–200 px, then sink at 24 px/s.
-  - The salvage magnet is 84 px, or 130 px in focus. Ordinary pickups stay at 70 / 105 px.
-  - Salvage life is paused during the sector-clear interlude. Whatever the interlude does not collect is cleared at the next sector.
+  - For the first 0.8 s after a scatter (round 2; was 0.6 s), tokens cannot be magnetized or collected. This is the burst phase, so a hit always actually scatters.
+  - Tokens burst to about 140–240 px (round 2; was 115–200 px), then sink at 24 px/s.
+  - The salvage magnet is 64 px, or 100 px in focus (round 2; was 84 / 130 px). Ordinary pickups stay at 70 / 105 px. A roll ending multiplies both by 1.8 for 0.35 s.
+  - Salvage life is paused during the sector-clear interlude. Whatever the interlude does not collect is cleared at the next sector and counted in `stats.salvageLost`.
 - **Manta shield:** `maxShield` starts at 1 for Manta (it was 2). Drills give Manta 2 charges.
 - **Drops:**
   - Ordinary kills drop from the weight table at these rates: scout 3.5%, wing 4%, ace 15%, bomber 25%, turret 25%.
   - Carriers add 1 bonus item and minibosses add 2, on top of their authored drop.
   - Each flagship drops 1 power plus 1 bonus item, collected automatically during the interlude.
   - Bonus items follow a fixed ladder: escort, sidewinder, signature, power, reflector, shield, escort, sidewinder, signature, power, and so on. So sector 1 always yields one escort pair, a sidewinder rack and a signature level.
-- **Summary and stats:** new fields `arsenalPeak`, `scatters` and `salvageRecovered`. Stats also track `salvageLost`, `reflected` and `orbitalEats`.
+- **Summary and stats:** new fields `arsenalPeak`, `scatters` and `salvageRecovered`. Stats also track `salvageLost`, `reflected`, `orbitalEats` and (round 2) `squadronBonuses`.
 - **Orbitals:** orbital objects also carry an internal `fire` clock.
+
+### Simulation notes (arsenal round 2)
+
+These changes answer the round-1 judges. Where they change the contract above, the line above has been updated too.
+
+- **Boss guard clock (bosses reward power).**
+  - In round 1 every loadout killed a sector 1–3 flagship in exactly 22 s: guard floors were tied to fixed ages (`BOSS_LEARN_AGES` 10 / 18 / 22).
+  - Each boss now has an effective learn age, `age + learnShift`. Phase changes, guard floors and the final guard end all use it. Reactor, lance and fire cadences still run on `age`.
+  - Damage soaked by a guard floor is smoothed into an absorbed rate (share of max HP per second, about 0.4 s window). While guarded, `learnShift += max(0, rate − par) × K × dt`, with `K = 2.6`.
+  - `par` (`BOSS_GUARD_PAR`) is 0.22 for Vesper, 0.19 for Aurelia and 0.17 for the Crown. That is roughly what the sector's drill kit deals, so a sector-matched kit keeps the authored pacing and only surplus firepower speeds things up.
+  - Why `par` exists: measured boss DPS of a maxed kit (power 15, 6 escorts, sidewinder 4, signature 4) is only about 2.3× the Vesper drill kit. A purely linear rule (`par = 0`) cannot give both targets. Any K that brings maxed down to 13 s also brings drill down to 17–18 s.
+  - Each phase still lasts at least 55% of its authored window: phase 1 ≥ 5.5 s, phase 2 ≥ 4.4 s, phase 3 ≥ 2.2 s, measured from the phase's start. The shift is capped per phase so it never banks past that point.
+  - `guardUntil` is the real `age` at which the current guard will end if no more damage lands, re-computed every tick while guarded. So `guardUntil − age` stays a valid countdown, and it now falls faster than real time.
+  - The boss also carries `learnShift`, `phaseStart`, `absorbRate` and `guardAbsorb` (internal).
+  - Kill times for an invulnerable bot that tracks the boss with fire held:
+    - Vesper: drill kit 20.0–20.9 s, maxed 12.4–14.2 s.
+    - Aurelia: drill 21.3–21.9 s, maxed 17.2–18.8 s.
+    - Crown: drill 21.3–21.8 s, maxed 18.6–19.9 s.
+    - The Crown and Aurelia have more HP per unit of firepower, so they need a bigger arsenal to reach the floor (about 12 s).
+- **Shield cap 3 (every ship).**
+  - The owner's "no caps" is about power. Shield charges are protection, not power.
+  - With uncapped stacking, a stocked Manta absorbed 8 of 13 hits in a sector-1 run without scattering. It opted out of the lose-it-and-win-it-back loop that this overhaul is about.
+  - Manta keeps its identity: it starts each life with 1 charge and gains 2 per S pickup, so it reaches the cap fastest.
+  - S pickups at the cap become +1 power, so they are never wasted. A partial top-up (Manta at 2) just fills the bank.
+- **Ramp ("insanely powerful right away").**
+  - Sorties start at power 2.
+  - Sector 1's opening beats carry guaranteed power: the left wing of the 0.6 s split, the centre scout of the 4.7 s drift, and the 7.5 s wing's carrier (as before).
+  - Engaged no-hit bot (fire held, lines up under the lowest enemy, detours to pickups):
+    - power 4 at 5.7–9.0 s;
+    - power 6 at 9.6–11.9 s;
+    - first escort pair at 9.1–14.4 s;
+    - it reaches Vesper at power 17–23 with 2–6 escorts.
+  - A mortal dodging bot reaches Vesper at power 14–23, against 3–10 in round 1. Most of the extra comes from squadron bonuses.
+  - The old "a strong sector-1 run ends around power 8–10" target is retired.
+- **Squadron bonus (1942 style).**
+  - Formation waves get a squad id: drift (3 scouts), split, wing (fighters only), ace, bomber and cross (fighters only). Carriers fly outside the squadron.
+  - When every craft of a squad is killed (by any player damage, including bombs and splash), the last kill's fan adds 1 power plus 1 item from the weight table without power. The event is `squadronBonus`.
+  - A craft that leaves the screen deletes the squad, which spoils the bonus.
+  - Squads are cleared when a flagship spawns or a stage advances. `stats.squadronBonuses` counts payouts.
+  - Formation scouts and wings no longer roll the random drop table; they pay out through the squadron bonus. Heavies (bomber, ace, turret) still roll.
+- **Scatter tuning.**
+  - Salvage magnet 64 px (100 px focused). Ordinary pickups stay at 70 / 105 px.
+  - Burst 200–340 px/s, so tokens travel about 140–240 px before they settle into the 24 px/s sink.
+  - Salvage grace 0.8 s; post-scatter invuln 2.0 s.
+  - Roll-to-recover: when a roll ends, `magnetBoost` = 0.35 s and every pickup magnet is ×1.8 (salvage 115 / 180 px).
+- **Wraith density.**
+  - A 4th rail at power 10 and a 5th at 14, 12 px apart. Past three rails the per-rail damage is multiplied by 3/n, so the total volley stays on the three-rail curve and single-target DPS is unchanged.
+  - Orbitals fire twin rails (±3 px) at half damage each, so output is the same with twice the shots.
+- **Other.**
+  - Bomb pickups at the 4-bomb cap give +1 power.
+  - `selectShip` resets to a bare sortie loadout: power 2, no escorts, sidewinder, signature, reflector or orbitals, and the ship's starting shield.
+  - A stage advance adds uncollected salvage to `stats.salvageLost` before clearing it.
+  - Contact cues (`railHit`, `bossCoreHit`, `bossArmorHit`, `chipHit`) respect the per-target impact cooldown. A pierce shot may cut in once the cooldown is at or below 0.04 s. Maxed Wraith on Vesper drops from 36.6 to about 15 cues/s.
+  - Missile and torpedo burst cues (`missileHit` and burst `bossArmorHit`) are not cooldown-gated, as before; maxed Manta makes about 18 per second.
+  - Particles: at 380, decorative particles are dropped instead of shifting the array. Critical kinds (boss, phase, ring, bomb, scatter, damage, shield, power, pickup, roll) may overflow to 520. The seeded random stream is unchanged by the cap.
+  - Homing shots find their target and the nearest enemy in one loop, with no per-shot closure.
 
 ### HUD
 
@@ -184,7 +244,7 @@ Enemy bullets must stay readable through full player firepower. Player shots sta
   - **Phase 1, "Deck guns":** four destructible deck turrets with separate patterns (aimed triple streams, rotating fans, flak bursts, broadside rows). The core takes 25% damage while any turret lives. Destroying a turret awards points and drops an item.
   - **Phase 2, "Broadside":** the hull rolls its batteries out. Alternating left and right walls of bullets with readable gaps. Destructible homing torpedoes that firepower must shoot down. Void rounds enter the mix.
   - **Phase 3, "Monsoon engine":** an exposed core spins counter-rotating spirals and launches scavengers at any floating salvage. It ends in a desperation curtain on a guard floor.
-  - HP is tuned so a fully equipped ship takes about 60–80 s and a bare ship about 3 times longer. Use the existing learn-age guard floors so each phase plays out.
+  - HP is tuned so a fully equipped ship takes about 60–80 s and a bare ship about 3 times longer. Use the existing learn-age guard floors so each phase plays out. Since round 2 those floors run on the effective learn age (see "Boss guard clock"); give LEVIATHAN its own `BOSS_GUARD_PAR` entry and learn windows.
   - Drill: LEVIATHAN unlocks after encountering it. Raise the `bossSeen` and `bestClears` limits from 3 to `CAMPAIGN_STAGES`.
 
 ### Sector 5: SKYFORGE (planned, not built yet)

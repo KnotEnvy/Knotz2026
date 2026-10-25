@@ -231,7 +231,8 @@ test('boss armor cue holds each phase long enough, then releases damage at the u
   boss.age = 12;
   boss.hp = boss.maxHp / 3 + 20;
   game._damageEnemy(boss, 400);
-  assert.equal(boss.guardUntil, 18);
+  // A sliver of learn age was bought by the soaked phase-one damage.
+  assert.ok(boss.guardUntil <= 18 && boss.guardUntil > 17.9);
   boss.age = 18;
   game.update(1/60, {});
   assert.equal(boss.phase, 3);
@@ -245,7 +246,7 @@ test('boss armor cue holds each phase long enough, then releases damage at the u
   boss.hp = 20;
   game._damageEnemy(boss, 100);
   assert.equal(boss.hp, 1);
-  assert.equal(boss.guardUntil, 22);
+  assert.ok(boss.guardUntil <= 22 && boss.guardUntil > 21.9);
   boss.age = 22;
   game.update(1/60, {});
   assert.equal(boss.guard, false);
@@ -373,34 +374,34 @@ test('a three-sector clear keeps growing power through collected flagship spoils
       assert.equal(game.pickups.length, 0, 'the interlude collects every flagship spoil');
     }
   }
-  // One power spoil per flagship plus ladder bonuses (escort, sidewinder).
-  assert.equal(game.player.level, 3);
+  // Sortie power 2, one power spoil per flagship plus ladder bonuses (escort, sidewinder).
+  assert.equal(game.player.level, 4);
   assert.equal(game.player.power, game.player.level);
   assert.equal(game.player.escorts, 2);
   assert.equal(game.player.sidewinder, 1);
-  assert.equal(game.stats.powerPeak, 3);
+  assert.equal(game.stats.powerPeak, 4);
   game.player.x = game.pickups[0].x; game.player.y = game.pickups[0].y;
   for (const item of [...game.pickups]) { item.x = game.player.x; item.y = game.player.y; }
   game._collide();
-  assert.equal(game.player.level, 4, 'the final flagship drops power too');
+  assert.equal(game.player.level, 5, 'the final flagship drops power too');
   assert.equal(game.player.signature, 1);
   for (let i = 0; i < 8; i++) game.pickups.push({x: game.player.x, y: game.player.y, r: 16, type: 'power', age: 0, vy: 0});
   game._collide();
-  assert.equal(game.player.level, 12, 'no sector or final-boss cap holds power back');
+  assert.equal(game.player.level, 13, 'no sector or final-boss cap holds power back');
 });
 
 test('score no longer buys power, and pickups raise power without a cap', () => {
   const game = new Game(); start(game);
   game._awardScore(50000);
-  assert.equal(game.player.level, 1, 'score extends stay, power milestones are gone');
+  assert.equal(game.player.level, 2, 'score extends stay, power milestones are gone (sorties start at 2)');
   const p = game.player;
   for (let i = 0; i < 14; i++) { game.pickups.push({x: p.x, y: p.y, r: 16, type: 'power', age: 0, vy: 0}); }
   game._collide();
-  assert.equal(p.level, 15);
-  assert.equal(p.power, 15);
-  assert.deepEqual(game.events.filter(e => e.type === 'powerUp').map(e => e.value), Array.from({length: 14}, (_, i) => i + 2));
+  assert.equal(p.level, 16);
+  assert.equal(p.power, 16);
+  assert.deepEqual(game.events.filter(e => e.type === 'powerUp').map(e => e.value), Array.from({length: 14}, (_, i) => i + 3));
   game.stage = 3; game._spawnBoss();
-  assert.equal(p.level, 15, 'the final boss neither caps nor grants power');
+  assert.equal(p.level, 16, 'the final boss neither caps nor grants power');
 });
 
 test('selection persists into a run and three ships fire distinct primary weapons', () => {

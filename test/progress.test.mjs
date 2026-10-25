@@ -15,7 +15,7 @@ test('flagship drills use sector weapons, end after one boss and preserve campai
     g._killEnemy(g.boss);g._advanceStage();
     assert.equal(g.mode,'victory');assert.equal(g.stage,stage);assert.equal(g.summary.practiceStage,stage);
     assert.equal(g.stats.bossesDefeated,1);assert.equal(g.best,23000);
-    g._start();assert.equal(g.practiceStage,0);assert.equal(g.player.level,1);
+    g._start();assert.equal(g.practiceStage,0);assert.equal(g.player.level,2,'sorties start at power 2');
     g._awardScore(30000);assert.equal(g.best,30000,'campaign scoring works after leaving a drill');
   }
 });
