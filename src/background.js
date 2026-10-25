@@ -1,6 +1,11 @@
 // Cached procedural sea, coast and cloud geography for Storm Atlas.
-import { coastWaterAt } from './art.js';
+import { coastWaterAt, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
 import { lightningAt, bossWarningProgress, interludeProgress } from './timeline.js';
+import { CAMPAIGN_STAGES } from './game.js';
+// Sectors 1-3 share the painted-coast pipeline (render.js adds its own weather tile, light
+// shafts, flow lines and terrain lights). From sector 4 the world layer paints the whole sea
+// and its weather itself, so render.js skips that dressing when this returns true.
+export function worldPaintsStage(stage){return Number(stage)>=4;}
 const W=540,H=1400,TAU=Math.PI*2;
 const hash=n=>{const v=Math.sin(n*127.1+31.7)*43758.5453;return v-Math.floor(v);};
 const pal=[
@@ -162,6 +167,7 @@ function boat(c,x,y,stage){
   c.fillStyle=stage===2?'#c49675':'#bac6b4';c.fillRect(x-3,y-7,6,8);
 }
 export function drawAtlasScenery(c,stage){
+  if(worldPaintsStage(stage)){drawMonsoonSea(c,0);return;}
   const p=pal[stage-1];
   seaMaterial(c,stage);
   // Surface grain is baked once: broad currents, scattered foam and fine stipple.
@@ -266,6 +272,7 @@ function largeCloud(c,x,y,rx,ry,stage,seed){
   }
 }
 export function drawAtlasClouds(c,stage){
+  if(worldPaintsStage(stage))return;
   // One large weather front per scroll tile moves faster than the shore.
   const x=stage===1?440:stage===2?438:455;
   const y=stage===1?1120:stage===2?1040:790;
@@ -303,13 +310,16 @@ function glowSprite(size,rgb,core=.55){
     c.fillStyle=g;c.fillRect(0,0,w,w);
   });
 }
-// Interlude cloud palettes: 1 Shallows, 2 Storm Wall, 3 The Crown, 4 dawn after the final flagship.
+// Interlude cloud palettes: 1 Shallows, 2 Storm Wall, 3 The Crown, 4 Iron Monsoon typhoon deck,
+// 5 dawn after the final flagship.
 const COVER={
   1:{fog:'#8fc3c0',lit:'226,246,236',body:'120,170,172',shade:'52,96,108'},
   2:{fog:'#5c6a7c',lit:'196,208,222',body:'98,112,130',shade:'40,48,62'},
   3:{fog:'#3e3058',lit:'200,168,236',body:'86,66,120',shade:'32,22,52'},
-  4:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
+  4:{fog:'#141d1b',lit:'150,160,146',body:'46,58,54',shade:'8,13,13'},
+  5:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
 };
+const DAWN=5;
 
 export class WorldAmbience {
   constructor(){
@@ -401,7 +411,7 @@ export class WorldAmbience {
       c.fillStyle='rgba(255,120,80,.32)';c.fillRect(-2,-2,2.5,1.6);
     }));
     this.coverPuffs={};
-    for(const key of [1,2,3,4]){
+    for(const key of [1,2,3,4,5]){
       const p=COVER[key];
       // Cumulus: a shaded base, firm lobes and sunlit crowns, so the deck reads as cloud, not haze.
       // A broken cumulus bank seen from above: irregular lobes, shade only along the lower rim,
@@ -426,7 +436,7 @@ export class WorldAmbience {
   }
   // Called once per frame before any ambient layer.
   begin(game,t,scroll,stage,step,reduced){
-    this.reduced=!!reduced;this.game=game;this.gameT=t;
+    this.reduced=!!reduced;this.game=game;this.gameT=t;this.scroll=scroll;
     const mode=game.mode||'playing';
     // The world keeps breathing at a slower rate while the end-of-run outro holds the action.
     const rate=mode==='paused'?0:mode==='victory'||mode==='gameover'?.35:1;
@@ -434,6 +444,8 @@ export class WorldAmbience {
     const travel=scroll*GROUND_RATE;
     if(stage!==this.stage||travel<this.travel-2||travel-this.travel>500){
       this.stage=stage;for(const b of this.boats)b.active=false;this.boatTimer=1.2;
+      if(this.fleet)for(const f of this.fleet)f.active=false;
+      this.fleetTimer=0;this.fleetFresh=true;
     }
     this.travel=travel;
     this.strike=mode==='playing'||mode==='paused'?lightningAt(Number(game.time)||0,stage):null;
@@ -444,7 +456,8 @@ export class WorldAmbience {
     c.save();
     if(stage===1){this.drawFoam(c,1);this.drawGlints(c);this.drawBoats(c,1);this.drawCloudShadows(c);}
     else if(stage===2){this.drawRipples(c);this.drawBoats(c,2);this.drawStacks(c);}
-    else{this.drawPools(c);this.drawDebris(c);this.drawSpiral(c);}
+    else if(stage===3){this.drawPools(c);this.drawDebris(c);this.drawSpiral(c);}
+    else this.drawMonsoonSurface(c);
     c.restore();
   }
   // Weather above the surface (still beneath enemies and fire).
@@ -452,7 +465,8 @@ export class WorldAmbience {
     c.save();
     if(stage===1)this.drawBirds(c);
     else if(stage===2){this.drawFog(c);this.drawScud(c);this.drawRain(c);}
-    else this.drawEmbers(c);
+    else if(stage===3)this.drawEmbers(c);
+    else this.drawMonsoonAir(c);
     if(this.strike)this.drawLightning(c,stage);
     c.restore();
   }
@@ -471,10 +485,10 @@ export class WorldAmbience {
   }
   updateTransition(game,stage){
     const ip=interludeProgress(game);
-    const final=stage>=3||!!game.practiceStage;
+    const final=stage>=CAMPAIGN_STAGES||!!game.practiceStage;
     let cover=-1,lines=0;
     if(ip>=0&&game.mode==='playing'){
-      this.palette=final?4:Math.min(3,stage+1);
+      this.palette=final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
       cover=ease(.5,.95,ip)*(final?.6:1);lines=ease(.16,.7,ip);
     }else if(game.mode==='playing'&&!game.boss&&!game.practiceStage&&Number(game.stageTime)<1.25){
       // A new sector opens out of the cloud deck the interlude ended in.
@@ -493,6 +507,16 @@ export class WorldAmbience {
         const span=FH+420,y=(noise(j*3.1)*span+this.flow*560*(.7+noise(j*1.9)*.6))%span-210;
         const x0=noise(j*5.7)*(FW+160)-80,x=270+(x0-270)*(1+(1-cover)*1.7),w=300+noise(j*9.3)*240,h=w*.58;
         c.globalAlpha=Math.min(1,cover*1.05);c.drawImage(puffs[j%2],x-w/2,y-h/2,w,h);
+      }
+      // The typhoon deck flickers with lightning inside the cloud as the world dives into it.
+      if(this.palette===4&&cover>.15){
+        const m=this.monsoonSprites(),k=Math.floor(this.clock/.85),age=this.clock-k*.85;
+        if(age<.3&&noise(k*2.7)>.25){
+          const f=(age<.05?age/.05:age<.09?.4:Math.max(0,1-(age-.09)/.21))*cover*(this.reduced?.25:.75);
+          const x=60+noise(k*4.1)*420,y=90+noise(k*6.3)*620;
+          c.globalCompositeOperation='lighter';c.globalAlpha=f;c.drawImage(m.flash,x-260,y-220,520,440);
+          c.globalCompositeOperation='source-over';
+        }
       }
     }
     if(this.lines>.004){
@@ -690,10 +714,10 @@ export class WorldAmbience {
     }
   }
   drawLightning(c,stage){
-    const l=this.strike,lx=40+l.x*460,ly=70+noise(l.id*.37)*460,red=stage===3;
+    const l=this.strike,lx=40+l.x*460,ly=70+noise(l.id*.37)*460,red=stage===3,gold=stage>=4;
     c.globalCompositeOperation='lighter';
-    c.globalAlpha=l.flash*(this.reduced?.25:.62);
-    c.drawImage(red?this.flashRed:this.flashCool,lx-310,ly-270,620,540);
+    c.globalAlpha=l.flash*(this.reduced?.25:gold?.75:.62);
+    c.drawImage(gold?this.monsoonSprites().flash:red?this.flashRed:this.flashCool,lx-310,ly-270,620,540);
     c.globalCompositeOperation='source-over';
     if(l.age<.24&&l.distance<.78){
       // Cloud-to-cloud bolt, deterministic per strike so every frame agrees.
@@ -708,10 +732,10 @@ export class WorldAmbience {
           c.moveTo(x,y);
         }
       }
-      c.strokeStyle=red?'#ff7a9a':'#a8bcff';c.lineWidth=5;c.globalAlpha=f*.2;c.stroke();
-      c.strokeStyle=red?'#ffe0ea':'#f4f7ff';c.lineWidth=1.4;c.globalAlpha=f*.82;c.stroke();
+      c.strokeStyle=gold?'#ffcf7a':red?'#ff7a9a':'#a8bcff';c.lineWidth=gold?6:5;c.globalAlpha=f*(gold?.26:.2);c.stroke();
+      c.strokeStyle=gold?'#fff6e0':red?'#ffe0ea':'#f4f7ff';c.lineWidth=gold?1.7:1.4;c.globalAlpha=f*.86;c.stroke();
     }
-    if(!this.reduced){c.globalAlpha=l.flash*(red?.07:.085);c.fillStyle=red?'#ff7896':'#d2deff';c.fillRect(-20,-20,FW+40,FH+40);}
+    if(!this.reduced){c.globalAlpha=l.flash*(gold?.1:red?.07:.085);c.fillStyle=gold?'#fff0c8':red?'#ff7896':'#d2deff';c.fillRect(-20,-20,FW+40,FH+40);}
   }
   // --- Sector 3: The Crown ----------------------------------------------------
   drawPools(c){
@@ -793,5 +817,217 @@ export class WorldAmbience {
       c.rect(x,y,1.4,1.4);
     }
     c.globalAlpha=.3;c.fillStyle='#b9abcb';c.fill();
+  }
+  // --- Sector 4: Iron Monsoon -------------------------------------------------
+  // Night typhoon over the enemy battle line. The sea itself is a cached tile (art.js);
+  // here: breaking crests, the battle line steaming past far below with searchlights,
+  // flak in the far sky, racing scud, layered diagonal rain and white-gold lightning.
+  // Sprites bake on first use, so sectors 1-3 never pay for them.
+  monsoonSprites(){return this.monsoon??=this.buildMonsoon();}
+  buildMonsoon(){
+    const wind=MONSOON_WIND,crest=Math.atan2(-wind.x,wind.y),m={};
+    m.flash=glowSprite(320,'255,226,166',.66);
+    m.glow=glowSprite(64,'255,232,184',.9);
+    m.lamp=glowSprite(24,'255,124,88',.9);
+    m.spot=glowSprite(128,'226,234,214',.5);
+    m.puff=bake(64,64,c=>softBlob(c,32,32,31,31,'74,78,76',.75,.45));
+    // Whitecap: a foam head across the wind and a torn tail downwind.
+    m.crest=bake(56,56,c=>{
+      c.translate(18,16);
+      for(let j=0;j<5;j++){
+        const u=(j-2)*4.2;c.save();c.translate(Math.cos(crest)*u,Math.sin(crest)*u);c.rotate(crest);
+        softBlob(c,0,0,5+noise(j*3)*3,2.2,'232,244,238',.9,.4);c.restore();
+      }
+      c.strokeStyle='rgba(226,240,234,.55)';c.lineWidth=1;c.beginPath();
+      for(let j=0;j<3;j++){
+        const ox=(j-1)*5*Math.cos(crest),oy=(j-1)*5*Math.sin(crest),tl=18+noise(j*5)*14;
+        c.moveTo(ox,oy);c.lineTo(ox+wind.x*tl,oy+wind.y*tl);
+      }
+      c.stroke();
+    });
+    // Battleship seen from far above, bow down: the line steams south past the aircraft.
+    const ship=lit=>bake(64,288,c=>{
+      c.scale(2,2);c.translate(16,72);
+      const hull=new Path2D();
+      hull.moveTo(0,68);hull.quadraticCurveTo(10,40,11,10);hull.lineTo(11,-50);hull.quadraticCurveTo(10,-64,0,-67);
+      hull.quadraticCurveTo(-10,-64,-11,-50);hull.lineTo(-11,10);hull.quadraticCurveTo(-10,40,0,68);
+      c.fillStyle=lit?'#8d8a78':'#111918';c.fill(hull);
+      c.strokeStyle=lit?'rgba(255,240,200,.8)':'rgba(120,150,140,.3)';c.lineWidth=.6;c.stroke(hull);
+      c.fillStyle=lit?'#a7a28a':'#172120';c.fillRect(-7,-50,14,96);
+      c.fillStyle=lit?'#c2bca0':'#1f2a28';c.fillRect(-5.5,-10,11,22);c.fillRect(-4,-18,8,8);
+      c.fillStyle=lit?'#6d6a5c':'#0a100f';c.beginPath();c.ellipse(0,-22,3.2,4.2,0,0,TAU);c.fill();
+      for(const [y,dir] of [[22,1],[34,1],[46,1],[-32,-1],[-44,-1]]){
+        c.fillStyle=lit?'#d2caa8':'#1a2422';c.beginPath();c.arc(0,y,4.4,0,TAU);c.fill();
+        c.strokeStyle=lit?'#e8dfbf':'#253231';c.lineWidth=1.1;c.beginPath();
+        c.moveTo(-1.4,y);c.lineTo(-1.4,y+dir*9);c.moveTo(1.4,y);c.lineTo(1.4,y+dir*9);c.stroke();
+      }
+      c.fillStyle=lit?'#bdb597':'#17201f';
+      for(const side of [-1,1])for(let k=0;k<3;k++)c.fillRect(side*8-1.5,-6+k*8,3,3);
+    });
+    m.ship=ship(false);m.shipLit=ship(true);
+    // Wake trailing up-screen from the stern: churned centre and two diverging arms.
+    m.wake=bake(96,360,c=>{
+      for(let i=0;i<22;i++){
+        const f=i/22,y=354-f*350,spread=4+f*40;
+        c.globalAlpha=(1-f)*.6;
+        softBlob(c,48-spread,y,4+f*6,2.6,'210,230,222',.75);softBlob(c,48+spread,y,4+f*6,2.6,'210,230,222',.75);
+        c.globalAlpha=(1-f)*.7;softBlob(c,48+Math.sin(i*1.9)*2.5,y,5+f*5,6,'196,222,214',.6);
+      }
+      c.globalAlpha=1;
+    });
+    // Searchlight cone with its origin at the left edge.
+    m.beam=bake(480,90,c=>{
+      const g=c.createLinearGradient(0,0,480,0);
+      g.addColorStop(0,'rgba(232,238,220,.55)');g.addColorStop(.35,'rgba(214,224,206,.22)');g.addColorStop(1,'rgba(200,214,200,0)');
+      c.fillStyle=g;c.beginPath();c.moveTo(0,43);c.lineTo(480,0);c.lineTo(480,90);c.lineTo(0,47);c.closePath();c.fill();
+    });
+    // Racing storm scud: low rags torn out along the wind, and their lightning-lit twins.
+    const windAngle=Math.atan2(wind.y,wind.x);
+    const scud=(lit,v)=>bake(300,420,c=>{
+      const body=lit?'255,236,200':'52,64,60',top=lit?'255,248,230':'78,92,86';
+      for(let i=0;i<11;i++){
+        const f=i/10-.5,x=150+wind.x*f*300+(noise(i*4.4+v*9)-.5)*44,y=210+wind.y*f*300+(noise(i*2.2+v*5)-.5)*30;
+        const r=26+noise(i*6.6+v)*30*(1-Math.abs(f)*1.1);
+        c.save();c.translate(x,y);c.rotate(windAngle);
+        softBlob(c,0,0,r*1.9,r*.5,body,lit?.3:.34,.5);
+        softBlob(c,-r*.3,-r*.18,r*1.1,r*.26,top,lit?.34:.2,.45);
+        c.restore();
+      }
+    });
+    m.scud=[0,1,2].map(v=>scud(false,v));m.scudLit=[0,1,2].map(v=>scud(true,v));
+    return m;
+  }
+  drawMonsoonSurface(c){
+    const m=this.monsoonSprites(),strike=this.strike,flash=strike?strike.flash*(this.reduced?.35:1):0;
+    this.drawMonsoonCrests(c,m);
+    // Lightning lights up every crest and swell on the sea at once.
+    if(flash>.01)drawMonsoonLit(c,this.scroll,flash*.6);
+    this.updateFleet();
+    const ships=[];
+    for(const f of this.fleet){
+      if(!f.active)continue;
+      const top=f.gy+this.travel+f.run;
+      for(let j=0;j<f.n;j++){
+        const y=top+j*f.spacing;
+        if(y>-160&&y<FH+300)ships.push([f.x+Math.sin(j*1.7+f.phase)*6,y,f,j]);
+      }
+    }
+    c.globalAlpha=.4;for(const [x,y] of ships)c.drawImage(m.wake,x-30,y-308,60,270);
+    c.globalAlpha=.8;for(const [x,y] of ships)c.drawImage(m.ship,x-12,y-54,24,108);
+    if(flash>.01){c.globalAlpha=flash*.85;for(const [x,y] of ships)c.drawImage(m.shipLit,x-12,y-54,24,108);}
+    c.globalCompositeOperation='lighter';
+    for(const [x,y,f,j] of ships){
+      const on=Math.sin(this.clock*2.4+j*1.3+f.phase)>-.2;
+      c.globalAlpha=on?.55:.18;c.drawImage(m.lamp,x-5,y+42,10,10);
+      c.globalAlpha=.35;c.drawImage(m.lamp,x-4,y-52,8,8);
+    }
+    this.drawSearchlights(c,m,ships);
+    c.globalCompositeOperation='source-over';
+    this.drawFlak(c,m);
+  }
+  drawMonsoonCrests(c,m){
+    // Whitecaps break, tear downwind and collapse; quieter through the central fire lane.
+    const t=this.clock,cell=44,top=-this.travel,wind=MONSOON_WIND;
+    for(let r=Math.floor((top-cell)/cell);r<=Math.floor((top+FH)/cell);r++)for(let col=0;col<13;col++){
+      const n=noise(r*19.7+col*4.3);if(n>.34)continue;
+      const ph=(t/(1.6+n*4)+n*9)%1;if(ph>.6)continue;
+      const x=col*cell+noise(n*13)*cell,gy=r*cell+noise(n*29)*cell;
+      const life=ph/.6,s=.6+noise(n*41)*.7;
+      c.globalAlpha=Math.sin(life*Math.PI)*(x>180&&x<360?.4:.62);
+      c.drawImage(m.crest,x+life*wind.x*14-18*s,gy+this.travel+life*wind.y*14-16*s,56*s,56*s);
+    }
+  }
+  updateFleet(){
+    // Columns of three or four battleships in line astern, steaming south in the outer lanes.
+    const fleet=this.fleet??=[0,1].map(()=>({active:false}));
+    let count=0;
+    for(const f of fleet){
+      if(!f.active)continue;
+      f.run+=f.speed*this.dt;
+      if(f.gy+this.travel+f.run>FH+300)f.active=false;else count++;
+    }
+    this.fleetTimer=(this.fleetTimer??0)-this.dt;
+    if(this.fleetTimer>0||count>=2)return;
+    const f=fleet.find(x=>!x.active);if(!f)return;
+    const used=fleet.filter(x=>x.active).map(x=>x.x);
+    const lanes=[84,456,142,398].filter(x=>!used.some(u=>Math.abs(u-x)<130));
+    const x=lanes[Math.floor(this.rand()*lanes.length)]??84,n=this.rand()<.5?4:3,spacing=165+this.rand()*35;
+    // The first column of a sector is already in view, so the battle line reads at once.
+    const lead=this.fleetFresh===false?-80:420;this.fleetFresh=false;
+    Object.assign(f,{active:true,x,n,spacing,speed:10+this.rand()*8,run:0,phase:this.rand()*TAU,gy:lead-this.travel-(n-1)*spacing});
+    this.fleetTimer=count?14+this.rand()*10:4+this.rand()*4;
+  }
+  drawSearchlights(c,m,ships){
+    const t=this.clock,a=this.reduced?.06:.13,beams=[];
+    // One lamp per column (the lead ship), plus one ship beyond the frame sweeping the cloud deck.
+    for(const [x,y,f,j] of ships)if(j===f.n-1)beams.push([x,y-8,f.phase+j*2.1]);
+    beams.push(beams.length<2?[-40,760,1.3]:[FW+40,260,4.2]);
+    for(const [x,y,ph] of beams){
+      const off=x<0||x>FW,ang=(x<0?-.5:x>FW?Math.PI+.4:-Math.PI/2)+Math.sin(t*.37+ph)*(off?.55:1.1);
+      c.save();c.translate(x,y);c.rotate(ang);
+      c.globalAlpha=a;c.drawImage(m.beam,0,-36,420,72);
+      c.globalAlpha=a*.9;c.drawImage(m.spot,330,-40,96,80);c.restore();
+    }
+  }
+  drawFlak(c,m){
+    // Distant flak in the outer lanes: a brief pinpoint pop, then a smoke puff drifting downwind.
+    const t=this.clock,period=.55,k=Math.floor(t/period),wind=MONSOON_WIND;
+    for(let s=k-3;s<=k;s++){
+      if(noise(s*3.3+.5)<.35)continue;
+      const age=t-(s*period+noise(s*5.1)*period);if(age<0||age>1.6)continue;
+      const left=noise(s*7.7)<.5,x=left?20+noise(s*2.9)*150:FW-20-noise(s*2.9)*150,y=40+noise(s*4.7)*FH*.62;
+      if(age<.12){
+        c.globalCompositeOperation='lighter';c.globalAlpha=(1-age/.12)*(this.reduced?.3:.55);
+        c.drawImage(m.glow,x-11,y-11,22,22);c.globalCompositeOperation='source-over';
+      }
+      const r=4+Math.sqrt(age)*14;
+      c.globalAlpha=.4*(1-age/1.6)*Math.min(1,age*12);
+      c.drawImage(m.puff,x+age*wind.x*26-r,y+age*wind.y*26-r,r*2,r*2);
+    }
+  }
+  drawMonsoonAir(c){
+    const m=this.monsoonSprites(),t=this.clock,g=this.gust(),strike=this.strike,slant=.5;
+    // Torn scud racing along the wind below the aircraft; the whole deck lights with each strike.
+    const lit=strike?strike.flash*(this.reduced?.3:1):0;
+    for(let i=0;i<3;i++){
+      const span=FH+520,spanX=FW+420,p=i*span/3+this.travel*1.5+t*(62+i*14);
+      const y=p%span-260,x=(i*190+60+p*slant)%spanX-210,sx=Math.round(x-150),sy=Math.round(y-210);
+      c.globalAlpha=.8;c.drawImage(m.scud[i],sx,sy);
+      if(lit>.01){c.globalAlpha=lit*.7;c.drawImage(m.scudLit[i],sx,sy);}
+    }
+    // Sheet lightning deep in the clouds between the main strikes.
+    const k=Math.floor(t/1.7),age=t-k*1.7-noise(k*3.9)*.8;
+    if(!strike&&age>0&&age<.22&&noise(k*6.1)>.35){
+      const f=(age<.04?age/.04:1-(age-.04)/.18)*(this.reduced?.1:.26),left=noise(k*8.3)<.5;
+      c.globalCompositeOperation='lighter';c.globalAlpha=f;
+      c.drawImage(m.flash,left?-300:FW-320,noise(k*9.1)*520-60,620,540);c.globalCompositeOperation='source-over';
+    }
+    // Two rain layers driven hard on the diagonal; lightning catches the near streaks.
+    // The storm eases once LEVIATHAN is down.
+    const density=(this.reduced?.5:1)*(this.game?.mode==='victory'?.4:1);
+    for(let layer=0;layer<2;layer++){
+      const n=Math.round((layer?64:150)*density),speed=layer?1750:950,lenA=layer?30:9,lenB=layer?30:10,wrapX=FW+520;
+      c.beginPath();
+      for(let i=0;i<n;i++){
+        const n1=noise(i*1.31+layer*9+40),n2=noise(i*2.77+layer*5+40),n3=noise(i*4.13+layer*3+40),v=speed*(.8+n3*.4);
+        const y=(n2*(FH+120)+t*v)%(FH+120)-60,x=(n1*wrapX+t*v*slant)%wrapX-260,len=lenA+n3*lenB;
+        c.moveTo(x,y);c.lineTo(x+len*slant,y+len);
+      }
+      c.globalAlpha=layer?.15+.1*g:.13+.06*g;c.strokeStyle=layer?'#c3d2ca':'#8fa49c';c.lineWidth=layer?1.3:1;c.stroke();
+      if(layer&&lit>.15){c.globalAlpha=lit*.35;c.strokeStyle='#fff0c8';c.stroke();}
+    }
+    // Gust sheets: dense curtains of rain blown across the field.
+    for(let b=0;b<2;b++){
+      const P=3.8,local=t+b*1.9,k2=Math.floor(local/P),a2=local-k2*P;
+      if(a2>3)continue;
+      const front=-300+a2/3*(FW+600);
+      c.beginPath();
+      for(let i=0;i<70;i++){
+        const n1=noise(i*3.7+k2*1.3+b),n2=noise(i*5.9+k2+b*2);
+        const y=n2*(FH+60)-30+(t*1500*(.8+n1*.4))%80,x=front+(n1-.5)*170+(y-450)*slant*.6;
+        c.moveTo(x,y);c.lineTo(x+20,y+40);
+      }
+      c.globalAlpha=(.1+.1*g)*Math.sin(a2/3*Math.PI);c.strokeStyle='#cfdcd4';c.lineWidth=1.1;c.stroke();
+    }
   }
 }

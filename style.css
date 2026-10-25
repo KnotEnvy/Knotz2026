@@ -72,7 +72,7 @@
 }
 .career-summary{position:relative;max-width:1440px;margin:16px auto;display:flex;justify-content:space-between;align-items:center;gap:14px;border-bottom:1px solid var(--line);padding-bottom:14px}
 .career-summary>div:first-child{display:flex;flex-direction:column;gap:6px}.career-summary span,.training-deck>div>strong{color:var(--mist);font-size:10px;font-weight:700;letter-spacing:.1em}.career-summary strong{font-size:15px;color:var(--gold);letter-spacing:.04em}.mastery-badges{display:flex;gap:8px;flex-wrap:wrap}.mastery-badges span{padding:6px 10px;border:1px solid var(--line);color:#839b9d}.mastery-badges .earned{color:#b4f2d5;border-color:#78c8b0;background:#164039}
-.training-deck{position:relative;max-width:1440px;margin:18px auto;padding:18px;border:1px solid var(--line);background:rgba(13,38,48,.7);display:flex;align-items:center;gap:24px}.training-deck p{font:14px/1.4 Georgia,serif;color:#b3c9c6;max-width:290px;margin:7px 0 0}.drill-buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;flex:1}.drill-button{display:flex;flex-direction:column;justify-content:center;gap:7px;min-height:58px;padding:12px;border:1px solid #6b9396;background:#15333d;color:var(--paper);text-align:left}.drill-button span{font-size:12px;font-weight:800;letter-spacing:.05em}.drill-button small{font-size:9px;color:var(--cyan);letter-spacing:.04em}.drill-button:hover:not(:disabled){background:#254a51;border-color:var(--gold)}.drill-button:disabled{opacity:.5;border-color:var(--line)}.drill-button:disabled small{color:#a3b1ae}
+.training-deck{position:relative;max-width:1440px;margin:18px auto;padding:18px;border:1px solid var(--line);background:rgba(13,38,48,.7);display:flex;align-items:center;gap:24px}.training-deck p{font:14px/1.4 Georgia,serif;color:#b3c9c6;max-width:290px;margin:7px 0 0}.drill-buttons{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;flex:1}.drill-button{display:flex;flex-direction:column;justify-content:center;gap:7px;min-height:58px;padding:12px;border:1px solid #6b9396;background:#15333d;color:var(--paper);text-align:left}.drill-button span{font-size:12px;font-weight:800;letter-spacing:.05em}.drill-button small{font-size:9px;color:var(--cyan);letter-spacing:.04em}.drill-button:hover:not(:disabled){background:#254a51;border-color:var(--gold)}.drill-button:disabled{opacity:.5;border-color:var(--line)}.drill-button:disabled small{color:#a3b1ae}
 .flight-debrief{max-width:700px;width:100%;padding:14px 16px;margin-top:15px;border-left:2px solid var(--gold);background:rgba(6,24,33,.92)}.personal-record{color:var(--gold);font-size:11px;letter-spacing:.08em;font-weight:800;margin:0 0 12px}.debrief-metrics{display:flex;gap:22px;flex-wrap:wrap}.debrief-metrics span{font-size:10px;color:#a4c2be}.debrief-metrics b{font-size:14px;color:var(--paper);margin-left:6px}#flightAdvice{font:15px/1.45 Georgia,serif;color:#c5d6ce;margin:12px 0 0}
 @media(max-width:740px){.career-summary{align-items:flex-start;flex-direction:column}.career-summary strong{font-size:13px}.training-deck{flex-direction:column;align-items:stretch;padding:13px;gap:14px}.training-deck p{max-width:none}.drill-button{padding:9px 7px;min-height:64px}.drill-button span{font-size:11px}.drill-button small{font-size:10px;line-height:1.4}.debrief-metrics{gap:10px}.debrief-metrics span{font-size:9px}.debrief-metrics b{font-size:12px;margin-left:3px}.flight-debrief{padding:12px}#flightAdvice{font-size:14px}.personal-record{line-height:1.5}.end-content{padding-bottom:85px}}
 .end-footer{position:relative;bottom:auto}
@@ -113,3 +113,16 @@
  .compact-controls .mobile-hud-row span{font-size:8px}
  .compact-controls .mobile-hud-row b{font-size:9px}
 }
+
+/* Act II: sector 4 onward. Gold-on-storm accents mark the second act in the hangar and title. */
+.title-act{max-width:440px;margin:-12px 0 26px;padding:9px 12px;border-left:2px solid var(--hot);background:linear-gradient(90deg,rgba(18,30,27,.78),rgba(18,30,27,0));color:#c8d3c6;font:italic 15px/1.45 Georgia,serif}
+.title-act b{margin-right:9px;color:var(--gold);font:normal 900 10px Arial,Helvetica,sans-serif;letter-spacing:.24em}
+.drill-button span em{margin-left:6px;padding:1px 5px;border:1px solid rgba(233,112,87,.6);color:#ffb39f;font-style:normal;font-size:8px;letter-spacing:.16em;vertical-align:2px}
+.drill-button.act-two:not(:disabled){border-color:rgba(243,187,112,.7);background:linear-gradient(135deg,#1d2a26,#121d1b 60%,#2a2216)}
+.drill-button.act-two:hover:not(:disabled){background:linear-gradient(135deg,#283a33,#18241f 60%,#3a2c18)}
+.mastery-badges .act-two{border-color:rgba(233,112,87,.38)}
+.mastery-badges .act-two.earned{color:#ffe0ae;border-color:var(--gold);background:#3a2a16}
+.mission-route b.act-two{color:var(--gold)}
+.manual-act{padding:13px;border-left:2px solid var(--hot);background:#1b2a28;color:#d4dccf;font-size:10.5px;font-weight:700;letter-spacing:.06em;line-height:1.6}
+.manual-act b{color:var(--gold)}
+@media(max-width:740px){.drill-buttons{grid-template-columns:repeat(2,1fr)}.title-act{font-size:13px;margin:-6px 0 18px}}
