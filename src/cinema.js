@@ -1,8 +1,9 @@
 // End-of-sortie cinematic and flight-record presentation.
 // main.js calls start(data, meta), reveal() and draw(t, data); keep that API stable.
 // Three procedural scenes render on #cinemaCanvas (1600x900): dawn victory, storm-night
-// defeat and a dusk training range for drills. Static layers are built once and cached.
+// defeat (the storm fleet, the Crown, or LEVIATHAN in the typhoon) and a dusk training range for drills. Static layers are built once and cached.
 import { SHIP_ORDER, shipShape } from './ships.js';
+import { CAMPAIGN_STAGES } from './game.js';
 
 const W = 1600, H = 900, TAU = Math.PI * 2;
 const $ = id => document.getElementById(id);
@@ -456,14 +457,24 @@ function buildDefeat(stage) {
   let gr = c.createLinearGradient(0, 0, 0, hz);
   gr.addColorStop(0, '#020509'); gr.addColorStop(.45, '#091018'); gr.addColorStop(.8, '#131a24'); gr.addColorStop(1, '#2a1d22');
   c.fillStyle = gr; c.fillRect(0, 0, W, hz + 1);
-  const crown = stage >= 3;
-  c.save(); c.translate(crown ? 900 : 1330, hz); c.scale(1, .2);
+  const crown = stage === 3, lev = stage >= 4;
+  c.save(); c.translate(crown ? 900 : lev ? 1000 : 1330, hz); c.scale(1, .2);
   let rg = c.createRadialGradient(0, 0, 0, 0, 0, 760);
-  rg.addColorStop(0, crown ? 'rgba(200,52,58,.5)' : 'rgba(206,92,54,.42)'); rg.addColorStop(1, 'rgba(160,60,50,0)');
+  rg.addColorStop(0, crown ? 'rgba(200,52,58,.5)' : lev ? 'rgba(214,150,70,.4)' : 'rgba(206,92,54,.42)'); rg.addColorStop(1, 'rgba(160,60,50,0)');
   c.fillStyle = rg; c.fillRect(-900, -760, 1800, 760); c.restore();
-  // Horizon silhouettes: the Crown intact, or the storm fleet.
+  // Horizon silhouettes: the Crown intact, LEVIATHAN riding the typhoon, or the storm fleet.
   c.fillStyle = '#05080c';
-  if (crown) {
+  if (lev) {
+    // Super-dreadnought broadside-on: long low hull, stepped superstructure, turrets and funnels.
+    poly(c, [[560, hz + 2], [600, hz - 22], [1420, hz - 26], [1470, hz - 8], [1490, hz + 2]]); c.fill();
+    poly(c, [[860, hz - 22], [880, hz - 58], [930, hz - 64], [940, hz - 120], [968, hz - 126], [980, hz - 70], [1080, hz - 64], [1100, hz - 22]]); c.fill();
+    c.fillRect(1010, hz - 104, 22, 44); c.fillRect(1048, hz - 96, 18, 36);
+    for (const [x, d] of [[680, 1], [760, 1], [1190, -1], [1290, -1]]) {
+      c.beginPath(); c.ellipse(x, hz - 28, 30, 12, 0, Math.PI, 0); c.fill();
+      c.fillRect(d > 0 ? x - 78 : x + 18, hz - 34, 60, 4);
+    }
+    c.fillRect(952, hz - 170, 3, 50);
+  } else if (crown) {
     poly(c, [[640, hz + 2], [670, hz - 30], [760, hz - 44], [1060, hz - 44], [1150, hz - 26], [1180, hz + 2]]); c.fill();
     for (let i = 0; i < 9; i++) {
       const x = 700 + i * 52, tip = hz - 90 - (i === 4 ? 150 : (4 - Math.abs(i - 4)) * 26) - hash(i) * 20, w = 14 + hash(i * 3) * 8;
@@ -475,14 +486,16 @@ function buildDefeat(stage) {
       c.fillRect(x - 3, hz - h2 - 16, 2, 16);
     }
   }
-  out.sky = sky; out.crown = crown;
-  out.lights = crown ? [[700, hz - 160], [856, hz - 290], [1012, hz - 160], [760, hz - 44], [1060, hz - 44]] : [[930, hz - 38], [1330, hz - 46], [1530, hz - 32]];
-  out.beam = { x: crown ? 912 : 1338, y: crown ? hz - 60 : hz - 30 };
-  out.fires = crown ? [[1240, hz - 4, .7], [1460, hz - 3, .5]] : [[930, hz - 14, .8], [610, hz - 4, .55], [1530, hz - 10, .5]];
+  out.sky = sky; out.crown = crown; out.lev = lev;
+  out.lights = crown ? [[700, hz - 160], [856, hz - 290], [1012, hz - 160], [760, hz - 44], [1060, hz - 44]]
+    : lev ? [[954, hz - 172], [640, hz - 20], [880, hz - 60], [1090, hz - 60], [1440, hz - 22], [1220, hz - 24]]
+    : [[930, hz - 38], [1330, hz - 46], [1530, hz - 32]];
+  out.beam = { x: crown ? 912 : lev ? 960 : 1338, y: crown ? hz - 60 : lev ? hz - 124 : hz - 30 };
+  out.fires = crown ? [[1240, hz - 4, .7], [1460, hz - 3, .5]] : lev ? [[420, hz - 4, .6], [1640, hz - 6, .5]] : [[930, hz - 14, .8], [610, hz - 4, .55], [1530, hz - 10, .5]];
   // Low storm ceiling, under-lit by distant fires, and its lightning-lit twin.
-  const glowX = crown ? 900 / W : 1330 / W, CH = hz + 30;
+  const glowX = crown ? 900 / W : lev ? 1000 / W : 1330 / W, CH = hz + 30;
   const storm = cloudField({
-    w: 480, h: 200, seed: 9, fx: 4.4, fy: 5.6, alpha: .96, bright: crown ? [122, 46, 52] : [118, 64, 50], flash: [178, 198, 226],
+    w: 480, h: 200, seed: 9, fx: 4.4, fy: 5.6, alpha: .96, bright: crown ? [122, 46, 52] : lev ? [92, 84, 58] : [118, 64, 50], flash: lev ? [255, 232, 186] : [178, 198, 226],
     coverage: (X, Y) => 1.08 - Y * .82 + (Y > .8 ? -(Y - .8) * 3 : 0),
     light: (X, Y) => [0, 2.6, .25 + .75 * Math.exp(-Math.abs(X - glowX) * 3.2) * Y],
     dark: (X, Y) => [lerp(7, 20, Y), lerp(10, 24, Y), lerp(16, 32, Y)]
@@ -492,7 +505,8 @@ function buildDefeat(stage) {
   // Sea.
   const sea = surface(W, H - hz), s = sea.getContext('2d'), sh = H - hz;
   gr = s.createLinearGradient(0, 0, 0, sh);
-  gr.addColorStop(0, '#241c22'); gr.addColorStop(.06, '#141c25'); gr.addColorStop(1, '#05090d');
+  if (lev) { gr.addColorStop(0, '#22221a'); gr.addColorStop(.06, '#0f1a16'); gr.addColorStop(1, '#030807'); }
+  else { gr.addColorStop(0, '#241c22'); gr.addColorStop(.06, '#141c25'); gr.addColorStop(1, '#05090d'); }
   s.fillStyle = gr; s.fillRect(0, 0, W, sh);
   for (let i = 0; i < 300; i++) {
     const d = Math.pow(hash(i * 1.37 + 7), 1.7), y = 2 + d * (sh - 4), len = 20 + d * 200 * (.4 + hash(i * 4.6));
@@ -596,7 +610,7 @@ function drawDefeat(g, t, data, opts) {
     const paths = L.bolts.get(strike.id);
     g.lineJoin = 'round'; g.lineCap = 'round';
     for (const [w, a] of [[10, .16], [2.4, .95]]) {
-      g.strokeStyle = 'rgb(222,236,255)'; g.lineWidth = w; g.globalAlpha = a * (opts.reducedEffects ? .55 : 1) * flash;
+      g.strokeStyle = L.lev ? 'rgb(255,242,212)' : 'rgb(222,236,255)'; g.lineWidth = w; g.globalAlpha = a * (opts.reducedEffects ? .55 : 1) * flash;
       paths.forEach((path, i) => { g.lineWidth = i ? w * .55 : w; g.beginPath(); g.moveTo(path[0][0], path[0][1]); for (const [x, y] of path) g.lineTo(x, y); g.stroke(); });
     }
     g.globalAlpha = 1;
@@ -604,7 +618,7 @@ function drawDefeat(g, t, data, opts) {
   cam(.6); g.drawImage(L.sea, 0, hz);
   // Running lights on the horizon ships.
   g.globalCompositeOperation = 'lighter';
-  L.lights.forEach(([x, y], i) => { const on = Math.sin(t * 2.1 + i * 1.9) > .2; sprite(g, glowSprite(L.crown ? '255,70,60' : '255,170,110', 24), x, y, on ? 26 : 12, on ? 26 : 12, on ? .9 : .3); });
+  L.lights.forEach(([x, y], i) => { const on = Math.sin(t * 2.1 + i * 1.9) > .2; sprite(g, glowSprite(L.crown ? '255,70,60' : L.lev ? '255,206,130' : '255,170,110', 24), x, y, on ? 26 : 12, on ? 26 : 12, on ? .9 : .3); });
   for (const [x, y, s] of L.fires) {
     const f = .7 + .3 * Math.sin(t * 7 + x) * Math.sin(t * 4.3 + y);
     sprite(g, glowSprite('255,120,60', 48), x, y, 90 * s * f + 30, 40 * s + 10, .55);
@@ -821,16 +835,17 @@ export function commendations(data = {}) {
   const won = data.outcome === 'victory', drill = num(data.practiceStage) || 0, list = [];
   const hits = num(data.hitsTaken), lost = num(data.livesLost), grazes = num(data.grazes) || 0;
   const conversions = num(data.conversions) || 0, accuracy = num(data.accuracy) || 0, fired = num(data.shotsFired) || 0;
-  const bosses = num(data.bossesDefeated) ?? (won ? (drill ? 1 : 3) : Math.max(0, (num(data.stage) || 1) - 1));
+  const bosses = num(data.bossesDefeated) ?? (won ? (drill ? 1 : CAMPAIGN_STAGES) : Math.max(0, (num(data.stage) || 1) - 1));
   if (won && hits === 0) list.push({ tone: 'gold', name: 'UNTOUCHED', note: 'NO HITS TAKEN' });
   else if (won && lost === 0) list.push({ tone: 'cyan', name: 'IRON WING', note: 'ALL LIVES KEPT' });
-  if (!drill && won && bosses >= 3) list.push({ tone: 'gold', name: 'FLEET BREAKER', note: '3 FLAGSHIPS DOWN' });
+  if (!drill && won && bosses >= CAMPAIGN_STAGES) list.push({ tone: 'gold', name: 'FLEET BREAKER', note: CAMPAIGN_STAGES + ' FLAGSHIPS DOWN' });
   if (grazes >= (drill ? 25 : 60)) list.push({ tone: 'cyan', name: 'GRAZE MASTER', note: grazes + ' GRAZES' });
   if (accuracy >= .75 && fired >= 80) list.push({ tone: 'paper', name: 'SHARPSHOOTER', note: Math.round(accuracy * 100) + '% ACCURACY' });
   if (conversions >= (drill ? 10 : 25)) list.push({ tone: 'cyan', name: 'WAKE RIDER', note: conversions + ' CONVERSIONS' });
   if ((num(data.reactorsBroken) || 0) >= 2) list.push({ tone: 'hot', name: 'REACTOR SAPPER', note: 'AURELIA DISARMED' });
   if (!drill && (num(data.kills) || 0) >= 300) list.push({ tone: 'paper', name: 'MERIDIAN ACE', note: num(data.kills) + ' KILLS' });
-  if (!won && !drill && (num(data.stage) || 0) >= 3) list.push({ tone: 'hot', name: 'DEEP STRIKE', note: 'REACHED THE CROWN' });
+  if (!won && !drill && (num(data.stage) || 0) >= 4) list.push({ tone: 'hot', name: 'INTO THE TYPHOON', note: 'REACHED ACT II' });
+  else if (!won && !drill && (num(data.stage) || 0) >= 3) list.push({ tone: 'hot', name: 'DEEP STRIKE', note: 'REACHED THE CROWN' });
   return list.slice(0, 5);
 }
 const GRADE_TONES = { S: 's', A: 'a', B: 'b', C: 'c', D: 'd' };
@@ -846,7 +861,7 @@ export class Cinema {
     this.data = data || {};
     const drill = num(this.data.practiceStage) || 0, won = this.data.outcome === 'victory';
     this.scene = drill ? 'range' : won ? 'victory' : 'defeat';
-    this.stage = Math.min(3, num(this.data.stage) || 1);
+    this.stage = Math.max(1, Math.min(CAMPAIGN_STAGES, num(this.data.stage) || 1));
     this.staticKey = ''; this.counting = false; this.revealAt = 0;
     const screen = $('endScreen');
     if (screen) { screen.classList.remove('record-in'); screen.dataset.scene = this.scene; }
@@ -880,7 +895,7 @@ export class Cinema {
     if (this.counting) { const node = $('endScore'); if (node) node.textContent = '00000000'; }
   }
   layersFor(scene) {
-    const key = scene === 'defeat' ? 'defeat' + (this.stage >= 3 ? 3 : 1) : scene;
+    const key = scene === 'defeat' ? 'defeat' + (this.stage >= 4 ? 4 : this.stage >= 3 ? 3 : 1) : scene;
     return this.layers[key] ||= scene === 'victory' ? buildVictory() : scene === 'defeat' ? buildDefeat(this.stage) : buildRange();
   }
   updateRecord() {

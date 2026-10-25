@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {chromium} from 'playwright';
 // Live-browser audio checks: bus routing, pause treatment, interface cues, presentation cues and
-// three short in-flight recordings. These are measurements, not listening judgments.
+// four short in-flight recordings (sectors 1-3, then LEVIATHAN phase 3 with a maxed kit).
+// These are measurements, not listening judgments.
 const origin=process.env.GAME_URL||'http://127.0.0.1:4173/';
 const output=new URL('../artifacts/audio/',import.meta.url);await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox']});
@@ -62,13 +63,8 @@ try{
   const a=__qaSound.audio,play=a.playEvent.bind(a);__qaSound.counts={};
   a.playEvent=(event,game)=>{const counts=__qaSound.counts;counts[event.type]=(counts[event.type]||0)+1;play(event,game);};
  });
- for(const [index,ship] of (process.env.QA_AUDIO_RECORD==='0'?[]:['kestrel','manta','wraith']).entries()){
-  await page.evaluate(({ship,index})=>{
-   const {game:g,audio:a}=__qaSound;g.shipId=ship;g._start();g.stage=index+1;g._beatIndex=g._laneIndex=99;g.player.invuln=999;g.player.level=3;g.player.power=3;g.player.drones=0;g.player.signature=ship==='wraith'?1:0;g._syncOrbitals();g._syncArsenal();
-   a.setLevels(0,.8,.6);a.lastSound.clear();
-   __qaSound.counts={};
-  },{ship,index});
-  const recording=page.evaluate(async()=>{
+ // 12 s recording of the master bus with peak, RMS and voice metering every 30 ms.
+ const record=()=>page.evaluate(async()=>{
    const a=__qaSound.audio,ctx=a.ctx,dest=ctx.createMediaStreamDestination(),meter=ctx.createAnalyser();meter.fftSize=2048;a.master.connect(dest);a.master.connect(meter);
    const chunks=[],samples=[],data=new Float32Array(meter.fftSize),recorder=new MediaRecorder(dest.stream,{mimeType:'audio/webm;codecs=opus'});
    recorder.ondataavailable=e=>chunks.push(e.data);const done=new Promise(resolve=>recorder.onstop=resolve);
@@ -79,7 +75,15 @@ try{
    recorder.start();await new Promise(r=>setTimeout(r,12000));recorder.stop();await done;clearInterval(interval);a.master.disconnect(dest);a.master.disconnect(meter);
    const bytes=new Uint8Array(await new Blob(chunks).arrayBuffer());let binary='';for(const v of bytes)binary+=String.fromCharCode(v);
    return{base64:btoa(binary),events:__qaSound.counts,maxPeak:Math.max(...samples.map(s=>s.peak)),rmsDb:20*Math.log10(Math.sqrt(samples.reduce((s,v)=>s+v.rms*v.rms,0)/samples.length)),maxVoices:Math.max(...samples.map(s=>s.voices)),maxCombatVoices:Math.max(...samples.map(s=>s.combat))};
-  });
+ });
+ const recordLegs=process.env.QA_AUDIO_RECORD!=='0';
+ for(const [index,ship] of (recordLegs?['kestrel','manta','wraith']:[]).entries()){
+  await page.evaluate(({ship,index})=>{
+   const {game:g,audio:a}=__qaSound;g.shipId=ship;g._start();g.stage=index+1;g._beatIndex=g._laneIndex=99;g.player.invuln=999;g.player.level=3;g.player.power=3;g.player.drones=0;g.player.signature=ship==='wraith'?1:0;g._syncOrbitals();g._syncArsenal();
+   a.setLevels(0,.8,.6);a.lastSound.clear();
+   __qaSound.counts={};
+  },{ship,index});
+  const recording=record();
   await page.waitForTimeout(1800);await page.keyboard.down('Space');
   await page.evaluate(()=>{const g=__qaSound.game;for(let i=0;i<4;i++)g._enemy(i%2?'bomber':'scout',220+i*30,300-i*60,{fireAt:99});});
   await page.waitForTimeout(4000);await page.keyboard.press('x');await page.waitForTimeout(2000);await page.keyboard.press('c');
@@ -89,6 +93,30 @@ try{
   assert.ok(metrics.events.shoot>40&&metrics.events.bomb===1&&metrics.events.roll===1,'each clip must actually exercise fire, special and roll');
   const file=`${ship}-sfx-ambience.webm`;await writeFile(new URL(file,output),Buffer.from(base64,'base64'));
   report.samples.push({ship,stage:index+1,file,duration:12,timeline:'0–1.8s ambience;1.8s fire/targets;5.8s special;7.8s roll;9s shield-break cue',...metrics});
+ }
+ // Drill 4: LEVIATHAN phase 3 (spirals, void spreads, scavengers) against a maxed Manta kit,
+ // 12 s of movement and held fire. The densest live Act II mix.
+ if(recordLegs){
+  await page.evaluate(()=>{
+   const {game:g,audio:a}=__qaSound;g.shipId='manta';g.startDrill(4);
+   Object.assign(g.player,{level:48,power:48,escorts:6,sidewinder:16,signature:12,shield:3,maxShield:3,invuln:999});
+   g._syncEscortSlots();g._syncOrbitals();g._syncArsenal();g.threat=g._threatTarget();
+   const boss=g.boss;for(const t of g.enemies.filter(e=>e.type==='hullTurret'))g._killEnemy(t,false,true);
+   boss.age=Math.max(boss.age,6);boss.phase=3;boss.phaseStart=boss.age;boss.broadside=1;g._leviathanEnterPhase(boss);
+   g.pickups.push({id:9e6,x:120,y:600,r:18,type:'power',age:3,vx:0,vy:0,salvage:true,value:4,life:9});
+   a.setLevels(0,.8,.6);a.lastSound.clear();__qaSound.counts={};
+  });
+  const recording=record();
+  await page.keyboard.down('Space');
+  for(let i=0;i<8;i++){const key=i%2?'ArrowRight':'ArrowLeft';await page.keyboard.down(key);await page.waitForTimeout(1400);await page.keyboard.up(key);}
+  await page.evaluate(()=>{const g=__qaSound.game;g.player.invuln=999;});
+  const {base64,...metrics}=await recording;await page.keyboard.up('Space');
+  const phase=await page.evaluate(()=>__qaSound.game.boss?.phase??null);
+  assert.equal(phase,3,'the leg stays in LEVIATHAN phase 3');
+  assert.ok(metrics.maxPeak<.95,'sample must not clip');assert.ok(metrics.maxVoices<=96&&metrics.maxCombatVoices<=40,'voice budget holds');
+  assert.ok(metrics.events.shoot>40&&metrics.events.bossShot>0,'the leg must exercise held fire against live boss fire');
+  const file='leviathan-p3-sfx-ambience.webm';await writeFile(new URL(file,output),Buffer.from(base64,'base64'));
+  report.samples.push({ship:'manta',stage:4,drill:4,file,duration:12,timeline:'LEVIATHAN phase 3, maxed kit; fire held; strafing left/right every 1.4 s',...metrics});
  }
  assert.deepEqual(report.errors,[]);
  assert.deepEqual(report.warnings,[],'no audio module may be disabled by an exception');

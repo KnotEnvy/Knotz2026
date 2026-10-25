@@ -1,4 +1,4 @@
-import { Game } from './game.js';
+import { Game, CAMPAIGN_STAGES } from './game.js';
 import { Renderer } from './render.js';
 import { HUD } from './ui.js';
 import { AudioEngine } from './audio.js';
@@ -9,7 +9,7 @@ import { PausePanel } from './pause.js';
 import { Sequences } from './sequences.js';
 import { Cinema } from './cinema.js';
 import { Ambience } from './ambience.js';
-import { bossWarningProgress, interludeProgress } from './timeline.js';
+import { bossWarningProgress, interludeProgress, FLAGSHIP_NAMES, ACT_TWO_STAGE } from './timeline.js';
 import { readSettings, writeSettings } from './settings.js';
 import { readProgress, saveProgress, markEncounter, recordFlight, flightAdvice, readDrillRecords, recordDrill, flightTime, drillClearTier } from './progress.js';
 
@@ -455,23 +455,26 @@ function endSortie(summary, fixture=false){
   const won=data.outcome==='victory'||game.mode==='victory';
   $('endScreen').classList.toggle('lost',!won);
   setText('endEyebrow',won?'SORTIE COMPLETE / FLIGHT RECORD':'SORTIE LOST / FLIGHT RECORD');
-  $('endHeading').innerHTML=won?'The sky<br><em>is ours.</em>':'Signal<br><em>lost at sea.</em>';
+  $('endHeading').innerHTML=won?'The storm<br><em>breaks.</em>':'Signal<br><em>lost at sea.</em>';
   const grade=String(data.grade||(!won?'—':'C')).toUpperCase();
   setText('endGrade',grade);
-  const stage=Math.min(3,number(data.stage||game.stage));
+  const stage=Math.max(1,Math.min(CAMPAIGN_STAGES,number(data.stage||game.stage)));
   let narrative;
   if(won){
-    narrative=grade.startsWith('S')?'A flawless line through the impossible. The storm fleet never saw you coming.':
-      grade.startsWith('A')?'The carrier fleet is gone. Your wake cuts a new route home.':
-      'The storm breaks at last. You held the line, and the sky opens ahead.';
+    // Victory comes after the last built sector; Act II continues beyond it, so say so.
+    narrative=grade.startsWith('S')?'The Leviathan sinks without ever finding your line. Above the storm, the factories fly…':
+      grade.startsWith('A')?'The Leviathan sinks and the battle line breaks. Above the storm, the factories fly…':
+      'The Leviathan sinks. You held through the typhoon. Above the storm, the factories fly…';
   }else{
-    narrative=stage>=3?'The final carrier held the line. The route remains open for one more sortie.':
+    narrative=stage>=ACT_TWO_STAGE?'The typhoon fleet held the line. Strip the turrets, guard your salvage, and fly into the storm again.':
+      stage===3?'The Crown held. Beyond it, the real fleet is waiting. One more sortie.':
       stage===2?'The storm wall claimed this flight. The next opening is yours to find.':
       'The first sector swallowed the signal. The flight deck is ready when you are.';
   }
   setText('endNarrative',narrative);
   setText('endScore',String(number(data.score??game.score)).padStart(8,'0'));
-  setText('endSectors',String(Math.min(3,number(data.bossesDefeated??(won?3:Math.max(0,stage-1))))).padStart(2,'0')+' / 03');
+  const stages=String(CAMPAIGN_STAGES).padStart(2,'0');
+  setText('endSectors',String(Math.min(CAMPAIGN_STAGES,number(data.bossesDefeated??(won?CAMPAIGN_STAGES:Math.max(0,stage-1))))).padStart(2,'0')+' / '+stages);
   const survivors=number(data.livesRemaining??game.player?.lives);
   setText('endSurvival',survivors+' '+(survivors===1?'LIFE':'LIVES'));
   setText('endStyle',String(number(data.conversions)).padStart(3,'0')+' / '+String(number(data.rolls)).padStart(2,'0'));
@@ -485,7 +488,7 @@ function endSortie(summary, fixture=false){
   setText('flightAdvice',flightAdvice(data));
   setText('personalRecord',drill?'UNRANKED DRILL / CAMPAIGN RECORDS PRESERVED':lastPersonalRecord?.newBest?'NEW '+selectedShip.toUpperCase()+' BEST / +'+number(data.score-lastPersonalRecord.previous.bestScore).toLocaleString()+' POINTS':selectedShip.toUpperCase()+' BEST / '+String(career.ships[selectedShip].bestScore).padStart(8,'0'));
   if(drill){
-    const name=['','VESPER','AURELIA','THE CROWN'][drill];
+    const name=FLAGSHIP_NAMES[drill]||'FLAGSHIP';
     const tier=drillClearTier(data);
     setText('endEyebrow','UNRANKED DRILL / '+(tier==='flawless'?'NO-HIT CLEAR':tier==='controlled'?'ALL LIVES KEPT':tier==='survived'?'CLEAR SECURED':'FLAGSHIP APPROACH'));
     $('endHeading').innerHTML=tier==='flawless'?'Clean<br><em>flight.</em>':tier==='controlled'?'Pattern<br><em>learned.</em>':tier==='survived'?'Flagship<br><em>down.</em>':'One more<br><em>approach.</em>';
@@ -499,8 +502,8 @@ function endSortie(summary, fixture=false){
   // DEV FIXTURE DISPLAY END
   const score=number(data.score??game.score);
   const gradeLine='GRADE '+grade+' / '+String(score).padStart(8,'0')+' POINTS';
-  setText('endIntroKicker',won?'FINAL SIGNAL / FLEET DISABLED':'MAYDAY / SECTOR '+String(stage).padStart(2,'0'));
-  setText('endIntroHeading',won?(grade==='S'||grade==='A'?'THE SKY OPENS':'ROUTE CLEARED'):(stage>=3?'THE CROWN HOLDS':'SIGNAL LOST'));
+  setText('endIntroKicker',won?'FINAL SIGNAL / LEVIATHAN SUNK':'MAYDAY / SECTOR '+String(stage).padStart(2,'0'));
+  setText('endIntroHeading',won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
   setText('endIntroLine',won?gradeLine:'FLIGHT RECORD RECOVERED / '+gradeLine);
   if(drill){
     const tier=drillClearTier(data);
@@ -551,7 +554,7 @@ function readoutsFromGame(dt){
   }
   const elapsed=number(game.time||game.elapsed);
   setText('timeReadout',String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0'));
-  setText('threatReadout',game.boss?'CATASTROPHIC':bossWarningProgress(game)>=0?'FLAGSHIP INBOUND':interludeProgress(game)>=0?'SECTOR CLEAR':game.stage>1?'SEVERE':'RISING');
+  setText('threatReadout',game.boss?'CATASTROPHIC':bossWarningProgress(game)>=0?'FLAGSHIP INBOUND':interludeProgress(game)>=0?'SECTOR CLEAR':game.stage>=ACT_TWO_STAGE?'EXTREME':game.stage>1?'SEVERE':'RISING');
   setText('bestReadout',String(number(game.bestScore||game.highScore)).padStart(8,'0'));
   setText('frameSector',(game.practiceStage?'UNRANKED DRILL ':'SECTOR ')+String(game.stage||1).padStart(2,'0'));
   const hp=Number(game.player?.hp)||0;
@@ -643,6 +646,6 @@ window.__game=game;window.__renderer=renderer;window.__audio=audio;window.__canv
 window.__hud=hud;window.__frontEnd=frontEnd;window.__pausePanel=pausePanel;window.__sequences=sequences;window.__cinema=cinema;window.__ambience=ambience;
 window.__showEndFixture=outcome=>{
   const won=outcome==='victory';
-  endSortie({outcome:won?'victory':'gameover',shipId:selectedShip,score:won?421850:86120,grade:won?'A':'C',stage:won?3:2,grazes:won?127:41,rolls:won?12:4,livesRemaining:won?2:0},true);
+  endSortie({outcome:won?'victory':'gameover',shipId:selectedShip,score:won?421850:86120,grade:won?'A':'C',stage:won?CAMPAIGN_STAGES:2,grazes:won?127:41,rolls:won?12:4,livesRemaining:won?2:0},true);
 };
 // DEV REVIEW HOOKS END

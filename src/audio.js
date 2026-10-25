@@ -17,14 +17,16 @@
 //   screen       'title' | 'hangar' | 'play' | 'pause' | 'end'
 //   mode         game.mode: 'title' | 'playing' | 'paused' | 'victory' | 'gameover'
 //   time         game.time (seconds of flight; use with timeline.lightningAt)
-//   stage        1..3
+//   stage        1..CAMPAIGN_STAGES
 //   stageTime    seconds into the current sector
 //   bossWarning  0..1 progress through the pre-flagship warning, -1 when none
 //   boss         true while a flagship is alive
-//   bossName     'VESPER' | 'AURELIA' | 'THE CROWN' | null
+//   bossName     'VESPER' | 'AURELIA' | 'THE CROWN' | 'LEVIATHAN' | null
 //   bossPhase    1..3, 0 when no flagship
 //   bossHp       0..1 remaining flagship hull (0 when none)
 //   interlude    0..1 progress through the sector-clear interlude, -1 when none
+//   actTwo       true during the long Crown → Iron Monsoon hand-off
+//   interludeLength  actual transition length, seconds
 //   intensity    0..1 combat density (enemies, hostile bullets, flagship)
 //   critical     true when the player's hull is at 1 during play
 //   outcome      'victory' | 'gameover' | null (set from the run's end through the end screen)
@@ -33,10 +35,11 @@
 //   paused       true on the pause screen or while the game is paused (manual open)
 //   muted        true while sound is muted (the master is already silent)
 //   events       game events new this tick ([] when the batch was already seen)
+import { CAMPAIGN_STAGES } from './game.js';
 import { SfxLibrary, PRIORITY_EVENTS, RECOVERY_FOLLOW_ON_EVENTS } from './sfx.js';
 import { MusicDirector } from './music.js';
 import { Soundscape } from './soundscape.js';
-import { bossWarningProgress, interludeProgress, BOSS_WARNING_LEAD, INTERLUDE_LENGTH } from './timeline.js';
+import { bossWarningProgress, interludeProgress, actTwoInterlude, interludeLength, BOSS_WARNING_LEAD, INTERLUDE_LENGTH } from './timeline.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const MASTER_LEVEL = 0.8;
@@ -465,7 +468,7 @@ export class AudioEngine {
       screen: this.screen,
       mode,
       time: Number(g.time) || 0,
-      stage: clamp(Math.floor(Number(g.stage) || 1), 1, 3),
+      stage: clamp(Math.floor(Number(g.stage) || 1), 1, CAMPAIGN_STAGES),
       stageTime: Number(g.stageTime) || 0,
       bossWarning: bossWarningProgress(g),
       boss: Boolean(boss),
@@ -473,6 +476,8 @@ export class AudioEngine {
       bossPhase: boss ? clamp(Number(boss.phase) || 1, 1, 3) : 0,
       bossHp: boss ? clamp(boss.hp / Math.max(1, boss.maxHp || boss.hp), 0, 1) : 0,
       interlude: interludeProgress(g),
+      actTwo: actTwoInterlude(g),
+      interludeLength: interludeLength(g),
       intensity: playing ? clamp(enemies * 0.05 + bullets * 0.0045 + Math.min(.18,(Number(player.arsenal)||0)*.006) + (boss ? 0.32 + 0.12 * ((boss.phase || 1) - 1) : 0), 0, 1) : 0,
       critical: playing && Number(player.hp) === 1,
       outcome,
@@ -522,7 +527,7 @@ export class AudioEngine {
 
     if (state.interlude >= 0 && !this.cues.interlude) {
       this.cues.interlude = true;
-      if (state.mode === 'playing') {
+      if (state.mode === 'playing' && !state.actTwo && !state.events.some(e => e.type === 'actTwo')) {
         const wait = Math.max(0, 0.95 - state.interlude * INTERLUDE_LENGTH);
         try { this.sfx.sectorClear(t + wait, state.stage, state.practice > 0); } catch (error) { this._warn('sectorClear', error); }
       }

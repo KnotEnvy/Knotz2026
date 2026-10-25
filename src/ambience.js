@@ -1,6 +1,7 @@
 // Page-level ambience around the playfield: masthead, side panels and site backdrop.
 // Everything here is presentation. It reads the game and writes the DOM only when a value changes.
-import { SECTOR_NAMES, FLAGSHIP_NAMES, bossWarningProgress, interludeProgress, lightningAt } from './timeline.js';
+import { SECTOR_NAMES, FLAGSHIP_NAMES, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
+import { CAMPAIGN_STAGES } from './game.js';
 
 const TAU = Math.PI * 2;
 const SPECIALS = { kestrel: 'NOVA', manta: 'BARRIER', wraith: 'STORM' };
@@ -11,7 +12,10 @@ const SECTORS = [null,
     weather: 'SQUALL / WIND 34 KT', sea: 'SEA STATE 6', hdg: 305, signal: 3, lat: 14.3, lon: 148.6 },
   { heading: 'Beneath<br><em>the Crown.</em>', copy: 'The maelstrom feeds the last flagship. Bait the lance, then leave the lane.',
     weather: 'MAELSTROM / SHEAR 61 KT', sea: 'SEA STATE 9', hdg: 318, signal: 2, lat: 15.9, lon: 146.2 },
+  { heading: 'Into the<br><em>typhoon.</em>', copy: 'The real fleet rides the storm. Strip hull turrets, kill scavengers before they steal your salvage, and dodge violet void rounds: the reflector cannot stop them.',
+    weather: 'TYPHOON / WIND 70 KT', sea: 'SEA STATE 9 / PHENOMENAL', hdg: 331, signal: 2, lat: 33.2, lon: 171.08, jam: true },
 ];
+const sectorOf = value => Math.min(CAMPAIGN_STAGES, Math.max(1, Math.floor(Number(value) || 1)));
 const SIGNAL_LABELS = ['NO CARRIER', 'LINK JAMMED', 'LINK WEAK', 'LINK FAIR', 'LINK SOLID'];
 const SCREEN_STATES = { title: 'COMMAND LINK', hangar: 'DECK STANDBY', play: 'LIVE SORTIE', pause: 'HOLDING PATTERN', end: 'DEBRIEF' };
 const pad = (n, w = 2) => String(Math.max(0, Math.floor(n))).padStart(w, '0');
@@ -32,7 +36,7 @@ export class Ambience {
     this.telemetry = { hdg: 292, alt: 6200, ias: 288, pitch: 0 };
     this.teleClock = 1; this.radarClock = 1; this.gridClock = 1;
     this.lastStage = 0; this.lastPhase = 0; this.lastStrike = -1; this.warned = false; this.critical = false;
-    this.signalDip = 0;
+    this.signalDip = 0; this.jamClock = 0; this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;
     this.lite = false; this.perfTime = 0; this.perfFrames = 0;
     this.gutters = null;
     if (!this.ready) return;
@@ -72,6 +76,7 @@ export class Ambience {
   reset(game) {
     if (!this.ready) return;
     this.lastStage = 0; this.lastPhase = 0; this.lastStrike = -1; this.warned = false; this.critical = false;
+    this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;
     this.teleClock = this.radarClock = this.gridClock = 1;
     const log = this.el('consoleLog');
     if (log) log.textContent = '';
@@ -84,7 +89,7 @@ export class Ambience {
   update(game, dt) {
     if (!this.ready || !game) return;
     dt = Math.min(0.1, Math.max(0, Number(dt) || 0));
-    const stage = Math.min(3, Math.max(1, Math.floor(Number(game.stage) || 1)));
+    const stage = sectorOf(game.stage);
     if (stage !== this.lastStage) this._applySector(game);
     const p = game.player || {};
     const playing = game.mode === 'playing';
@@ -94,7 +99,7 @@ export class Ambience {
     const critical = playing && Number(p.hp) <= 1;
     this._attr('threat', critical ? 'critical' : boss ? 'boss' : warning >= 0 ? 'warning' : 'calm');
     this._attr('flagship', boss ? '1' : null);
-    this._attr('interlude', interlude >= 0 ? '1' : null);
+    this._attr('interlude', interlude >= 0 ? (actTwoInterlude(game) ? 'act2' : '1') : null);
     this._attr('drill', game.practiceStage ? '1' : null);
     this._events(game, stage, boss, warning, critical);
     // Adaptive quality: if play runs under ~40 fps for two seconds, freeze the backdrop's
@@ -123,7 +128,7 @@ export class Ambience {
   }
 
   _applySector(game, force = false) {
-    const stage = Math.min(3, Math.max(1, Math.floor(Number(game?.stage) || 1)));
+    const stage = sectorOf(game?.stage);
     const info = SECTORS[stage];
     const changed = stage !== this.lastStage;
     this.lastStage = stage;
@@ -141,7 +146,8 @@ export class Ambience {
       node.dataset.state = n < stage ? 'clear' : n === stage ? 'active' : 'ahead';
     }
     if ((changed || force) && game?.mode === 'playing' && !drill && Number(game.stageTime) < 2) {
-      this._log(clock(game.time || 0), 'SECTOR ' + pad(stage) + ' / ' + SECTOR_NAMES[stage] + ' ENTERED', 'cool');
+      this._log(clock(game.time || 0), 'SECTOR ' + pad(stage) + ' / ' + SECTOR_NAMES[stage] + ' ENTERED', stage >= ACT_TWO_STAGE ? 'warn' : 'cool');
+      if (info.jam) this._log(clock(game.time || 0), 'TYPHOON FRONT / COMMAND LINK DEGRADED', 'hot');
     }
   }
 
@@ -154,13 +160,23 @@ export class Ambience {
     this.critical = critical;
     for (const event of game.events || []) {
       switch (event?.type) {
-        case 'bossEnter': this.lastPhase = 1; this._log(t, 'FLAGSHIP ' + name + ' ENGAGED', 'hot'); break;
+        case 'bossEnter': this.lastPhase = 1; this._log(t, stage >= ACT_TWO_STAGE ? name + ' SURFACING / ' + 'SUPER-DREADNOUGHT ENGAGED' : 'FLAGSHIP ' + name + ' ENGAGED', 'hot'); break;
         case 'bossPhase': {
           const phase = Number(event.value) || (boss?.phase ?? 2);
           if (phase !== this.lastPhase) { this.lastPhase = phase; this._log(t, name + ' / PHASE ' + phase + ' / PATTERN SHIFT', 'warn'); }
           break;
         }
-        case 'bossDown': this._log(t, name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
+        case 'bossDown': this._log(t, stage >= ACT_TWO_STAGE ? name + ' SINKING / SECTOR ' + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
+        case 'actTwo':
+          if (!this.actTwoLogged) { this.actTwoLogged = true; this._log(t, 'ACT II / THE CROWN WAS ONLY THE GATE', 'gold'); this._log(t, 'NEW CONTACT / ENEMY BATTLE LINE IN TYPHOON', 'warn'); }
+          break;
+        case 'hullEnter': this._log(t, 'ARMORED HULL / ' + String(event.value || 'warship').toUpperCase() + ' IN THE LINE', 'warn'); break;
+        case 'hullDown': this._log(t, String(event.value || 'hull').toUpperCase() + ' HULL BROKEN', 'gold'); break;
+        case 'scavengerSteal':
+          if ((Number(game.time) || 0) - this.stealLogged > 5) { this.stealLogged = Number(game.time) || 0; this._log(t, 'SCAVENGER / SALVAGE STOLEN', 'hot'); }
+          break;
+        case 'broadside': this._log(t, name + ' / BROADSIDE ' + (Number(event.value) < 0 ? 'PORT' : 'STARBOARD'), 'warn'); break;
+        case 'coreExposed': this._log(t, 'MONSOON ENGINE EXPOSED', 'gold'); break;
         case 'lifeLost': if (Number(event.value) > 0) this._log(t, 'AIRFRAME LOST / RESERVE LAUNCHED', 'hot'); break;
         case 'extend': this._log(t, 'SCORE EXTEND / RESERVE AUTHORISED', 'gold'); break;
         case 'powerUp': this._log(t, 'ARMAMENT / LEVEL ' + (Number(event.value) || 1), 'cool'); break;
@@ -209,7 +225,7 @@ export class Ambience {
       const gutters = this.gutters || (this.gutters = this._measureGutters());
       const x = gutters.length ? gutters[Math.min(gutters.length - 1, Math.floor(strike.x * gutters.length))] + 'px' : Math.round(12 + strike.x * 76) + '%';
       this._style('consoleFlash', '--lx', x);
-      this.signalDip = 0.9;
+      this.signalDip = SECTORS[stage]?.jam ? 1.6 : 0.9;
     }
     this._style('consoleFlash', 'opacity', strike ? (Math.round(strike.flash * 50) / 50).toString() : '0');
   }
@@ -265,7 +281,17 @@ export class Ambience {
     this._text('teleIas', String(Math.round(s.ias + Math.sin(t * 9.3))));
     // Storms dent the command link briefly after each strike.
     this.signalDip = Math.max(0, this.signalDip - dt);
-    const level = SECTORS[stage].signal - (this.signalDip > 0 ? 1 : 0) - (game.boss && stage === 3 ? 1 : 0);
+    let level = SECTORS[stage].signal - (this.signalDip > 0 ? 1 : 0) - (game.boss && stage >= 3 ? 1 : 0);
+    // Typhoon jamming: the link drops out in short bursts and readouts scramble.
+    if (SECTORS[stage].jam) {
+      this.jamClock += dt;
+      if (this.jamClock >= 0.5) { this.jamClock = 0; if (Math.random() < (game.boss ? .3 : .16)) this.jamUntil = t + .4 + Math.random() * .8; }
+      if (t < this.jamUntil) {
+        level = 0;
+        this._text('teleAlt', '-,---');
+      }
+    }
+    this._attr('jam', SECTORS[stage].jam && t < this.jamUntil ? '1' : null);
     this._setSignal(level);
   }
 

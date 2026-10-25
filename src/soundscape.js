@@ -5,6 +5,7 @@
 //
 // The engine owns the ambience bus it hands us: its level, mute and the pause filter.
 // Nodes are created only when a bed starts or a one-shot fires, never per frame.
+import { CAMPAIGN_STAGES } from './game.js';
 import { lightningAt } from './timeline.js';
 
 const FADE = 2.4;          // seconds for a bed crossfade to settle (time constant FADE / 3)
@@ -17,7 +18,7 @@ const PRESSURE_BY_PHASE = [0, 0.55, 0.78, 1];
 // The reverb is split: build its impulse on one frame, hand it to the convolver on the next.
 const WARMUP = ['pink', 'brown', 'white', 'irBuild', 'irLoad', 'patter'];
 const REVERB_SECONDS = 2;
-const NEEDS_PATTER = new Set(['sector2', 'endDefeat']);
+const NEEDS_PATTER = new Set(['sector2', 'sector4', 'endDefeat']);
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -43,7 +44,7 @@ function bedFor(s) {
     return outcome === 'victory' ? 'endVictory' : 'endDefeat';
   }
   if (screen === 'play' || screen === 'pause' || mode === 'playing' || mode === 'paused') {
-    return 'sector' + clamp(Math.round(Number(s.stage) || 1), 1, 3);
+    return 'sector' + clamp(Math.round(Number(s.stage) || 1), 1, CAMPAIGN_STAGES);
   }
   return 'title';
 }
@@ -339,6 +340,7 @@ export class Soundscape {
     else if (name === 'sector1') this._shallows(bed);
     else if (name === 'sector2') this._stormWall(bed);
     else if (name === 'sector3') this._crown(bed);
+    else if (name === 'sector4') this._typhoon(bed);
     else if (name === 'endVictory') this._calm(bed);
     else if (name === 'endDefeat') this._storm(bed);
     else if (name === 'pressure') this._pressureBed(bed);
@@ -401,6 +403,28 @@ export class Soundscape {
     this._wind(bed, { level: 0.04, freq: 300, q: 1.2, gust: [4, 9], depth: 0.6, low: 0.03 });
     bed.every(6, 13, at => this._groan(bed, at, this.between(0.4, 0.85)), [3, 6]);
     this._flightModulation(bed, rush, 0.055);
+  }
+  _typhoon(bed) {
+    const rush = this._rush(bed, { level: 0.055, cut: 1500 });
+    this._wind(bed, { level: 0.18, freq: 360, q: 1.1, gust: [1.2, 3.2], depth: 0.95, low: 0.085, whistle: 0.04, whistleFreq: 760 });
+    this._rain(bed, { level: 0.18, patter: 0.095 });
+    this._sea(bed, { level: 0.19, cutoff: 240, hiss: 0.035, every: [3.5, 6], width: 0.85 });
+    bed.every(9, 17, at => this._shipHorn(bed, at), [2, 4]);
+    bed.every(3, 6, at => this._clank(bed, at, { distance: 0.8, pitch: this.between(130, 230), level: 0.08, heavy: true }), [1, 2]);
+    this._flightModulation(bed, rush, 0.055);
+  }
+  _shipHorn(bed, at) {
+    const spot = this._spot(bed, this.between(-0.65, 0.65), 0.65);
+    const lp = this._filter('lowpass', 480), amp = this._gain(0);
+    amp.gain.setValueAtTime(0, at); amp.gain.linearRampToValueAtTime(0.025, at + 0.5);
+    amp.gain.setTargetAtTime(0, at + 1.6, 0.35);
+    lp.connect(amp); amp.connect(spot.input);
+    const nodes = [lp, amp, ...spot.nodes];
+    for (const f of [73.42, 110.2]) {
+      const osc = this.ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = f;
+      osc.connect(lp); osc.start(at); osc.stop(at + 3.4); nodes.push(osc);
+    }
+    this._release(nodes[nodes.length - 1], nodes);
   }
   _calm(bed) {
     // Victory: calm sea at sunrise, light wind, gulls, a buoy bell far off.
@@ -815,8 +839,8 @@ export class Soundscape {
   // ---------------------------------------------------------------- state-driven extras
   _weather(s, now) {
     const bed = this.current;
-    if (!bed || (bed.name !== 'sector2' && bed.name !== 'sector3') || !inFlight(s)) return;
-    const stage = bed.name === 'sector2' ? 2 : 3;
+    if (!bed || !['sector2', 'sector3', 'sector4'].includes(bed.name) || !inFlight(s)) return;
+    const stage = Number(bed.name.slice(6));
     const strike = lightningAt(s.time, stage);
     if (!strike || strike.id === this.lastStrike) return;
     this.lastStrike = strike.id;
@@ -843,6 +867,6 @@ export class Soundscape {
     if (progress < 0) { this.interludeOn = false; return; }
     if (this.interludeOn || !inFlight(s)) return;
     this.interludeOn = true;
-    if (progress < 0.6) this._whoosh(now + 0.01, INTERLUDE * (1 - progress));
+    if (progress < 0.6) this._whoosh(now + 0.01, (Number(s.interludeLength) || INTERLUDE) * (1 - progress));
   }
 }

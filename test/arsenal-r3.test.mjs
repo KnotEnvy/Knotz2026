@@ -53,12 +53,14 @@ const NAMES = ['Vesper', 'Aurelia', 'the Crown'];
 test('the engaged no-hit pilot arrives at each flagship inside the round-3 power band, on every ship', () => {
   for (const ship of SHIPS) {
     const game = sortie(ship), arrivals = [], ramp = {};
-    let bonusEvents = 0;
-    for (let f = 0; f < 60 * 400 && game.mode === 'playing'; f++) {
+    let bonusEvents = 0, actTwo = 0;
+    // Sectors 1-3 (the warm-up); the run continues into Act II after the Crown.
+    for (let f = 0; f < 60 * 400 && game.mode === 'playing' && game.stage < 4; f++) {
       game.player.invuln = 99;
       const hadBoss = !!game.boss;
       game.update(1/60, pilot(game));
       bonusEvents += game.events.filter(e => e.type === 'squadronBonus').length;
+      actTwo += game.events.filter(e => e.type === 'actTwo').length;
       const p = game.player;
       if (game.stage === 1 && !game.boss) {
         if (p.level >= 4) ramp.p4 ??= game.time;
@@ -67,7 +69,8 @@ test('the engaged no-hit pilot arrives at each flagship inside the round-3 power
       }
       if (game.boss && !hadBoss) arrivals.push(p.level);
     }
-    assert.equal(game.mode, 'victory', ship + ' clears the campaign');
+    assert.equal(game.stage, 4, ship + ' clears Act I and flies on into sector 4');
+    assert.equal(actTwo, 1, 'the ACT II card plays once, after the Crown');
     assert.equal(arrivals.length, 3);
     arrivals.forEach((level, i) => {
       const [lo, hi] = ARRIVAL[i];

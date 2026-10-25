@@ -15,6 +15,7 @@
 // time. The scheduler commits a bar only when its downbeat falls inside a short lookahead window,
 // so cue changes land on the next uncommitted bar (or beat, for urgent moments) and stalls resync
 // instead of bursting.
+import { CAMPAIGN_STAGES } from './game.js';
 import { BOSS_WARNING_LEAD } from './timeline.js';
 
 const LOOKAHEAD = 0.3;
@@ -392,14 +393,17 @@ const CUES = {
 };
 
 // Warnings take the key and tempo of the flagship that is coming.
-const BOSS_KEYS = [null, { key: 57, bass: 33, bpm: 156 }, { key: 55, bass: 43, bpm: 160 }, { key: 62, bass: 38, bpm: 144 }];
-for (const stage of [1, 2, 3]) {
+const BOSS_KEYS = [null, { key: 57, bass: 33, bpm: 156 }, { key: 55, bass: 43, bpm: 160 }, { key: 62, bass: 38, bpm: 144 }, { key: 62, bass: 38, bpm: 168 }];
+for (let stage = 1; stage <= CAMPAIGN_STAGES; stage++) {
   const k = BOSS_KEYS[stage];
   CUES['warning' + stage] = {
     bpm: k.bpm, key: k.key, intro: 0, loop: true, level: 1,
     bar(m, I, b, t, S, s) {
       const start = I.warnStart ?? I.start, p0 = clamp((t - start) / BOSS_WARNING_LEAD, 0, 1);
-      if (b === 0) m.riser(I, t, Math.max(0.4, (1 - p0) * BOSS_WARNING_LEAD), 0.2);
+      if (b === 0) {
+        m.riser(I, t, Math.max(0.4, (1 - p0) * BOSS_WARNING_LEAD), 0.2);
+        if (stage === 4) { m.boom(I, t, 0.7); m.chord(I, 'brass', t, S * 14, k.key, [0, 'five'], 50, 0.28, { timbre: 'brass', attack: 0.18, bright: 0.4 }); }
+      }
       for (let n = 0; n < 16; n++) {
         const tk = t + n * S, p = clamp((tk - start) / BOSS_WARNING_LEAD, 0, 1);
         if (p >= 1) break;
@@ -485,7 +489,86 @@ CUES.boss3 = {
     if (drill && i % 2 === 0) m.bell(I, 'keys', t, K + 24, 0.05, 0.7);
   }
 };
-for (const [id, def] of Object.entries(CUES)) { def.id = id; def.minor = /^(sector2|sector3|boss|warning|gameover|drillFail)/.test(id); }
+// Act II: the Crown's D minor becomes a naval war march. The lead waits two bars;
+// combat density adds upper percussion and octave answers, rather than simply more gain.
+const IRON_LEAD = [
+  [[0, 3], [7, 3], [12, 6], [10, 2], [7, 2]],
+  [[8, 6], [7, 2], [3, 4], [5, 4]],
+  [[5, 3], [7, 3], [12, 4], [15, 4], [14, 2]],
+  [[11, 6], [7, 2], [2, 4], [-1, 4]],
+  [[12, 3], [19, 3], [17, 4], [15, 4], [12, 2]],
+  [[15, 6], [14, 2], [12, 4], [7, 4]],
+  [[8, 4], [12, 4], [15, 6], [14, 2]],
+  [[11, 3], [14, 3], [12, 6], [11, 2], [7, 2]]
+];
+function ironRiff(m, I, t, S, root, vel, dense) {
+  for (const [k, n] of [[0, 0], [3, 0], [6, 7], [8, 0], [11, 12], [14, 7]]) {
+    m.brass(I, 'brass', t + k * S, S * 1.3, root + n, vel,
+      { attack: 0.008, rel: 0.08, bright: dense ? 0.8 : 0.5, vib: 0, scoop: false });
+  }
+}
+CUES.sector4 = {
+  bpm: 160, key: 62, intro: 2, loop: true, level: 0.94,
+  bar(m, I, b, t, S, s) {
+    const intensity = clamp(s.intensity ?? 0.5, 0, 1), i = Math.max(0, b - 2) % 8;
+    const ch = b < 2 ? [0, 'min'] : THEME_MINOR_CH[i], r = norm(ch[0]);
+    if (b === 0) impact(m, I, t, 62, ch, 50, 0.55);
+    else if (i === 0 && b >= 2) m.crash(I, t, 0.4);
+    ironRiff(m, I, t, S, 38 + r, 0.31, intensity > 0.6);
+    m.bassPat(I, 'RRRORRFRRRRORRFR', t, S, 38, ch, 0.32, { type: 'pulse', accent: 'x..x..x.x..x..x.' });
+    m.drums(I, 'T', 'x.....x.x.....x.', t, S, 0.7);
+    m.drums(I, 's', i === 7 ? '....x.......xxxx' : '....x.......x...', t, S, 0.5);
+    if (b === 1) m.riser(I, t, S * 16, 0.18);
+    if (b >= 2) {
+      m.mel(I, 'lead', IRON_LEAD[i], t, S, 74, { vel: 0.36, bright: 0.95 });
+      m.chord(I, 'pad', t, S * 16, 62, ch, 62, 0.1, { attack: 0.2, cutoff: 1900 });
+    }
+    if (intensity > 0.35) m.drums(I, 'h', '-x-x-x-x-x-x-x-x', t, S, 0.18);
+    if (intensity > 0.65) {
+      m.drums(I, 't', '...x.......x..x.', t, S, 0.42);
+      if (b >= 2 && i >= 4) m.mel(I, 'brass', IRON_LEAD[i], t, S, 62, { vel: 0.17, bright: 0.5, vib: 0 });
+    }
+  }
+};
+CUES.boss4 = {
+  bpm: 168, key: 62, intro: 0, loop: true, level: 0.94,
+  bar(m, I, b, t, S, s) {
+    const ph = clamp(s.bossPhase || 1, 1, 3), i = b % 8;
+    const ch = ph === 1 ? C_CH1[i] : THEME_MINOR_CH[i], r = norm(ch[0]);
+    if (b === 0 || i === 0) impact(m, I, t, 62, ch, 50, b === 0 ? 0.65 : 0.45);
+    ironRiff(m, I, t, S, 38 + r, 0.34, true);
+    m.bassPat(I, 'RRRORRFRRRRORRFR', t, S, 38, ch, 0.34, { type: 'growl', accent: 'x..x..x.x..x..x.' });
+    m.chord(I, 'choir', t, S * 16, 62, ch, 62, ph === 3 ? 0.19 : 0.13, { timbre: 'choir', attack: 0.18 });
+    m.drums(I, 'T', 'x..x..x.x..x..x.', t, S, 0.68);
+    m.drums(I, 's', '....x.......x...', t, S, 0.56);
+    m.mel(I, ph === 1 ? 'brass' : 'lead', ph === 1 ? C_MOTIF[i] : IRON_LEAD[i], t, S, ph === 1 ? 50 : 74,
+      { vel: ph === 1 ? 0.4 : 0.38, bright: 0.9, sub: ph === 1 });
+    if (ph >= 2) {
+      m.drums(I, 'k', 'x.......x.......', t, S, 0.6);
+      m.drums(I, 'h', '-x-x-x-x-x-x-x-x', t, S, 0.19);
+    }
+    if (ph >= 3) {
+      m.mel(I, 'brass', IRON_LEAD[i], t, S, 62, { vel: 0.2, vib: 0, bright: 0.6 });
+      m.arp(I, t, S, 62, ch, 86, [0, 2, 1, 3, 2, 4, 3, 1], 0.045, 2, { decay: 0.16 });
+      m.drums(I, 't', '..x..x....x..x..', t, S, 0.36);
+    }
+    if ((s.bossHp ?? 1) < 0.2 && i % 2 === 1) m.roll(I, 'snare', t + S * 12, S * 4, 0, 0.12, 0.4, S / 2);
+  }
+};
+CUES.actTwo = {
+  bpm: 120, key: 62, intro: 0, loop: false, length: 3, level: 0.95,
+  bar(m, I, b, t, S) {
+    const ch = [[0, 'min'], [8, 'maj'], [7, 'maj']][b];
+    if (b === 0) { m.boom(I, t, 1); m.crash(I, t, 0.5); }
+    m.chord(I, 'choir', t, S * 16, 62, ch, 62, 0.2, { timbre: 'choir', attack: 0.15, rel: 0.5 });
+    m.chord(I, 'brass', t, S * 12, 62, ch, 50, 0.34, { timbre: 'brass', attack: 0.025 });
+    m.bass(I, t, S * 15, 38 + norm(ch[0]), 0.42, { type: 'synth' });
+    if (b === 1) m.mel(I, 'lead', [[0, 4], [7, 4], [12, 8]], t, S, 62, { vel: 0.34 });
+    if (b === 2) { m.roll(I, 'taiko', t, S * 16, 0, 0.12, 0.6, S); m.riser(I, t, S * 16, 0.18); }
+  }
+};
+
+for (const [id, def] of Object.entries(CUES)) { def.id = id; def.minor = /^(sector2|sector3|sector4|actTwo|boss|warning|gameover|drillFail)/.test(id); }
 
 function impulse(ctx, seconds = 2.3, decay = 3.2) {
   const sr = ctx.sampleRate, len = Math.max(1, Math.floor(sr * seconds)), buf = ctx.createBuffer(2, len, sr);
@@ -597,8 +680,9 @@ export class MusicDirector {
     }
     if (screen === 'pause' || s.paused || s.mode === 'paused') return { id: 'pause', key: 'pause' };
     if (screen !== 'play') return null;
+    if (s.actTwo || (s.stage === 3 && (Number(s.time) || 0) < (this.actTwoUntil ?? -1))) return { id: 'actTwo', key: 'actTwo' };
     if (Number(s.interlude) >= 0) return { id: 'interlude', key: 'interlude' };
-    const stage = clamp(Math.floor(Number(s.stage) || 1), 1, 3);
+    const stage = clamp(Math.floor(Number(s.stage) || 1), 1, CAMPAIGN_STAGES);
     if (s.boss) { const variant = drill ? 'drill' : ''; return { id: 'boss' + stage, key: 'boss' + stage + variant, variant }; }
     if (Number(s.bossWarning) >= 0) return { id: 'warning' + stage, key: 'warning' + stage };
     return { id: 'sector' + stage, key: 'sector' + stage };
@@ -622,6 +706,7 @@ export class MusicDirector {
     if (!from) p.at = now + 0.06;
     else if (id === 'pause' || fromId === 'pause') { p.at = now + 0.04; p.fade = 0.35; p.fadeIn = id === 'pause' ? 0.9 : 0.35; }
     else if (id.startsWith('boss')) { p.at = now + (fromId.startsWith('warning') ? 0.14 : 0.08); p.fade = fromId.startsWith('warning') ? 0.05 : 0.25; }
+    else if (id === 'actTwo') { p.at = now + 0.04; p.fade = 0.15; }
     else if (id === 'interlude') { p.at = now + 0.5; p.outAt = now + 0.03; p.fade = 0.22; }
     else if (id === 'gameover' || id === 'drillFail') { p.at = now + 0.9; p.outAt = now + 0.03; p.fade = 0.35; }
     else if (fromId === 'interlude' || id === 'victory' || id === 'drillClear' || id.startsWith('warning') || screenChanged) {
@@ -645,7 +730,7 @@ export class MusicDirector {
     const outAt = Math.max(Math.min(p.outAt ?? at, at), now + 0.005);
     if (this.cur) {
       const id = this.cur.def.id;
-      if (/^(sector|boss)/.test(id)) { this.memory[this.cur.key] = { bar: this.cur.bar, time: Number(this.state?.time) || 0 }; this.lastPlay = this.cur; }
+      if (/^(sector|boss|actTwo)/.test(id)) { this.memory[this.cur.key] = { bar: this.cur.bar, time: Number(this.state?.time) || 0 }; this.lastPlay = this.cur; }
       this._retire(this.cur, outAt, p.fade);
     }
     this.cur = p.want ? this._newInstance(CUES[p.want.id], p.want.key, at, p) : null;
@@ -749,7 +834,9 @@ export class MusicDirector {
 
   _event(e, s, now) {
     switch (e?.type) {
-      case 'bossDown': this._stingBossDown(now + 0.02); break;
+      case 'actTwo': this.actTwoUntil = (Number(s.time) || 0) + 6.5; break;
+      case 'stage': this.actTwoUntil = -1; break;
+      case 'bossDown': if (!s.events?.some(e => e.type === 'actTwo')) this._stingBossDown(now + 0.02); break;
       case 'lifeLost':
         if (s.mode === 'playing' && now - this._lastLife > 1) { this._lastLife = now; this._stingLife(now + 0.02); }
         break;

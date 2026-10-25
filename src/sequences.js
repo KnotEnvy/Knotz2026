@@ -4,9 +4,10 @@
 // Presentation only: never change game state from here.
 import {
   FLAGSHIP_NAMES, FLAGSHIP_CLASSES, SECTOR_NAMES, SECTOR_COORDS, SECTOR_TAGLINES,
-  BOSS_WARNING_LEAD, INTERLUDE_LENGTH, bossWarningProgress, interludeProgress
+  BOSS_WARNING_LEAD, INTERLUDE_LENGTH, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, interludeLength
 } from './timeline.js';
 import { flightTime } from './progress.js';
+import { CAMPAIGN_STAGES } from './game.js';
 
 const W = 540, H = 900, TAU = Math.PI * 2;
 const DISPLAY = "'Arial Black', 'Arial Bold', Arial, sans-serif";
@@ -16,9 +17,14 @@ const C = {
   pale: '#eef8f2', muted: '#94b3b5', gold: '#ffd98b', amber: '#f3bb70',
   cyan: '#76f6eb', coral: '#ff775f', red: '#ff5443'
 };
-const INTRO_LENGTH = 2.6, NAMEPLATE_LENGTH = 3, DRILL_INTRO_LENGTH = 3.3;
+const INTRO_LENGTH = 2.6, ACT_TWO_INTRO_LENGTH = 3.4, NAMEPLATE_LENGTH = 3, DRILL_INTRO_LENGTH = 3.3;
+// The Act II interlude: flagship-down beat and a short tally, then the ACT II card until the stage turns.
+const ACT_TWO_TALLY_END = 3.3, ACT_TWO_CARD_START = 3.1;
+const OF = ' / ' + String(CAMPAIGN_STAGES).padStart(2, '0');
+const sectorOf = stage => clamp(stage | 0, 1, CAMPAIGN_STAGES);
+const introLength = stage => stage >= ACT_TWO_STAGE ? ACT_TWO_INTRO_LENGTH : INTRO_LENGTH;
 const PHASE_LENGTH = 1.25, LIFE_LENGTH = 1.9, EXTEND_LENGTH = 2.2;
-const OUTRO = { victory: 1.7, gameover: 2.1, drillVictory: 1.4, drillGameover: 1.5 };
+const OUTRO = { victory: 2.3, gameover: 2.1, drillVictory: 1.4, drillGameover: 1.5 };
 const COMPACT_SCALE = 1.34; // phone layout: canvas text is drawn larger for legibility
 
 const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -136,9 +142,10 @@ export class Sequences {
     const s = game.stats || {}, a = this.snap || this.snapshot(game);
     const fired = (s.shotsFired || 0) - a.shotsFired, hit = (s.shotsHit || 0) - a.shotsHit;
     const drill = !!game.practiceStage;
+    const actTwo = !drill && game.stage === ACT_TWO_STAGE - 1 && interludeLength(game) > INTERLUDE_LENGTH + .5;
     return {
-      stage: clamp(game.stage | 0, 1, 3), name: this.bossName || FLAGSHIP_NAMES[game.stage] || 'FLAGSHIP',
-      drill, final: drill || game.stage >= 3, x: this.bossX, y: this.bossY,
+      stage: sectorOf(game.stage), name: this.bossName || FLAGSHIP_NAMES[game.stage] || 'FLAGSHIP',
+      drill, actTwo, length: interludeLength(game), final: drill || game.stage >= CAMPAIGN_STAGES, x: this.bossX, y: this.bossY,
       kills: Math.max(0, (s.kills || 0) - a.kills), grazes: Math.max(0, (s.grazes || 0) - a.grazes),
       hits: Math.max(0, (s.hitsTaken || 0) - a.hitsTaken), accuracy: fired > 0 ? clamp(hit / fired) : -1,
       time: Math.max(0, (game.time || 0) - a.time), score: Math.max(0, (game.score || 0) - a.score)
@@ -194,7 +201,7 @@ export class Sequences {
     const inter = game.mode === 'playing' ? interludeProgress(game) : -1;
     const stageTime = Number(game.stageTime) || 0;
     const age = Number(game.boss?.age) || 0;
-    const intro = game.mode === 'playing' && !game.practiceStage && !game.boss && inter < 0 && stageTime < INTRO_LENGTH;
+    const intro = game.mode === 'playing' && !game.practiceStage && !game.boss && inter < 0 && stageTime < introLength(game.stage | 0);
     const plate = game.mode === 'playing' && game.boss && age < (game.practiceStage ? DRILL_INTRO_LENGTH : NAMEPLATE_LENGTH);
     if (!this.outro && warn < 0 && !intro && !plate && !(inter >= 0 && this.down) && !this.phaseFx && !this.lifeFx && !this.extendFx) return;
 
@@ -208,7 +215,11 @@ export class Sequences {
       if (intro) this.drawIntro(ctx, game, stageTime);
       if (plate) this.drawNameplate(ctx, game, age);
       if (this.phaseFx) this.drawPhase(ctx, this.phaseFx);
-      if (inter >= 0 && this.down) this.drawInterlude(ctx, this.down, inter * INTERLUDE_LENGTH, 1);
+      if (inter >= 0 && this.down) {
+        const te = inter * interludeLength(game);
+        this.drawInterlude(ctx, this.down, te, 1);
+        if (this.down.actTwo) this.drawActTwo(ctx, te - ACT_TWO_CARD_START, interludeLength(game) - ACT_TWO_CARD_START);
+      }
       // Stingers step below the warning bands when a flagship warning is up.
       const lower = warn >= 0 || intro;
       if (this.lifeFx) this.drawLifeLost(ctx, game, this.lifeFx, lower);
@@ -221,7 +232,7 @@ export class Sequences {
   beginOutro(game) {
     const won = game?.mode === 'victory', drill = !!game?.practiceStage;
     const length = drill ? (won ? OUTRO.drillVictory : OUTRO.drillGameover) : (won ? OUTRO.victory : OUTRO.gameover);
-    const stage = clamp((game?.stage | 0) || 1, 1, 3);
+    const stage = sectorOf((game?.stage | 0) || 1);
     this.outro = { start: now(), t: 0, length, won, drill, stage,
       name: this.bossName || FLAGSHIP_NAMES[stage], score: Number(game?.summary?.score ?? game?.score) || 0 };
     this.outroTime = 0; this.outroLength = length;
@@ -357,44 +368,51 @@ export class Sequences {
   // ---------- sector intro ----------
 
   drawIntro(ctx, game, t) {
-    const stage = clamp(game.stage | 0, 1, 3);
-    const a = envelope(t, INTRO_LENGTH, .22, .62);
+    const stage = sectorOf(game.stage);
+    const act2 = stage >= ACT_TWO_STAGE, L = introLength(stage);
+    const a = envelope(t, L, .22, .62);
     if (a <= 0) return;
     const cy = this.compact ? 300 : 272;
-    const rise = 6 * (1 - easeOut(t / .55)) - 12 * ramp(INTRO_LENGTH - .62, INTRO_LENGTH, t);
+    const rise = 6 * (1 - easeOut(t / .55)) - 12 * ramp(L - .62, L, t);
+    // Act II sectors arrive harder: a white-gold strike behind the card and gold rules.
+    if (act2 && !this.reducedEffects && t < .5) {
+      ctx.globalAlpha = .38 * (1 - t / .5); ctx.fillStyle = '#fff0c8'; ctx.fillRect(0, 0, W, H);
+    }
+    const accent = act2 ? '255,217,139' : '118,246,235';
     const open = this.reducedEffects ? 1 : easeOut(t / .42);
     ctx.save();
     this.scaleGroup(ctx, 270, cy);
     this.band(ctx, cy, 168, .64 * a);
     const y = cy + rise;
-    blit(ctx, this.label(two(stage), 176, 'rgba(118,246,235,.16)', { family: DISPLAY, weight: 900, stroke: true }),
+    blit(ctx, this.label(two(stage), 176, `rgba(${accent},.16)`, { family: DISPLAY, weight: 900, stroke: true }),
       270 + 10 * (1 - easeOut(t / 1.4)), y + 2, a);
     const half = 184 * open;
     ctx.globalAlpha = a;
     line(ctx, 270 - half, y - 44, 270 + half, y - 44, 'rgba(243,187,112,.7)');
-    line(ctx, 270 - half, y + 44, 270 + half, y + 44, 'rgba(118,246,235,.42)');
+    line(ctx, 270 - half, y + 44, 270 + half, y + 44, `rgba(${accent},.42)`);
     diamond(ctx, 270, y - 44, 3.5, C.amber);
     const bx = 108 * open + 82;
-    brackets(ctx, 270 - bx, y - 72, bx * 2, 146, 12, `rgba(118,246,235,${.55 * a})`);
+    brackets(ctx, 270 - bx, y - 72, bx * 2, 146, 12, `rgba(${accent},${.55 * a})`);
     ctx.globalAlpha = a;
-    wipe(ctx, this.label('OPERATION LONG MERIDIAN  ·  SECTOR ' + two(stage) + ' / 03', 10, C.gold, { spacing: 2.4 }), 270, y - 59, ramp(.12, .62, t) * 1.02, a);
+    const kicker = (act2 ? 'ACT II  ·  ' : 'OPERATION LONG MERIDIAN  ·  ') + 'SECTOR ' + two(stage) + OF;
+    wipe(ctx, this.label(kicker, 10, act2 ? C.coral : C.gold, { spacing: 2.4 }), 270, y - 59, ramp(.12, .62, t) * 1.02, a);
     const title = this.label(SECTOR_NAMES[stage] || 'SECTOR ' + two(stage), this.compact ? 34 : 40, C.pale, { family: DISPLAY, weight: 900, spacing: 3 });
     const reveal = this.reducedEffects ? ramp(0, .3, t) : easeOut((t - .06) / .5);
     const edge = this.reducedEffects ? blit(ctx, title, 270, y - 8, a * reveal) : wipe(ctx, title, 270, y - 8, reveal, a);
-    if (!this.reducedEffects && reveal > 0 && reveal < 1 && edge) line(ctx, edge, y - 30, edge, y + 14, `rgba(118,246,235,${.9 * (1 - reveal)})`, 2);
+    if (!this.reducedEffects && reveal > 0 && reveal < 1 && edge) line(ctx, edge, y - 30, edge, y + 14, `rgba(${accent},${.9 * (1 - reveal)})`, 2);
     if (title) this.shimmer(ctx, title, 270, y - 8, (t - 1) / .65, a);
     const tagA = a * ramp(.32, .72, t);
     blit(ctx, this.label(SECTOR_TAGLINES[stage] || '', 16, C.amber, { family: SERIF, weight: 400, italic: true }), 270, y + 25 + 5 * (1 - tagA), tagA);
     const footA = a * ramp(.5, .9, t);
     blit(ctx, this.label(SECTOR_COORDS[stage] || '', 9, C.muted, { spacing: 1.6 }), 270 - 184, y + 59, footA, 1, 'left');
-    blit(ctx, this.label('OBJECTIVE / ' + (FLAGSHIP_NAMES[stage] || 'FLAGSHIP'), 9, C.cyan, { spacing: 1.6 }), 270 + 184, y + 59, footA, 1, 'right');
+    blit(ctx, this.label('OBJECTIVE / ' + (FLAGSHIP_NAMES[stage] || 'FLAGSHIP'), 9, act2 ? C.gold : C.cyan, { spacing: 1.6 }), 270 + 184, y + 59, footA, 1, 'right');
     ctx.restore();
   }
 
   // ---------- flagship warning ----------
 
   drawWarning(ctx, game, t) {
-    const L = BOSS_WARNING_LEAD, stage = clamp(game.stage | 0, 1, 3);
+    const L = BOSS_WARNING_LEAD, stage = sectorOf(game.stage);
     const a = envelope(t, L, .2, .35);
     if (a <= 0) return;
     const reduced = this.reducedEffects;
@@ -415,7 +433,7 @@ export class Sequences {
     const word = this.label('WARNING', 54, C.red, { family: DISPLAY, weight: 900, spacing: 9 });
     if (!reduced) blit(ctx, this.label('WARNING', 54, 'rgba(118,246,235,.5)', { family: DISPLAY, weight: 900, spacing: 9 }), 268 - 3 * pulse, cy - 6, a * blink * .35);
     blit(ctx, word, 270, cy - 6, a * blink);
-    blit(ctx, this.label('HOSTILE FLAGSHIP APPROACHING', 11, C.pale, { spacing: 2.6 }), 270, cy + 32, a * ramp(.18, .5, t));
+    blit(ctx, this.label(stage >= ACT_TWO_STAGE ? 'THE BATTLE LINE TURNS TO ENGAGE' : 'HOSTILE FLAGSHIP APPROACHING', 11, C.pale, { spacing: 2.6 }), 270, cy + 32, a * ramp(.18, .5, t));
     ctx.restore();
 
     const pa = envelope(t - .85, L - .85, .3, .35) * a;
@@ -428,7 +446,7 @@ export class Sequences {
     line(ctx, 128, py - 26, 170, py - 26, C.coral, 2);
     const name = FLAGSHIP_NAMES[stage] || 'FLAGSHIP';
     wipe(ctx, this.label(name, 20, C.pale, { family: DISPLAY, weight: 900, spacing: 3 }), 136, py - 8, easeOut((t - .85) / .4), pa, 'left');
-    blit(ctx, this.label('FLAGSHIP ' + two(stage) + ' / 03', 9, C.muted, { spacing: 1.6 }), 404, py - 8, pa, 1, 'right');
+    blit(ctx, this.label('FLAGSHIP ' + two(stage) + OF, 9, C.muted, { spacing: 1.6 }), 404, py - 8, pa, 1, 'right');
     blit(ctx, this.label(FLAGSHIP_CLASSES[stage] || 'FLAGSHIP', 9, C.gold, { spacing: 1.8 }), 136, py + 13, pa * ramp(1.1, 1.5, t), 1, 'left');
     ctx.globalAlpha = pa; ctx.fillStyle = C.cyan; setFont(ctx, 11, LABEL, 800);
     ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
@@ -439,7 +457,7 @@ export class Sequences {
   // ---------- flagship nameplate / drill intro ----------
 
   drawNameplate(ctx, game, age) {
-    const stage = clamp(game.stage | 0, 1, 3), drill = !!game.practiceStage;
+    const stage = sectorOf(game.stage), drill = !!game.practiceStage;
     const L = drill ? DRILL_INTRO_LENGTH : NAMEPLATE_LENGTH;
     const a = envelope(age, L, .3, .6);
     if (a <= 0) return;
@@ -460,7 +478,7 @@ export class Sequences {
       line(ctx, 270 + nw, cy, 270 + span, cy, 'rgba(255,119,95,.55)');
       diamond(ctx, 270 - span, cy, 3, C.coral); diamond(ctx, 270 + span, cy, 3, C.coral);
     }
-    const kicker = drill ? 'FLAGSHIP DRILL  ·  UNRANKED' : 'FLAGSHIP ' + two(stage) + ' / 03  ·  ENGAGE';
+    const kicker = drill ? 'FLAGSHIP DRILL  ·  UNRANKED' : 'FLAGSHIP ' + two(stage) + OF + '  ·  ENGAGE';
     wipe(ctx, this.label(kicker, 10, drill ? C.cyan : C.coral, { spacing: 2.6 }), 270, cy - 34, ramp(.1, .55, age) * 1.02, a);
     blit(ctx, this.label(FLAGSHIP_CLASSES[stage] || 'FLAGSHIP', 10, C.gold, { spacing: 3.2 }), 270, cy + 30, a * ramp(.3, .7, age));
     if (drill) {
@@ -531,7 +549,8 @@ export class Sequences {
     }
     // Beat 2: tally card.
     const tt = te - 1.05;
-    const ta = envelope(tt, INTERLUDE_LENGTH - 1.05, .32, d.final ? 0 : .34) * fade;
+    const tallyEnd = d.actTwo ? ACT_TWO_TALLY_END : INTERLUDE_LENGTH;
+    const ta = envelope(tt, tallyEnd - 1.05, .32, d.final ? 0 : .34) * fade;
     if (ta <= 0) return;
     const rows = d.drill
       ? [['ACCURACY', d.accuracy, 'pct'], ['GRAZES', d.grazes, 'int'], ['HITS TAKEN', d.hits, 'hits']]
@@ -587,11 +606,59 @@ export class Sequences {
     const fa = ta * ramp(1.35, 1.75, tt);
     if (fa > 0) {
       const lines = d.drill ? [['UNRANKED  ·  CAMPAIGN RECORDS PRESERVED', C.muted]]
-        : d.stage >= 3 ? [['FLEET BROKEN  ·  LONG MERIDIAN SECURED', C.gold]]
+        : d.actTwo ? [['THE CROWN FALLS  ·  THE GATE OPENS', C.gold]]
+        : d.final ? [['LEVIATHAN SUNK  ·  THE TYPHOON BREAKS', C.gold]]
         : [['RESUPPLY  ·  HULL +1  ·  SPECIAL +1', C.cyan], ['NEXT  ·  SECTOR ' + two(d.stage + 1) + ' — ' + (SECTOR_NAMES[d.stage + 1] || ''), C.muted]];
       this.band(ctx, bottom + 24 + (lines.length - 1) * 9.5, 30 + lines.length * 19, .5 * fa);
       lines.forEach(([str, color], i) => blit(ctx, this.label(str, 10, color, { spacing: 2 }), 270, bottom + 24 + i * 19, fa));
     }
+    ctx.restore();
+  }
+
+  // ---------- act II ----------
+
+  // The Crown has fallen and the campaign continues: the whole game levels up. Drawn over the
+  // closing typhoon cloud deck (background.js) while the score hands off to Act II.
+  drawActTwo(ctx, t, L) {
+    if (t < 0 || L <= 0) return;
+    const reduced = this.reducedEffects;
+    const a = envelope(t, L, .18, .5);
+    if (a <= 0) return;
+    // Storm dark settles over the field; letterbox bars slide in like a cutscene.
+    ctx.globalAlpha = .5 * a; ctx.fillStyle = '#030807'; ctx.fillRect(0, 0, W, H);
+    const bar = 64 * (reduced ? a : easeInOut(t / .6)) * (1 - ramp(L - .45, L, t));
+    ctx.globalAlpha = .92; ctx.fillStyle = '#020605';
+    ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar);
+    ctx.globalAlpha = .45 * a; line(ctx, 0, bar, W, bar, C.gold); line(ctx, 0, H - bar, W, H - bar, C.gold);
+    // White-gold strike as the title lands, and a second smaller one a beat later.
+    if (!reduced) for (const [at, k] of [[0, .62], [1.25, .28]]) {
+      const age = t - at;
+      if (age < 0 || age > .45) continue;
+      const f = age < .05 ? age / .05 : age < .09 ? .4 : 1 - (age - .09) / .36;
+      ctx.globalAlpha = k * f; ctx.fillStyle = '#fff1cf'; ctx.fillRect(0, 0, W, H);
+    }
+    const cy = this.compact ? 400 : 386;
+    ctx.save();
+    this.scaleGroup(ctx, 270, cy);
+    // Giant outlined numeral behind the title.
+    blit(ctx, this.label('II', 300, 'rgba(255,217,139,.13)', { family: DISPLAY, weight: 900, stroke: true }), 270, cy - 10, a, 1 + .06 * (1 - easeOut(t / 2)));
+    this.band(ctx, cy - 2, 210, .55 * a, '3,10,9');
+    const open = reduced ? 1 : easeOut(t / .5), half = 200 * open;
+    ctx.globalAlpha = a;
+    line(ctx, 270 - half, cy - 66, 270 + half, cy - 66, 'rgba(255,217,139,.75)');
+    line(ctx, 270 - half, cy + 58, 270 + half, cy + 58, 'rgba(255,217,139,.4)');
+    diamond(ctx, 270 - half, cy - 66, 3, C.gold); diamond(ctx, 270 + half, cy - 66, 3, C.gold);
+    wipe(ctx, this.label('OPERATION LONG MERIDIAN  ·  THE CROWN HAS FALLEN', 10, C.gold, { spacing: 2.6 }), 270, cy - 84, ramp(.05, .55, t) * 1.02, a);
+    const punch = reduced ? 1 : 1 + .28 * (1 - easeOut(t / .32));
+    const title = this.label('ACT II', 92, C.pale, { family: DISPLAY, weight: 900, spacing: 14 });
+    blit(ctx, title, 270, cy - 18, a * ramp(0, .12, t), punch);
+    if (!reduced && t < .3) blit(ctx, this.label('ACT II', 92, '#fff6e0', { family: DISPLAY, weight: 900, spacing: 14 }), 270, cy - 18, a * (1 - t / .3), punch);
+    if (title) this.shimmer(ctx, title, 270, cy - 18, (t - .5) / .8, a);
+    const la = a * ramp(.55, .95, t);
+    blit(ctx, this.label('The Crown was only the gate.', 24, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 34 + (reduced ? 0 : 6 * (1 - la)), la);
+    const na = a * ramp(1.3, 1.7, t);
+    blit(ctx, this.label('AHEAD  ·  SECTOR ' + two(ACT_TWO_STAGE) + ' — ' + SECTOR_NAMES[ACT_TWO_STAGE] + '  ·  ' + FLAGSHIP_NAMES[ACT_TWO_STAGE], 10, C.pale, { spacing: 2.2 }), 270, cy + 80, na);
+    blit(ctx, this.label('THE REAL FLEET RIDES THE TYPHOON', 9, C.coral, { spacing: 2.6 }), 270, cy + 100, a * ramp(1.6, 2, t));
     ctx.restore();
   }
 
@@ -669,14 +736,18 @@ export class Sequences {
       ctx.save();
       this.scaleGroup(ctx, 270, cy);
       this.band(ctx, cy, 200, .55 * ramp(.05, .5, t));
-      const kicker = o.drill ? o.name + '  ·  UNRANKED' : 'LONG MERIDIAN  ·  FLEET BROKEN';
+      // Campaign victory after the last built sector; the copy points honestly at what lies beyond.
+      const kicker = o.drill ? o.name + '  ·  UNRANKED' : SECTOR_NAMES[o.stage] + '  ·  ' + (FLAGSHIP_NAMES[o.stage] || 'FLAGSHIP') + ' SUNK';
       wipe(ctx, this.label(kicker, 11, C.gold, { spacing: 3.2 }), 270, cy - 64, ramp(.15, .55, t) * 1.02, 1);
-      const word = this.label(o.drill ? 'DRILL' : 'OPERATION', 46, C.pale, { family: DISPLAY, weight: 900, spacing: 6 });
+      const word = this.label(o.drill ? 'DRILL' : 'THE STORM', 46, C.pale, { family: DISPLAY, weight: 900, spacing: 6 });
       reduced ? blit(ctx, word, 270, cy - 20, ramp(.05, .4, t)) : wipe(ctx, word, 270, cy - 20, easeOut((t - .08) / .5), 1);
       const ea = ramp(.3, .7, t);
-      blit(ctx, this.label('complete.', 54, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 36 + (reduced ? 0 : 8 * (1 - ea)), ea);
+      blit(ctx, this.label(o.drill ? 'complete.' : 'breaks.', 54, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 36 + (reduced ? 0 : 8 * (1 - ea)), ea);
       this.flare(ctx, cy + 78, W * (reduced ? 1 : easeOut((t - .4) / .5)), .8 * ramp(.4, .6, t) * (1 - ramp(1.1, 1.5, t)));
-      if (!o.drill) blit(ctx, this.label('FINAL SCORE  ·  ' + String(Math.floor(o.score)).padStart(8, '0'), 10, C.muted, { spacing: 2.4 }), 270, cy + 98, ramp(.6, .9, t));
+      if (!o.drill) {
+        blit(ctx, this.label('Above the storm, the factories fly…', 15, C.amber, { family: SERIF, weight: 400, italic: true }), 270, cy + 100, ramp(.7, 1.1, t));
+        blit(ctx, this.label('FINAL SCORE  ·  ' + String(Math.floor(o.score)).padStart(8, '0'), 10, C.muted, { spacing: 2.4 }), 270, cy + 128, ramp(.9, 1.2, t));
+      }
       ctx.restore();
     } else {
       // Signal lost: drain colour, close in the dark, break the feed.

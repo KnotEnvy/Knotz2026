@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game } from '../src/game.js';
+import { CAMPAIGN_STAGES, Game } from '../src/game.js';
 
 const start = game => {
   game.update(0, { start: true });
@@ -518,9 +518,9 @@ test('charged roll strikes an enemy once and reports conversion rewards', () => 
   assert.equal(target.hp, struckHp, 'each roll damages a given enemy once');
 });
 
-test('a costly three-sector victory still earns a meaningful completion grade', () => {
+test('a costly campaign victory still earns a meaningful completion grade', () => {
   const game=new Game(); start(game);
-  game.stage=3;game.score=841597;
+  game.stage=CAMPAIGN_STAGES;game.score=841597;
   game.player.lives=2;
   Object.assign(game.stats,{kills:100,grazes:335,shotsFired:1000,shotsHit:500,hitsTaken:33,livesLost:4,bossesDefeated:3});
   game._advanceStage();
@@ -530,7 +530,7 @@ test('a costly three-sector victory still earns a meaningful completion grade', 
 
 test('victory and defeat expose performance summaries and grades', () => {
   const win = new Game(); start(win);
-  win.stage = 3; win.score = 80000; win.stats.kills = 20;
+  win.stage = CAMPAIGN_STAGES; win.score = 80000; win.stats.kills = 20;
   win.stats.shotsFired = 100; win.stats.shotsHit = 65;
   win._advanceStage();
   assert.equal(win.mode, 'victory');
@@ -640,7 +640,7 @@ test('lane effects receive the exact bullet origins and speed for synchronized m
  for(const row of event.rows)assert.ok(game.bullets.some(b=>b.y===row.y&&b.vy===event.speed));
 });
 test('victory finalizes before a leftover pickup can change the result',()=>{
- const game=new Game();start(game);game.stage=3;game._transition=.001;
+ const game=new Game();start(game);game.stage=CAMPAIGN_STAGES;game._transition=.001;
  const p=game.player;p.hp=2;game.pickups.push({x:p.x,y:p.y,r:16,type:'shield',age:0,vy:0});
  game.update(1/60,{});assert.equal(game.mode,'victory');assert.equal(game.stats.pickups,0);assert.equal(p.hp,2);assert.equal(game.summary.score,game.score);
 });

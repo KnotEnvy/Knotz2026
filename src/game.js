@@ -7,7 +7,13 @@ const STREAM_CEILING = 8;
 const OVERPOWER_DAMAGE = .06;
 const MAX_ESCORTS = 6;
 const SHOT_BUDGET = 650;           // live player shots; oldest small shots go first
-const BULLET_CAP = 700;            // enemy bullets (Act II raises this to ~900)
+const BULLET_CAP = 700;            // enemy bullets, sectors 1-3
+// Act II (sectors 4+): docs/design/act-two.md, "Sector 4 build contract".
+export const CAMPAIGN_STAGES = 4;  // last playable sector; victory follows its flagship
+export const ACT_TWO_STAGE = 4;
+export const ACT_TWO_BULLET_CAP = 900;
+const INTERLUDE = 3.5;             // sector-clear interlude (timeline INTERLUDE_LENGTH)
+const ACT_TWO_INTERLUDE = 6.5;     // the "ACT II" card after the Crown, campaign only
 const SALVAGE_LIFE = 9;            // seconds; tokens blink for their last 2.5 s
 const SALVAGE_MAX_TOKENS = 10;
 const SALVAGE_GRACE = .8;          // burst phase: no magnet or pickup, so a hit always scatters
@@ -30,6 +36,7 @@ const REFLECT_COST = .06;          // reflector seconds burned per reflected bul
 const ORBIT_RADIUS = 46;
 const ORBITAL_COOL = .6;           // seconds before an orbital can eat again
 const ORBITALS_SHOWN = 6;
+const FLAK_SCREEN_TIME = .3;       // s (~230 px): Kestrel flak eats bullets only this close to the wing
 const PARTICLE_CAP = 380;          // non-critical particles are dropped at the cap
 const PARTICLE_HARD_CAP = 520;     // critical feedback (phase, scatter, bomb...) may overflow to here
 const CRITICAL_PARTICLES = new Set(["boss","phase","ring","bomb","scatter","damage","shield","power","pickup","roll","explode"]);
@@ -49,16 +56,69 @@ const BONUS_LADDER = ["escort","sidewinder","signature","power","reflector","shi
 const BONUS_CYCLE = ["sidewinder","escort","signature","reflector","shield"];
 // Chance that an ordinary kill rolls the weighted table (round 3: x0.7).
 // Formation scouts and wings never roll; they pay out as a squadron bonus.
-const DROP_CHANCE = {scout:.025,wing:.03,bomber:.18,ace:.1,turret:.18,carrier:1,mini:1};
+// Act II: interceptors pay out through the squadron bonus; hulls and turrets
+// carry authored drops; scavengers return what they stole; mines and enemy
+// torpedoes never drop.
+const DROP_CHANCE = {scout:.025,wing:.03,bomber:.18,ace:.1,turret:.18,carrier:1,mini:1,
+  interceptor:0,gunboat:.16,hull:0,hullTurret:.08,scavenger:0,mine:0,torpedoEnemy:0};
 // Bonus items on top of the authored drop: carriers/minis drop 2-3 in total.
 const BONUS_DROPS = {carrier:1,mini:2};
-const BIG_TARGETS = new Set(["boss","bomber","turret","carrier","mini"]);
+const BIG_TARGETS = new Set(["boss","bomber","turret","carrier","mini","hull","hullTurret","gunboat"]);
+// Sector-4 enemy types. Surface craft (hulls, their turrets, gunboats) sit
+// below the air layer: body contact never hurts the player.
+const ACT_TWO_TYPES = new Set(["interceptor","gunboat","hull","hullTurret","scavenger","mine","torpedoEnemy"]);
+const SURFACE_TYPES = new Set(["gunboat","hull","hullTurret"]);
+const FORMATION_TYPES = new Set(["scout","wing","interceptor"]);
+// Act II HP curve, tuned against the power-25 reference kit (P25, 6 escorts,
+// sidewinder 4, signature 4; raw flagship DPS 1,820-2,110):
+//   popcorn (interceptor, scavenger, torpedo, mine) dies to a single volley;
+//   gunboats in ~0.5 s; a destroyer in ~4-9 s of focused fire including its
+//   turrets, the cruiser (the mid-sector peak) in ~7-14 s.
+// [hp, radius, scroll vy, score]. Later Act II sectors scale HP by +35% each.
+const ACT_TWO_SPECS = {interceptor:[55,14,0,260],gunboat:[900,21,52,900],
+  hullTurret:[1100,16,0,1500],scavenger:[45,11,0,450],mine:[120,13,50,180],torpedoEnemy:[42,9,0,160]};
+const HULL_CLASSES = {
+  destroyer:{hp:5600,w:46,h:132,vy:40,value:9000,turretHp:1100},
+  cruiser:{hp:9000,w:62,h:176,vy:38,value:20000,turretHp:1600}
+};
+const HULL_ARMOR = .35;            // hull damage share while any of its turrets lives
+const LEVIATHAN_ARMOR = .25;       // core damage share while any deck turret lives
+const LEVIATHAN_HP = 145000;
+const LEVIATHAN_TURRET_HP = 1800;
+const LEVIATHAN_SWAY = 20;         // px each side of centre
+const VOID_MIN_RADIUS = 5;
+const SCAVENGER_CAP = 4;           // live scavengers at once
+const SCAVENGER_CALL = .6;         // seconds from a sector-4 scatter to the scavenger call-in
+const SCAVENGER_SPEED = 330;       // px/s while flying at a salvage target
+const CRUISER_TORPEDO_CYCLE = 3.2; // seconds between cruiser torpedo pairs
+// Threat rank (Act II is "aware of the arsenal"): game.threat follows the
+// carried arsenal on a saturating curve, THREAT_MAX*tanh((arsenal-FLOOR)/SPAN).
+// A bare ship sits at 0, a power-12 mid kit near 0.25, the power-25 reference
+// kit near 0.69 and Crown-arrival kits at 0.85-0.87, so the rank still moves
+// across real kits instead of pinning at a cap. It sets Act II fire cadence
+// (_pace), bullet speed and volley size. It rises slowly, so each sector
+// opens on a power trip, and falls after a scatter, so a stripped ship can
+// rebuild while it chases its salvage.
+const THREAT_FLOOR = 6, THREAT_SPAN = 37, THREAT_MAX = .88, THREAT_RISE = .15, THREAT_FALL = .35;
+// Threat gates (on the curve above). LOW: a stripped ship (interceptors skip
+// their entry burst; hull turrets take +50% damage). SECOND_BURST, a kitted
+// ship: interceptors fire their entry burst at the field edge as narrow 3-way
+// rounds and add a third burst; gunboats add a re-aimed follow-up burst.
+const LOW_THREAT = .3, SECOND_BURST_THREAT = .65, WEAK_KIT_TURRET_BONUS = 1.5;
+// Volley sizes grow with threat and are full from VOLLEY_FULL (about a
+// power-30 full kit) upward.
+const VOLLEY_FULL = .75;
+// Rescue drops, the other half of the rank: squadron leads and gunboats carry
+// a power level only while threat is below this (a stripped or bare ship),
+// so a weak pilot can rebuild without feeding a full kit's snowball.
+const RESCUE_THREAT = .5;
 const BURST_CUE_COOLDOWN = .085;  // per target: missile/torpedo burst cues (not damage)
 const SMALL_SHOTS = new Set(["shot","lance","escort","flak","orbital","reflect"]);
 const DRILL_LOADOUTS = [null,
   {level:6,escorts:2,sidewinder:1,signature:0},    // Vesper
   {level:8,escorts:4,sidewinder:1,signature:1},    // Aurelia
-  {level:10,escorts:4,sidewinder:2,signature:2}    // The Crown
+  {level:10,escorts:4,sidewinder:2,signature:2},   // The Crown
+  {level:25,escorts:6,sidewinder:4,signature:4,shield:3}  // LEVIATHAN: the power-25 reference kit
 ];
 // Visual growth of main-gun shots past the stream ceiling: logarithmic with no
 // hard stop. +0.9 px at power 13, +1.8 at 20, +2.5 at 30, +3.3 at 50, +4.1 at 80.
@@ -82,14 +142,24 @@ const BOSS_LEARN_AGES = { phase2: 10, phase3: 18, defeat: 22 };
 // A phase still lasts at least BOSS_PHASE_MIN of its authored window.
 const BOSS_LEARN_END = [0, BOSS_LEARN_AGES.phase2, BOSS_LEARN_AGES.phase3, BOSS_LEARN_AGES.defeat];
 const BOSS_LEARN_START = [0, 0, BOSS_LEARN_AGES.phase2, BOSS_LEARN_AGES.phase3];
+// LEVIATHAN plays longer phases: deck guns until learn age 24, broadside
+// until 46, the monsoon engine until 68 (then the desperation curtain ends).
+const LEVIATHAN_LEARN_END = [0, 24, 46, 68];
+const LEVIATHAN_LEARN_START = [0, 0, 24, 46];
 const BOSS_PHASE_MIN = .55;
 const BOSS_GUARD_K = 2.6;
-const BOSS_GUARD_PAR = [0, .22, .19, .17];
+// LEVIATHAN's HP pool is ~56x Vesper's, so its absorbed share per second is
+// small; K is scaled so surplus firepower still buys learn age.
+const BOSS_GUARD_K_BY_STAGE = [0, BOSS_GUARD_K, BOSS_GUARD_K, BOSS_GUARD_K, 20];
+// Par = share of max HP per second the sector's reference kit deals.
+// LEVIATHAN: the power-25 reference kit (~2,300 DPS on 145,000 HP).
+const BOSS_GUARD_PAR = [0, .22, .19, .17, .016];
 const BOSS_GUARD_SMOOTH = .4;      // seconds; absorbed-rate smoothing window
 const LANE_BEATS = [null,
   [[10,150],[29,390],[47,175]],
   [[9,385],[27,155],[44,365],[61,185]],
-  [[8,160],[25,380],[42,180],[59,360],[74,155]]
+  [[8,160],[25,380],[42,180],[59,360],[74,155]],
+  [[19,150],[43,385],[71,165],[84,375],[90,170]]
 ];
 // Each sector has its own cadence. The gaps before the closing acts let old
 // fire leave the screen before the next formation arrives.
@@ -103,7 +173,20 @@ const STAGE_BEATS = [null,
   [[.7,"curtain"],[5,"drift"],[9,"pincer"],[13,"ace"],[17,"relay"],[21,"mini"],
    [25,"curtain"],[29,"flank"],[35,"wing"],[39,"pincer"],[43,"relay"],
    [47,"mini"],[51,"drift"],[57,"curtain"],[62,"flank"],[66,"ace"],
-   [70,"turret"],[74,"pincer"],[78,"relay"]]
+   [70,"turret"],[74,"pincer"],[78,"relay"]],
+  // Sector 4, IRON MONSOON (~95 s). 1: squadrons to melt (2.5-12 s; the first
+  // waits out the 3.4 s intro card, and the four stay ~2.3 s apart so a weak
+  // ship can wipe each and catch its rescue drop). 2: the
+  // destroyer hull. 3: scavengers in a curtain. 4: twin gunboat lines.
+  // 5: the minefield corridor. 6: the cruiser peak. 7: a breather, then the
+  // interceptor pincer with lane sweeps.
+  [[2.5,"loopL"],[4.9,"loopR"],[7.2,"riseL"],[9.5,"sweepL"],
+   [12,"destroyer"],[15,"loopR"],[18.5,"sweepR"],
+   [24,"scavCurtain"],[30.5,"loopL"],
+   [33.5,"boatLines"],[39,"riseR"],
+   [46,"minefield"],[50,"sweepL"],[52.5,"minefield"],[56.5,"loopR"],
+   [60,"cruiser"],[65,"riseL"],[69,"sweepR"],
+   [80,"pincerSweep"],[82.5,"riseBoth"],[86,"pincerLoop"],[89.5,"pincerSweep"],[92,"riseBoth"]]
 ];
 export class Game {
   constructor() { this.width = 540; this.height = 900; this.best = 0; this.shipId="kestrel"; this.reset(); }
@@ -111,10 +194,10 @@ export class Game {
     this.mode = "title"; this.practiceStage=0; this.time = 0; this.stage = 1; this.stageTime = 0;
     this.scroll = 0; this.score = 0; this.combo = 1; this.graze = 0; this._nextExtend = 0;
     this.shake = 0; this.flash = 0; this.wave = 0; this.wakeConversions = 0;
-    this.stageGoal = [0, 62, 73, 82];
+    this.stageGoal = [0, 62, 73, 82, 95];
     this.shipId=SHIP_DEFS[this.shipId] ? this.shipId : "kestrel";
     this.selectedShip=SHIP_DEFS[this.shipId];
-    this.player = {x:270,y:750,r:this.shipId==="manta"?9:this.shipId==="wraith"?7:8,hp:4,maxHp:4,lives:3,bombs:2,power:SORTIE_POWER,level:SORTIE_POWER,
+    this.player = {x:270,y:750,r:this.shipId==="manta"?9:7,hp:4,maxHp:4,lives:3,bombs:2,power:SORTIE_POWER,level:SORTIE_POWER,
       shipId:this.shipId,weaponType:this.selectedShip.weapon,specialType:this.selectedShip.special,
       shield:this.shipId==="manta"?1:0,maxShield:this.shipId==="manta"?1:0,shieldCap:SHIELD_CAP,drones:0,
       escorts:0,escortSlots:[],sidewinder:0,reflector:0,signature:0,orbitals:[],arsenal:0,magnetBoost:0,
@@ -122,13 +205,14 @@ export class Game {
     this.enemies=[]; this.bullets=[]; this.shots=[]; this.pickups=[]; this.particles=[];
     this.stats={kills:0,grazes:0,shotsFired:0,shotsHit:0,pickups:0,powerPeak:SORTIE_POWER,arsenalPeak:0,
       bombsUsed:0,rolls:0,conversions:0,hitsTaken:0,livesLost:0,bossesDefeated:0,reactorsBroken:0,
-      scatters:0,salvageRecovered:0,salvageLost:0,reflected:0,orbitalEats:0,squadronBonuses:0};
+      scatters:0,salvageRecovered:0,salvageLost:0,reflected:0,orbitalEats:0,flakEats:0,squadronBonuses:0};
     this.summary=null;
     this.boss=null; this.events=[]; this._seed=20261942; this._acc=0;
-    this._beatIndex=0; this._laneIndex=0; this._transition=0; this._fireClock=0; this._comboClock=0;
+    this._beatIndex=0; this._laneIndex=0; this._transition=0; this._transitionLength=INTERLUDE; this._fireClock=0; this._comboClock=0;
     this._id=0; this._last={}; this._hitAudioClock=0; this._missileClock=0; this._rollSerial=0;
     this._sidewinderClock=0; this._signatureClock=0; this._escortVolley=0; this._bonusIndex=0;
     this._squads=new Map(); this._squadId=0;
+    this._pickupId=0; this._scavengerCall=0; this._scavengerFlank=false; this.threat=0;
     this._syncArsenal();
   }
   selectShip(id) {
@@ -137,7 +221,8 @@ export class Game {
     const p=this.player;
     p.shipId=id;p.weaponType=this.selectedShip.weapon;p.specialType=this.selectedShip.special;
     p.shield=id==="manta"?1:0;p.maxShield=id==="manta"?1:0;p.shieldCap=SHIELD_CAP;
-    p.r=id==="manta"?9:id==="wraith"?7:8;
+    // Hurtbox radius: Manta 9, Kestrel and Wraith 7 (Kestrel was 8 until sector-4 round 2).
+    p.r=id==="manta"?9:7;
     // A new airframe starts bare (the sortie loadout), never with the last ship's kit.
     p.level=p.power=SORTIE_POWER;p.escorts=0;p.escortSlots=[];p.sidewinder=0;p.signature=0;
     p.reflector=0;p.orbitals=[];p.drones=0;p.magnetBoost=0;
@@ -238,15 +323,16 @@ export class Game {
   }
   _start() { const best=this.best,id=this.shipId; this.reset(); this.shipId=id; this.best=best; this.mode="playing"; this._event("stage",270,170,1); }
   startDrill(stage) {
-    stage=Math.max(1,Math.min(3,Math.floor(Number(stage)||1)));
+    stage=Math.max(1,Math.min(CAMPAIGN_STAGES,Math.floor(Number(stage)||1)));
     this._start();this.practiceStage=stage;this.stage=stage;this.stageTime=this.stageGoal[stage];
     // Drills start with a loadout matching the sector a campaign pilot would bring.
     const p=this.player,kit=DRILL_LOADOUTS[stage];
     p.level=p.power=kit.level;p.escorts=kit.escorts;p.sidewinder=kit.sidewinder;p.signature=kit.signature;
-    p.drones=0;p.shield=p.maxShield=p.shipId==="manta"?2:0;
+    p.drones=0;p.shield=p.maxShield=kit.shield??(p.shipId==="manta"?2:0);
     this._syncEscortSlots();for(const slot of p.escortSlots){slot.x=p.x+slot.side*(42+slot.rank*30);slot.y=p.y+14;}
     this._syncOrbitals();this._syncArsenal();
     p.invuln=2;this.stats.powerPeak=p.level;
+    if(stage>=ACT_TWO_STAGE)this.threat=this._threatTarget();
     this.events=[];this._spawnBoss();return true;
   }
   update(dt,input={}) {
@@ -307,6 +393,17 @@ export class Game {
         this._spawnLaneSweep(lanes[this._laneIndex][1]);
         this._laneIndex++;
       }
+    }
+    if(this.stage>=ACT_TWO_STAGE) {
+      const want=this._threatTarget(),rate=want>this.threat?THREAT_RISE:THREAT_FALL;
+      this.threat+=this._clamp(want-this.threat,-rate*h,rate*h);
+    } else this.threat=0;
+    // Act II: a scatter mid-sector calls scavengers in after the salvage.
+    if(this._scavengerCall&&this.time>=this._scavengerCall) {
+      this._scavengerCall=0;
+      // A kit worth racing for: they cut in from the sides, level with the
+      // salvage. A ship that was already stripped meets the slower top dive.
+      if(this._transition<=0&&!this.boss)this._launchScavengers(2,null,false,this._scavengerFlank?this._salvageHeight():null);
     }
     if(this.mode!=='playing')return;
     this._updateEnemies(h); this._updateBullets(h); this._applyReactorCover(); this._updateShots(h);
@@ -571,6 +668,7 @@ export class Game {
   _enemy(type,x,y,o={}) {
     const specs={scout:[22,15,150,160],wing:[30,17,155,220],bomber:[72,25,98,470],
       ace:[50,20,170,400],turret:[90,22,94,420],carrier:[125,27,75,600],mini:[250,34,54,1200]};
+    if(ACT_TWO_TYPES.has(type))return this._actTwoEnemy(type,x,y,o);
     const [baseHp,r,vy,value]=specs[type],hp=baseHp*(1+(this.stage-1)*.22);
     const e={id:++this._id,type,x,y,baseX:x,r,hp,maxHp:hp,age:0,vy:o.vy??vy,
       vx:o.vx||0,turnAt:o.turnAt||999,turnVx:o.turnVx||0,amp:o.amp||0,freq:o.freq||1.4,phase:o.phase||0,
@@ -582,7 +680,8 @@ export class Game {
   // A formation wave whose craft all fall to the player earns a bonus fan.
   _newSquad() { const id=++this._squadId;this._squads.set(id,{total:0,killed:0});return id; }
   _spawnStageBeat(pattern) {
-    if(pattern==="drift") this._spawnDrift();
+    if(this.stage>=ACT_TWO_STAGE&&pattern!=="curtain"&&pattern!=="drift"&&pattern!=="flank") this._spawnActTwoBeat(pattern);
+    else if(pattern==="drift") this._spawnDrift();
     else if(pattern==="flank") this._spawnFlank();
     else this._spawnWave(pattern);
     this._event("wave",270,0,pattern);
@@ -666,7 +765,7 @@ export class Game {
   _spawnLaneSweep(gap) {
     // Two slow rows announce the danger at mid-field before reaching the
     // player. The next opening moves a short, reachable distance sideways.
-    const color=this.stage===3?"magenta":this.stage===2?"rose":"amber";
+    const color=this.stage>=4?"rose":this.stage===3?"magenta":this.stage===2?"rose":"amber";
     const speed=138+this.stage*11;
     const next=this._clamp(gap+(gap<270?90:-90),95,445);
     for(let row=0;row<2;row++) {
@@ -693,16 +792,428 @@ export class Game {
     this._event("flank",270,y,0);
   }
   _spawnBoss() {
-    this.enemies=[];this.bullets.length=0;
-    const names=["","VESPER","AURELIA","THE CROWN"];
-    const hp=[0,2600,4700,5800][this.stage];
+    // A scavenger still carrying salvage when the flagship arrives takes it along.
+    for(const e of this.enemies)if(!e.dead&&e.carrying)this.stats.salvageLost+=e.carrying.value||1;
+    this.enemies=[];this.bullets.length=0;this._scavengerCall=0;
+    const names=["","VESPER","AURELIA","THE CROWN","LEVIATHAN"];
+    const hp=[0,2600,4700,5800,LEVIATHAN_HP][this.stage];
+    const leviathan=this.stage===4;
+    // w/h are the collision half-extents (an ellipse); LEVIATHAN is far wider.
     this.boss={id:++this._id,type:"boss",name:names[this.stage],
-      x:270,y:-145,r:70,hp,maxHp:hp,age:0,phase:1,fireAt:4.1,
+      x:270,y:leviathan?-210:-145,r:leviathan?80:70,w:leviathan?210:98,h:leviathan?80:55,
+      hp,maxHp:hp,age:0,phase:1,fireAt:4.1,
       flash:0,angle:0,guard:false,guardUntil:0,learnShift:0,phaseStart:0,guardAbsorb:0,absorbRate:0,
       seed:this._rand(),value:12000*this.stage};
     this._squads.clear();
     this.enemies.push(this.boss);
+    if(leviathan)this._rigLeviathan(this.boss);
     this.flash=.45;this.shake=5;this._event("bossEnter",270,285,this.stage);
+  }
+
+  // ---- Act II: sector 4, IRON MONSOON ------------------------------------
+  // A non-finite arsenal (never produced by play) degrades to threat 0
+  // instead of poisoning every Act II cooldown with NaN.
+  _threatTarget() {
+    const raw=(this.player.arsenal-THREAT_FLOOR)/THREAT_SPAN;
+    return Number.isFinite(raw)?THREAT_MAX*Math.tanh(Math.max(0,raw)):0;
+  }
+  // Cooldown multiplier and bullet speed for Act II sources at the current threat.
+  // A bare ship (threat 0) sees fire 1.8x slower than authored; the
+  // reference kit (~0.69) about 1.35x faster; a Crown-arrival kit (~0.86) 1.6x.
+  _pace() { const t=this.threat;return 1.8/(1+1.61*t+.66*t*t); }
+  _vel(speed) { const t=this.threat;return speed*(1+.1*t+.05*t*t); }
+  // 0..1 share of the full Act II volley size at the current threat.
+  _volley() { return Math.min(1,this.threat/VOLLEY_FULL); }
+  // Void rounds are the counter to a maxed loadout: when the ship flies
+  // ghost orbitals (2+) or a live reflector, the last round of each
+  // interceptor burst and every third gunboat or turret volley is void.
+  // Kestrel flak cannot eat them either.
+  _voidAware() { const p=this.player;return p.orbitals.length>=2||p.reflector>0; }
+  _voidVolley() {
+    if(!this._voidAware())return "red";
+    this._voidCount=(this._voidCount||0)+1;
+    return this._voidCount%3===0?"void":"red";
+  }
+  // LEVIATHAN's own guns lean less on the rank: 1.35x slower for a bare ship,
+  // about authored pace for the reference kit, 1.15x faster at the top.
+  _bossPace() { const t=this.threat;return 1.35/(1+.45*t+.2*t*t); }
+  // HP grows +35% per Act II sector past the first.
+  _actTwoScale() { return 1+Math.max(0,this.stage-ACT_TWO_STAGE)*.35; }
+  _actTwoEnemy(type,x,y,o={}) {
+    let hp,r,vy,value;
+    if(type==="hull") {
+      const c=HULL_CLASSES[o.hullClass]||HULL_CLASSES.destroyer;
+      ({hp,vy,value}=c);r=c.w;
+    } else [hp,r,vy,value]=ACT_TWO_SPECS[type];
+    if(o.hp)hp=o.hp;
+    hp*=this._actTwoScale();
+    const e={id:++this._id,type,x,y,baseX:x,r,hp,maxHp:hp,age:-(o.delay||0),vx:o.vx||0,vy:o.vy??vy,
+      turnAt:999,turnVx:0,amp:o.amp||0,freq:o.freq||1.4,phase:o.phase||0,
+      fireAt:o.fireAt??1.2,fireRate:o.fireRate||2,flash:0,angle:o.angle??0,
+      seed:this._rand(),value:o.value??value,drop:o.drop||null};
+    if(o.bonusDrops)e.bonusDrops=o.bonusDrops;
+    if(o.rescue)e.rescue=true;
+    if(type==="interceptor") {
+      Object.assign(e,{path:o.path||"loop",side:o.side||1,x0:x,y0:y,speed:o.speed||300,
+        loopY:o.loopY??300,loopR:o.loopR??78,hidden:true,fired:0,burstLeft:0,burstClock:0});
+    } else if(type==="hull") {
+      const c=HULL_CLASSES[o.hullClass]||HULL_CLASSES.destroyer;
+      Object.assign(e,{hullClass:o.hullClass||"destroyer",w:c.w,h:c.h,turrets:[],turretsAlive:0,
+        torpedoAt:o.torpedoes?3.5:Infinity});
+    } else if(type==="hullTurret") {
+      Object.assign(e,{parentId:o.parent.id,ox:o.ox,oy:o.oy,gun:o.gun,aim:Math.PI/2,burstLeft:0,burstClock:0,
+        x:o.parent.x+o.ox,y:o.parent.y+o.oy});
+      o.parent.turrets.push(e.id);o.parent.turretsAlive++;
+    } else if(type==="scavenger") {
+      Object.assign(e,{targetPickupId:null,carrying:null,leaveAt:o.leaveAt??9,fireAt:o.fireAt??1.6});
+    } else if(type==="mine") {
+      e.fuse=o.fuse??5;
+    } else if(type==="torpedoEnemy") {
+      e.heading=o.heading??Math.PI/2;e.speed=o.speed??80;e.angle=e.heading-Math.PI/2;
+    }
+    if(o.squad){e.squad=o.squad;const squad=this._squads.get(o.squad);if(squad)squad.total++;}
+    this.enemies.push(e);return e;
+  }
+  _enemyById(id) { for(const e of this.enemies)if(e.id===id)return e; return null; }
+  // Coalesced cue: one event per frame for a burst of identical happenings.
+  _eventCoalesced(type,x,y,value) {
+    const existing=this.events.find(event=>event.type===type&&event.value===value);
+    if(existing){existing.count=(existing.count||1)+1;return existing;}
+    const event={type,x,y,value,count:1};this.events.push(event);return event;
+  }
+  _spawnActTwoBeat(pattern) {
+    if(pattern==="loopL")this._spawnSquadron("loop",1);
+    else if(pattern==="loopR")this._spawnSquadron("loop",-1);
+    else if(pattern==="riseL")this._spawnSquadron("rise",1);
+    else if(pattern==="riseR")this._spawnSquadron("rise",-1);
+    else if(pattern==="riseBoth"){this._spawnSquadron("rise",1,5);this._spawnSquadron("rise",-1,5);}
+    else if(pattern==="sweepL")this._spawnSquadron("sweep",1,6,{y0:150});
+    else if(pattern==="sweepR")this._spawnSquadron("sweep",-1,6,{y0:190});
+    else if(pattern==="pincerSweep"){this._spawnSquadron("sweep",1,6,{y0:140});this._spawnSquadron("sweep",-1,6,{y0:250});}
+    else if(pattern==="pincerLoop"){this._spawnSquadron("loop",1,5);this._spawnSquadron("loop",-1,5);}
+    else if(pattern==="destroyer") {
+      // Beat 2: the first armored hull, down the centre-left.
+      this._spawnHull("destroyer",185,[[0,-80,"fan","sidewinder"],[0,-6,"flak",null],[0,72,"triple","power"]],
+        ["power","escort"]);
+    } else if(pattern==="cruiser") {
+      // Beat 6: the mid-sector peak. Six turrets, two void batteries, torpedoes.
+      this._spawnHull("cruiser",270,[[-30,-128,"broadside","power"],[30,-128,"broadside","reflector"],
+        [-32,-40,"void","power"],[32,-40,"void","signature"],[0,46,"fan","shield"],[0,124,"triple","power"]],
+        ["power","power","escort"],{torpedoes:true});
+    } else if(pattern==="scavCurtain") {
+      // Beat 3: scavengers hunt inside a staggered curtain.
+      this._spawnWave("curtain");
+      this._launchScavengers(4,null,true);
+    } else if(pattern==="boatLines") {
+      // Beat 4: twin gunboat lines whose aimed streams cross over the centre.
+      for(let i=0;i<3;i++)for(const side of [-1,1])
+        this._enemy("gunboat",side<0?95:445,-30-i*105,{vx:side*-3,amp:side*14,freq:.8,phase:i,
+          fireAt:.9+i*.3+(side>0?.45:0),fireRate:1.8,rescue:true,drop:i===2&&side<0?"power":null});
+    } else if(pattern==="minefield") {
+      // Beat 5: a corridor of drifting mines. Shot down, they are harmless;
+      // left alone, each fuse ends in a radial ring.
+      const first=this.stageTime<50;
+      for(let row=0;row<3;row++)for(let k=0;k<4;k++) {
+        if((row+k)%2===(first?0:1)&&k%3!==0)continue;   // the corridor through the field
+        const x=72+k*132+this._range(-16,16),y=-24-row*96;
+        this._enemy("mine",x,y,{fuse:3.5+row*.6+this._range(0,.3),amp:this._range(-14,14),freq:.9,phase:this._rand()*6});
+      }
+    }
+  }
+  // Interceptor squadron (1942): every craft flies the same scripted path,
+  // staggered in time. side picks the loop direction or the travel direction.
+  _spawnSquadron(path,side,count=6,o={}) {
+    const squad=this._newSquad(),stagger=o.stagger??(path==="rise"?.17:.2);
+    let x0,y0;
+    if(path==="loop"){x0=side>0?118:422;y0=-40;}
+    else if(path==="rise"){x0=side>0?72:468;y0=1090;}
+    else {x0=side>0?-40:580;y0=o.y0??170;}
+    for(let i=0;i<count;i++)
+      this._enemy("interceptor",x0,y0,{path,side,squad,delay:i*stagger,speed:path==="rise"?330:path==="sweep"?320:300,rescue:i===0});
+    this.events.push({type:"squadronEnter",x:this._clamp(x0,0,540),y:this._clamp(y0,0,900),value:count,path,side});
+  }
+  _spawnHull(hullClass,x,turrets,drop,o={}) {
+    const c=HULL_CLASSES[hullClass];
+    const hull=this._enemy("hull",x,-c.h-12,{hullClass,drop,torpedoes:o.torpedoes});
+    turrets.forEach(([ox,oy,gun,turretDrop],i)=>
+      this._enemy("hullTurret",x+ox,hull.y+oy,{parent:hull,ox,oy,gun,hp:c.turretHp,fireAt:1.5+i*.4,drop:turretDrop}));
+    this._event("hullEnter",x,0,hullClass);
+    return hull;
+  }
+  // from: launch beside a ship (LEVIATHAN). flankY: cut in from both side
+  // edges at that height (the scatter call-in, level with the salvage).
+  // Otherwise they dive from the top corners.
+  _launchScavengers(count,from,beat=false,flankY=null) {
+    let live=0;for(const e of this.enemies)if(e.type==="scavenger"&&!e.dead)live++;
+    count=Math.min(count,SCAVENGER_CAP-live);
+    for(let i=0;i<count;i++) {
+      const side=i%2?1:-1;
+      if(flankY!=null) {
+        this._enemy("scavenger",side>0?552:-12,flankY-i*40,{vx:-side*SCAVENGER_SPEED*.8,vy:0,leaveAt:8,fireAt:1.4+i*.3});
+        continue;
+      }
+      const x=from?from.x+side*(70+i*18):side>0?520:20,y=from?from.y+30:-18-i*20;
+      this._enemy("scavenger",x,y,{vx:-side*60,vy:from?160:120,leaveAt:beat?11:8,fireAt:1.4+i*.3});
+    }
+    return count;
+  }
+  // Mean height of the floating salvage (scavenger call-in line), or null.
+  _salvageHeight() {
+    let sum=0,n=0;
+    for(const item of this.pickups)if(item.salvage&&!item.dead){sum+=item.y;n++;}
+    return n?this._clamp(sum/n-40,140,720):null;
+  }
+  // Path state for an interceptor at its own age: [x, y, vx, vy].
+  _interceptorPath(e) {
+    const t=Math.max(0,e.age),s=e.side,v=e.speed;
+    if(e.path==="loop") {
+      // Dive, 1.5 loops (ends heading up), then climb out of the top.
+      const yL=e.loopY,R=e.loopR,dive=(yL-e.y0)/v,w=v/R,turn=3*Math.PI;
+      if(t<dive)return [e.x0,e.y0+v*t,0,v];
+      const phi=(t-dive)*w;
+      if(phi<turn) {
+        const cx=e.x0+s*R;
+        return [cx-s*R*Math.cos(phi),yL+R*Math.sin(phi),s*v*Math.sin(phi),v*Math.cos(phi)];
+      }
+      const climb=(phi-turn)/w;
+      return [e.x0+2*s*R,yL-v*1.15*climb,0,-v*1.15];
+    }
+    if(e.path==="rise") {
+      // From behind the player, up a side lane, drifting toward the centre.
+      const drift=150*(1-Math.cos(Math.min(Math.PI,t*.9)))/2;
+      return [e.x0+s*drift,e.y0-v*t,s*150*.45*Math.sin(Math.min(Math.PI,t*.9)),-v];
+    }
+    // Sweep: across the field on a shallow dipping arc.
+    const x=e.x0+s*v*t,u=this._clamp((x-e.x0)*s/620,0,1);
+    return [x,e.y0+150*Math.sin(Math.PI*u),s*v,150*Math.PI*Math.cos(Math.PI*u)*v/620];
+  }
+  _updateActTwoEnemy(e,h,p) {
+    if(e.dead)return;
+    const ready=e.y>12&&e.y<Math.min(640,p.y-140);
+    if(e.type==="interceptor") {
+      const [x,y,vx,vy]=this._interceptorPath(e);
+      e.x=x;e.y=y;e.vx=vx;e.vy=vy;e.angle=Math.atan2(-vx,vy);
+      e.hidden=e.age<0||y>905||x<-20||x>560;
+      if(e.age<0)return;
+      // Short aimed bursts, only from above the player: one on entry and one
+      // mid-path (e.fired counts them). A low-threat ship (bare or stripped)
+      // only meets the mid-path burst. A kitted ship (SECOND_BURST_THREAT)
+      // meets the entry burst as soon as the craft clears the edge (popcorn
+      // dies within ~0.3 s of a full kit), as up to three narrow 3-way rounds,
+      // and a third burst 0.85 s after the second.
+      if(e.fired===0&&this.threat<LOW_THREAT)e.fired=1;
+      const early=this.threat>=SECOND_BURST_THREAT;
+      const trigger=e.fired===0?(e.path==="rise"?y<p.y-170&&y<600:e.path==="loop"?y>(early?20:40):early?x>0&&x<540:x>40&&x<500):
+        e.fired===1?(e.path==="loop"?e.y>=e.loopY-4&&e.vy<0:e.path==="rise"?y<260:e.side>0?x>330:x<210):
+        e.fired===2&&e.extraAt>0&&e.age>=e.extraAt;
+      if(trigger&&!e.hidden&&y>20&&y<p.y-120) {
+        e.fired++;e.burstLeft=1+Math.round(3*this._volley());e.burstClock=0;e.wide=e.fired===1&&early;
+        if(e.wide)e.burstLeft=Math.min(3,e.burstLeft);
+        e.extraAt=e.fired===2&&this.threat>=SECOND_BURST_THREAT?e.age+.85:0;
+      }
+      if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
+        const round=e.burstLeft===1&&this._voidAware()?"void":"red";
+        this._spread(e.x,e.y+10,p.x,p.y,e.wide?3:1,.07,this._vel(280),round,4.4);e.burstLeft--;e.burstClock=.075;
+      }
+    } else if(e.type==="gunboat") {
+      e.y+=e.vy*h;e.x=e.baseX+e.vx*e.age+e.amp*Math.sin(e.age*e.freq+e.phase);
+      if(e.age>=e.fireAt&&e.y>30&&e.y<560) {
+        e.burstLeft=2+Math.round(2*this._volley());e.burstClock=0;e.fireAt=e.age+e.fireRate*this._pace();
+        // A kitted ship meets a re-aimed follow-up burst after the first.
+        e.followAt=this.threat>=SECOND_BURST_THREAT?e.age+.9:0;
+      }
+      if(e.followAt>0&&e.age>=e.followAt&&e.y<560){e.followAt=0;e.burstLeft=2;e.burstClock=0;}
+      if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
+        this._spread(e.x,e.y+12,p.x,p.y,3,.1,this._vel(255),this._voidVolley(),4.6);e.burstLeft--;e.burstClock=.14;
+      }
+    } else if(e.type==="hull") {
+      e.y+=e.vy*h;
+      if(e.age>=e.torpedoAt&&e.y>40&&e.y<520) {
+        for(const side of [-1,1])this._enemy("torpedoEnemy",e.x+side*26,e.y+e.h*.72,{heading:Math.PI/2+side*.35,speed:70});
+        e.torpedoAt=e.age+CRUISER_TORPEDO_CYCLE;
+        this._eventCoalesced("torpedoLaunch",e.x,e.y+e.h*.7,"enemy");
+      }
+    } else if(e.type==="hullTurret") {
+      const parent=this._enemyById(e.parentId);
+      if(!parent||parent.dead){this._killEnemy(e,false,true);return;}
+      e.x=parent.x+e.ox;e.y=parent.y+e.oy;
+      const want=Math.atan2(p.y-e.y,p.x-e.x);
+      let diff=want-e.aim;diff=Math.atan2(Math.sin(diff),Math.cos(diff));
+      e.aim+=this._clamp(diff,-2.6*h,2.6*h);
+      const armed=parent.type==="boss"?parent.age>3.6:true;
+      if(armed&&e.age>=e.fireAt&&ready) {
+        this._turretFire(e,p,parent.type==="boss");
+        e.fireAt=e.age+e.fireRate*this._pace();
+      }
+      if(e.burstLeft>0&&(e.burstClock-=h)<=0) {
+        this._spread(e.x,e.y,p.x,p.y,this.threat>.55?5:3,.1,this._vel(265),this._voidVolley(),4.8);e.burstLeft--;e.burstClock=.15;
+      }
+    } else if(e.type==="scavenger") this._updateScavenger(e,h,p);
+    else if(e.type==="mine") {
+      e.y+=e.vy*h;e.x=e.baseX+e.amp*Math.sin(e.age*e.freq+e.phase);e.fuse-=h;
+      if(e.fuse<=0) {
+        // Left alone, a mine bursts into a ring with readable spokes.
+        this._radial(e.x,e.y,12+Math.round(6*this._volley()),this._vel(145),e.seed*Math.PI*2,"magenta",4.6);
+        this._burst(e.x,e.y,14,"magenta",150,"explode");
+        this._eventCoalesced("mineBurst",e.x,e.y);
+        e.dead=true;
+      }
+    } else if(e.type==="torpedoEnemy") {
+      e.speed=Math.min(185,e.speed+h*70);
+      if(e.age<5.5) {
+        let diff=Math.atan2(p.y-e.y,p.x-e.x)-e.heading;diff=Math.atan2(Math.sin(diff),Math.cos(diff));
+        e.heading+=this._clamp(diff,-1.05*h,1.05*h);
+      }
+      e.vx=Math.cos(e.heading)*e.speed;e.vy=Math.sin(e.heading)*e.speed;
+      e.x+=e.vx*h;e.y+=e.vy*h;e.angle=e.heading-Math.PI/2;
+      if(this._rand()<h*24)this._particle(e.x-e.vx*.05,e.y-e.vy*.05,0,0,.3,3,"white","smoke");
+    }
+  }
+  // Turret guns. Act II streams run ~20% faster than sector 3.
+  _turretFire(e,p,deck) {
+    const x=e.x,y=e.y,pace=deck?.85:1;
+    const t=this.threat,v=this._volley();
+    if(e.gun==="triple") {
+      this._spread(x,y,p.x,p.y,t>.55?5:3,.1,this._vel(265),"red",4.8);e.burstLeft=1;e.burstClock=.15;e.fireRate=1.8*pace;
+    } else if(e.gun==="fan") {
+      this._radial(x,y,9+Math.round(3*v),this._vel(178),Math.sin(e.age*1.3)*.45,"cyan",4.6,Math.PI*.12,Math.PI*.88);e.fireRate=1.1*pace;
+    } else if(e.gun==="flak") {
+      // A slow shell that bursts into a ring short of the player.
+      const speed=this._vel(205),dist=Math.hypot(p.x-x,p.y-y),shell=this._bullet(x,y,Math.atan2(p.y-y,p.x-x),speed,"amber",7);
+      if(shell){shell.fuse=Math.max(.45,(dist-130)/speed);shell.burst={count:10+Math.round(5*v),speed:125,kind:"amber",r:4.4,offset:e.seed*6};}
+      e.fireRate=2.3*pace;
+    } else if(e.gun==="void") {
+      this._spread(x,y,p.x,p.y,t>.65?5:3,.17,this._vel(205),"void",5.6);e.fireRate=2.1*pace;
+    } else if(e.gun==="broadside") {
+      // A short diagonal row rolling outward from the hull's side.
+      const side=Math.sign(e.ox)||1,angle=Math.PI/2-side*.5;
+      for(let i=0;i<6;i++)this._bullet(x,y+(i-2.5)*21,angle,this._vel(150),"rose",5);
+      e.fireRate=2.6*pace;
+    }
+  }
+  _updateScavenger(e,h,p) {
+    if(e.carrying) {
+      // A carrying scavenger flees up and off the top; the salvage is lost if it escapes.
+      e.vy=Math.max(-390,e.vy-620*h);e.vx*=1-Math.min(1,h*2);
+      e.x+=e.vx*h;e.y+=e.vy*h;e.angle=Math.atan2(-e.vx,e.vy);
+      if(e.y<-30) {
+        this.stats.salvageLost+=e.carrying.value||1;
+        this._event("scavengerEscape",e.x,0,e.carrying.type);
+        e.dead=true;
+      }
+      return;
+    }
+    let target=null;
+    if(e.targetPickupId!=null)for(const item of this.pickups)if(item.id===e.targetPickupId&&!item.dead&&item.salvage){target=item;break;}
+    if(!target) {
+      let best=Infinity;
+      for(const item of this.pickups) {
+        if(item.dead||!item.salvage||item.age<SALVAGE_GRACE*.5)continue;
+        const d=(item.x-e.x)**2+(item.y-e.y)**2;if(d<best){best=d;target=item;}
+      }
+      e.targetPickupId=target?.id??null;
+    }
+    let tx,ty,speed;
+    if(target){tx=target.x;ty=target.y;speed=SCAVENGER_SPEED;}
+    else if(e.age<e.leaveAt){tx=p.x+Math.sin(e.age*1.1+e.seed*6)*140;ty=Math.max(110,p.y-330);speed=210;}
+    else {tx=e.x;ty=-80;speed=300;}
+    const dx=tx-e.x,dy=ty-e.y,len=Math.hypot(dx,dy)||1,k=Math.min(1,h*4);
+    e.vx+=(dx/len*speed-e.vx)*k;e.vy+=(dy/len*speed-e.vy)*k;
+    e.x+=e.vx*h;e.y+=e.vy*h;e.angle=Math.atan2(-e.vx,e.vy);
+    if(target&&Math.hypot(target.x-e.x,target.y-e.y)<15) {
+      target.dead=true;
+      e.carrying={type:target.type,value:target.value||1,life:target.life};e.targetPickupId=null;
+      e.vy=Math.min(e.vy,0);
+      this._event("scavengerSteal",e.x,e.y,target.type);
+      return;
+    }
+    if(!target&&e.age>=e.leaveAt&&e.y<-40){e.dead=true;return;}
+    // Hunting scavengers snipe; a scavenger on its way to salvage does not.
+    if(!target&&e.age>=e.fireAt&&e.y>20&&e.y<p.y-160) {
+      this._aimed(e.x,e.y+8,p.x,p.y,this._vel(215),"rose",4.2);e.fireAt=e.age+3*this._pace();
+    }
+  }
+  // LEVIATHAN: four deck turrets ride the hull (core x0.25 while any lives).
+  _rigLeviathan(boss) {
+    Object.assign(boss,{leviathan:true,turrets:[],turretsAlive:0,broadside:0,broadsideSide:1,core:0,
+      wallAt:0,wallRowAt:Infinity,wallGap:270,torpedoAt:0,voidAt:0,spiralAt:0,scavAt:0,curtainAt:0,curtainGap:150});
+    const deck=[[-150,-10,"triple"],[-62,24,"fan"],[62,24,"flak"],[150,-10,"broadside"]];
+    deck.forEach(([ox,oy,gun],i)=>this._enemy("hullTurret",boss.x+ox,boss.y+oy,
+      {parent:boss,ox,oy,gun,hp:LEVIATHAN_TURRET_HP,fireAt:4+i*.45,drop:"power",bonusDrops:1,value:3000}));
+  }
+  _leviathanEnterPhase(e) {
+    if(e.phase===2){e.wallAt=e.age+1.5;e.torpedoAt=e.age+2.6;e.voidAt=e.age+3.4;}
+    else if(e.phase===3){e.spiralAt=e.age+1.2;e.voidAt=e.age+2.6;e.scavAt=e.age+2;e.curtainAt=0;this._event("coreExposed",e.x,e.y,3);}
+  }
+  _leviathanFire(e,h) {
+    const p=this.player;
+    if(e.phase===2)e.broadside=Math.min(1,e.broadside+h/1.4);
+    else if(e.phase===3){e.broadside=Math.max(0,e.broadside-h/1.2);e.core=Math.min(1,e.core+h/1.2);}
+    if(e.age<3.6)return;
+    if(e.phase===1) {
+      // The bow fan keeps the deck honest; it quickens once the turrets fall.
+      if(e.age>=e.fireAt) {
+        const bare=!e.turretsAlive,salvo=e.salvo=(e.salvo||0)+1;
+        this._radial(e.x,e.y+62,11,this._vel(185),Math.sin(e.age*.7)*.12,"amber",4.6,Math.PI*.18,Math.PI*.82);
+        if(bare&&salvo%2===0)this._spread(e.x,e.y+70,p.x,p.y,this.threat>.4?5:3,.12,this._vel(260),"red",4.8);
+        e.fireAt=e.age+(bare?1.25:1.5)*this._bossPace();this._event("bossShot",e.x,e.y);
+      }
+    } else if(e.phase===2) {
+      // Broadside walls alternate sides; every row leaves one gap and the
+      // follow-up row moves it a reachable distance.
+      if(e.age>=e.wallAt) {
+        e.broadsideSide=-e.broadsideSide;
+        const lo=e.broadsideSide<0?16:236,hi=lo+288;
+        e.wallGap=lo+70+this._rand()*(hi-lo-140);
+        this._broadsideRow(e,lo,hi,e.wallGap);
+        // The follow-up row (gap moved) is for a ship that still carries a kit.
+        e.wallRowAt=this.threat>.6?e.age+.5:Infinity;e.wallAt=e.age+3*this._bossPace();
+        this._event("broadside",e.x+e.broadsideSide*170,e.y+60,e.broadsideSide);
+      }
+      if(e.age>=e.wallRowAt) {
+        const lo=e.broadsideSide<0?16:236,hi=lo+288,shift=e.wallGap<(lo+hi)/2?64:-64;
+        this._broadsideRow(e,lo,hi,e.wallGap+shift);e.wallRowAt=Infinity;
+      }
+      if(e.age>=e.torpedoAt) {
+        // One torpedo per salvo carries rescue power for a stripped ship.
+        for(const side of [-1,1])this._enemy("torpedoEnemy",e.x+side*96,e.y+52,{heading:Math.PI/2+side*.45,speed:65,rescue:side<0});
+        e.torpedoAt=e.age+3.6*this._bossPace();this._eventCoalesced("torpedoLaunch",e.x,e.y+52,"enemy");
+      }
+      if(e.age>=e.voidAt) {
+        this._spread(e.x,e.y+66,p.x,p.y,this.threat>.6?5:3,.15,this._vel(205),"void",5.6);
+        e.voidAt=e.age+2.3*this._bossPace();this._event("bossShot",e.x,e.y);
+      }
+    } else {
+      // Monsoon engine: counter-rotating spirals from the exposed core; on the
+      // final guard floor it adds the desperation curtain.
+      const desperate=e.guard;
+      if(e.age>=e.spiralAt) {
+        const spin=e.age*1.05;
+        for(let k=0;k<2;k++) {
+          this._bullet(e.x,e.y+18,spin+k*Math.PI,152,"magenta",4.5);
+          this._bullet(e.x,e.y+18,-spin+k*Math.PI+.5,152,"cyan",4.5);
+        }
+        e.spiralAt=e.age+(desperate?.3:.15)*this._bossPace();
+      }
+      if(e.age>=e.voidAt) {
+        this._spread(e.x,e.y+40,p.x,p.y,3,.16,this._vel(215),"void",5.6);
+        e.voidAt=e.age+(desperate?3.2:2.6)*this._bossPace();this._event("bossShot",e.x,e.y);
+      }
+      if(e.age>=e.scavAt) {
+        if(this.pickups.some(item=>item.salvage&&!item.dead))this._launchScavengers(2,e);
+        e.scavAt=e.age+3.8;
+      }
+      if(desperate&&e.age>=e.curtainAt) {
+        // Full-width rows with two gaps that drift a reachable distance per row.
+        e.curtainGap=this._clamp(e.curtainGap+(this._rand()<.5?-1:1)*this._range(40,80),70,230);
+        const gaps=[e.curtainGap,e.curtainGap+240];
+        for(let x=18;x<=522;x+=23)if(gaps.every(g=>Math.abs(x-g)>46))this._bullet(x,e.y+70,Math.PI/2,170,"rose",5);
+        e.curtainAt=e.age+.8;this._event("bossShot",e.x,e.y);
+      }
+    }
+  }
+  _broadsideRow(e,lo,hi,gap) {
+    for(let x=lo;x<=hi;x+=22)if(Math.abs(x-gap)>56)this._bullet(x,e.y+62,Math.PI/2,this._vel(150),"rose",5);
   }
   _updateEnemies(h) {
     const p=this.player;
@@ -711,10 +1222,20 @@ export class Game {
       e.impactCooldown=Math.max(0,(e.impactCooldown||0)-h);
       e.burstCooldown=Math.max(0,(e.burstCooldown||0)-h);
       if(e.type==="boss") {
+        if(e.leviathan) {
+          // A super-dreadnought: slow entrance, a narrow sway, a gentle roll.
+          // The sway keeps bow, stern and the rolled-out broadside inside the
+          // 540 field (270 +/- (20 + 210 + 22)).
+          const entrance=Math.min(1,e.age/3.4);
+          e.y=-210+(1-(1-entrance)**3)*400;
+          e.x=270+Math.sin(Math.max(0,e.age-3.4)*.32)*LEVIATHAN_SWAY;
+          e.angle=Math.sin(e.age*.7)*.015;
+        } else {
         const entrance=Math.min(1,e.age/2.8);
         e.y=-145+(e.age<2.8?(1-(1-entrance)**3)*430:430);
         e.x=270+Math.sin((e.age-2.8)*(.48+this.stage*.09))*(78+this.stage*4);
         e.angle=Math.sin(e.age*1.2)*.05;
+        }
         this._updateBossGuard(e,h);
         const unlocked=this._bossUnlocked(e);
         const phase=e.phase===1&&e.hp<e.maxHp*.66&&unlocked?2:
@@ -728,6 +1249,7 @@ export class Game {
           this._burst(e.x,e.y,50,"magenta",230,"phase");
           this._particle(e.x,e.y,0,0,.65,10,"magenta","ring");
           this._event("bossPhase",e.x,e.y,phase);
+          if(e.leviathan)this._leviathanEnterPhase(e);
         }
         if(e.phase===3&&e.guard&&this._bossUnlocked(e)) {
           e.guard=false;e.guardUntil=0;
@@ -749,11 +1271,13 @@ export class Game {
           r.y=wingY+(e.y+58-wingY)*extension;
         }
         if(this.stage===3&&e.phase>=2)this._updateBossLance(e);
-        if(e.age>2.8&&e.age>=e.fireAt) {
+        if(e.leviathan)this._leviathanFire(e,h);
+        else if(e.age>2.8&&e.age>=e.fireAt) {
           this._bossFire(e);
           e.fireAt=e.age+(e.phase===3 ? (this.stage===1 ? 0.52 : this.stage===2 ? 0.48 : 0.42) : e.phase===2 ? 0.58 : 0.78);
         }
-      } else {
+      } else if(ACT_TWO_TYPES.has(e.type)) this._updateActTwoEnemy(e,h,p);
+      else {
         e.x=e.baseX+e.vx*e.age+e.turnVx*Math.max(0,e.age-e.turnAt)+e.amp*Math.sin(e.age*e.freq+e.phase);
         e.y+=e.vy*h;
         e.angle=Math.atan2(e.vx+(e.age>e.turnAt?e.turnVx:0)+e.amp*e.freq*Math.cos(e.age*e.freq+e.phase),e.vy)*.35;
@@ -853,13 +1377,17 @@ export class Game {
   }
   // Effective learn age: real age plus the time bought by guarded damage.
   _bossLearnAge(e) { return e.age+(e.learnShift||0); }
-  _bossPhaseMin(e) { return BOSS_PHASE_MIN*(BOSS_LEARN_END[e.phase]-BOSS_LEARN_START[e.phase]); }
+  _bossLearnEnd(e) { return (e.leviathan?LEVIATHAN_LEARN_END:BOSS_LEARN_END)[e.phase]; }
+  _bossPhaseMin(e) {
+    const start=(e.leviathan?LEVIATHAN_LEARN_START:BOSS_LEARN_START)[e.phase];
+    return BOSS_PHASE_MIN*(this._bossLearnEnd(e)-start);
+  }
   _bossUnlocked(e) {
-    return this._bossLearnAge(e)>=BOSS_LEARN_END[e.phase]&&e.age>=(e.phaseStart||0)+this._bossPhaseMin(e);
+    return this._bossLearnAge(e)>=this._bossLearnEnd(e)&&e.age>=(e.phaseStart||0)+this._bossPhaseMin(e);
   }
   // Real boss age at which the current phase unlocks if no more damage lands.
   _bossUnlockAt(e) {
-    return Math.max(BOSS_LEARN_END[e.phase]-(e.learnShift||0),(e.phaseStart||0)+this._bossPhaseMin(e));
+    return Math.max(this._bossLearnEnd(e)-(e.learnShift||0),(e.phaseStart||0)+this._bossPhaseMin(e));
   }
   // Damage soaked by a guard floor speeds the boss's learn clock, so a
   // stronger arsenal reaches each phase sooner. Shift is capped per phase so
@@ -870,14 +1398,19 @@ export class Game {
     e.absorbRate=(e.absorbRate||0)+(absorbed/e.maxHp/h-(e.absorbRate||0))*Math.min(1,h/BOSS_GUARD_SMOOTH);
     if(!e.guard)return;
     const par=BOSS_GUARD_PAR[this.stage]??BOSS_GUARD_PAR[BOSS_GUARD_PAR.length-1];
-    const gain=Math.max(0,e.absorbRate-par)*BOSS_GUARD_K*h;
-    const cap=BOSS_LEARN_END[e.phase]-(e.phaseStart||0)-this._bossPhaseMin(e);
+    const gain=Math.max(0,e.absorbRate-par)*(BOSS_GUARD_K_BY_STAGE[this.stage]??BOSS_GUARD_K)*h;
+    const cap=this._bossLearnEnd(e)-(e.phaseStart||0)-this._bossPhaseMin(e);
     e.learnShift=e.learnShift||0;
     if(gain>0&&e.learnShift<cap)e.learnShift=Math.min(cap,e.learnShift+gain);
     e.guardUntil=this._bossUnlockAt(e);
   }
   _damageEnemy(e,amount) {
+    // Armored hulls take a share of the damage while any of their turrets lives.
+    if(e.type==="hull"&&e.turretsAlive>0)amount*=HULL_ARMOR;
+    // A stripped or bare ship can still silence a hull inside its lifetime.
+    if(e.type==="hullTurret"&&this.threat<LOW_THREAT)amount*=WEAK_KIT_TURRET_BONUS;
     if(e.type!=="boss") {e.hp-=amount;return;}
+    if(e.turretsAlive>0)amount*=LEVIATHAN_ARMOR;
     // One threshold per learned pattern. Incoming fire still shows impacts,
     // while each phase has time to establish its distinctive attack.
     const floor=this._bossUnlocked(e)?0:(e.phase===1?Math.floor(e.maxHp*.66)-1:
@@ -917,12 +1450,25 @@ export class Game {
   _radial(x,y,count,speed,offset,kind,r=5,from=0,to=Math.PI*2) {
     for(let i=0;i<count;i++) this._bullet(x,y,offset+from+i/count*(to-from),speed,kind,r);
   }
+  get bulletCap() { return this.stage>=ACT_TWO_STAGE?ACT_TWO_BULLET_CAP:BULLET_CAP; }
   _bullet(x,y,angle,speed,kind,r) {
-    if(this.bullets.length>=BULLET_CAP) return;
-    this.bullets.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
-      r,kind,color:kind,age:0,grazed:false});
+    if(this.bullets.length>=this.bulletCap) return null;
+    // Void rounds are never smaller than r 5, so their ring edge stays readable.
+    if(kind==="void"&&r<VOID_MIN_RADIUS)r=VOID_MIN_RADIUS;
+    const b={x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
+      r,kind,color:kind,age:0,grazed:false};
+    this.bullets.push(b);return b;
   }
-  _updateBullets(h) { for(const b of this.bullets) {b.x+=b.vx*h;b.y+=b.vy*h;b.age+=h;} }
+  _updateBullets(h) {
+    let bursting=null;
+    for(const b of this.bullets) {
+      b.x+=b.vx*h;b.y+=b.vy*h;b.age+=h;
+      // Flak shells burst into a ring when their fuse runs out.
+      if(b.fuse!==undefined&&!b.dead&&(b.fuse-=h)<=0){b.dead=true;(bursting||=[]).push(b);}
+    }
+    if(bursting)for(const b of bursting)
+      this._radial(b.x,b.y,b.burst.count,b.burst.speed,b.burst.offset||0,b.burst.kind,b.burst.r);
+  }
   _updateShots(h) {
     for(const shot of this.shots) {
       const homing=shot.kind==="missile"||shot.kind==="sidewinder";
@@ -934,7 +1480,7 @@ export class Game {
         // One pass finds the locked target, or else the nearest live enemy.
         let target=null,nearest=null,nearestDistance=Infinity;
         for(const enemy of this.enemies) {
-          if(enemy.dead||enemy.y<=-50)continue;
+          if(enemy.dead||enemy.y<=-50||enemy.hidden)continue;
           if(enemy.id===shot.targetId){target=enemy;break;}
           const dx=enemy.x-shot.x,dy=enemy.y-shot.y,distance=dx*dx+dy*dy;
           if(distance<nearestDistance){nearestDistance=distance;nearest=enemy;}
@@ -956,7 +1502,7 @@ export class Game {
     }
   }
   _drop(x,y,type,vx=0) {
-    const item={x,y,r:16,type,age:0,vy:95};if(vx)item.vx=vx;
+    const item={id:++this._pickupId,x,y,r:16,type,age:0,vy:95};if(vx)item.vx=vx;
     this.pickups.push(item);this._event("drop",x,y,type);return item;
   }
   // Generated drops (random table, ladder, squadron bonus) are kit-aware: they
@@ -1089,8 +1635,9 @@ export class Game {
     const p=this.player;
     for(const shot of this.shots) {
       if(shot.dead)continue;
-      for(const e of this.enemies) {
-        if(e.dead||e.y< -70||shot.hitIds?.includes(e.id))continue;
+      for(const hitEnemy of this.enemies) {
+        let e=hitEnemy;
+        if(e.dead||e.y< -70||e.hidden||shot.hitIds?.includes(e.id))continue;
         const reactor=e.reactor;
         if(reactor&&!reactor.broken&&e.age>=reactor.opensAt&&!shot.hitIds?.includes(reactor.id)&&Math.hypot(shot.x-reactor.x,shot.y-reactor.y)<reactor.r+(shot.hitR||shot.r)){
           if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
@@ -1103,13 +1650,21 @@ export class Game {
           continue;
         }
         const dx=shot.x-e.x,dy=shot.y-e.y;
-        const hit=e.type==="boss" ? dx*dx/(98*98)+dy*dy/(55*55)<1 :
+        // Bosses and hulls use their w/h ellipse; everything else a circle.
+        const hit=e.w ? dx*dx/(e.w*e.w)+dy*dy/(e.h*e.h)<1 :
           dx*dx+dy*dy<((shot.hitR||shot.r)+e.r*.78)**2;
         if(!hit)continue;
+        // Turrets ride on the deck: a shot over a live turret hits it, and a
+        // shot flying up a live turret's column passes over the hull to reach it.
+        if(e.turretsAlive>0) {
+          const turret=this._turretUnder(e,shot);
+          if(turret===true)continue;
+          if(turret)e=turret;
+        }
         if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
         const previousHp=e.hp;
         this._damageEnemy(e,shot.damage);
-        const armorStopped=e.type==="boss"&&e.hp===previousHp;
+        const armorStopped=(e.type==="boss"&&e.hp===previousHp)||((e.type==="boss"||e.type==="hull")&&e.turretsAlive>0);
         const heavy=shot.kind==="missile"||shot.kind==="torpedo";
         e.flash=heavy?.95:shot.kind==="pierce"?.72:.5;
         // Torpedoes pierce small craft and burst on big targets and bosses.
@@ -1167,6 +1722,7 @@ export class Game {
         if(e.hp<=0)this._killEnemy(e);
       }
     }
+    if(p.signature>0&&p.shipId==="kestrel")this._flakScreen();
     let reflected=0,eats=0;
     const flushDefense=()=>{
       if(reflected){this.stats.reflected+=reflected;this._event("reflect",p.x,p.y,reflected);}
@@ -1225,7 +1781,8 @@ export class Game {
     flushDefense();
     if(p.invuln<=0) {
       for(const e of this.enemies) {
-        if(e.dead)continue;
+        // Surface ships (hulls, their turrets, gunboats) sail below the plane.
+        if(e.dead||e.hidden||SURFACE_TYPES.has(e.type))continue;
         const dx=e.x-p.x,dy=e.y-p.y;
         if(dx*dx+dy*dy<(p.r+e.r*.66)**2) {
           this._hurtPlayer(p.x,p.y);
@@ -1246,6 +1803,49 @@ export class Game {
         item.dead=true;this._collect(item);
       }
     }
+  }
+  // Kestrel "Hellfire Wings" screen: in its first FLAK_SCREEN_TIME of flight
+  // (~230 px from the wing) each flak shot eats one ordinary enemy bullet on
+  // contact and is spent. Void rounds pass through. One coalesced flakEat
+  // event per frame carries the count.
+  _flakScreen() {
+    let eaten=0,ex=0,ey=0;
+    const bullets=this.bullets;
+    for(const shot of this.shots) {
+      if(shot.dead||shot.kind!=="flak"||shot.age>FLAK_SCREEN_TIME)continue;
+      const sx=shot.x,sy=shot.y,sr=shot.r;
+      for(const b of bullets) {
+        if(b.dead||b.kind==="void")continue;
+        const dx=b.x-sx,r=sr+b.r;
+        if(dx>r||dx<-r)continue;
+        const dy=b.y-sy;
+        if(dx*dx+dy*dy<r*r) {
+          b.dead=true;shot.dead=true;
+          if(!eaten){ex=b.x;ey=b.y;}
+          eaten++;this._particle(b.x,b.y,0,0,.2,4,"gold","spark");
+          break;
+        }
+      }
+    }
+    if(!eaten)return;
+    this.stats.flakEats+=eaten;
+    const existing=this.events.find(event=>event.type==="flakEat");
+    if(existing)existing.value+=eaten;else this._event("flakEat",ex,ey,eaten);
+  }
+  // Returns the live child turret the shot overlaps, true if one lies ahead
+  // in the shot's path (the shot flies on over the hull), or null.
+  _turretUnder(parent,shot) {
+    const reach=shot.hitR||shot.r,speed=Math.hypot(shot.vx,shot.vy)||1;
+    const ux=shot.vx/speed,uy=shot.vy/speed;
+    let ahead=false;
+    for(const t of this.enemies) {
+      if(t.type!=="hullTurret"||t.parentId!==parent.id||t.dead||shot.hitIds?.includes(t.id))continue;
+      const dx=t.x-shot.x,dy=t.y-shot.y,r=reach+t.r;
+      if(dx*dx+dy*dy<r*r)return t;
+      const along=dx*ux+dy*uy;
+      if(along>0&&Math.abs(dx*uy-dy*ux)<r)ahead=true;
+    }
+    return ahead||null;
   }
   // Hit order: a shield charge absorbs the hit outright; otherwise the
   // arsenal scatters as salvage, then the hull takes the hit.
@@ -1309,7 +1909,7 @@ export class Game {
     const offset=this._rand()*Math.PI*2;
     tokens.forEach((token,i)=>{
       const angle=offset+i/tokens.length*Math.PI*2+this._range(-.25,.25),speed=this._range(SALVAGE_BURST[0],SALVAGE_BURST[1]);
-      this.pickups.push({x:this._clamp(x,SALVAGE_BOUNDS.left,SALVAGE_BOUNDS.right),
+      this.pickups.push({id:++this._pickupId,x:this._clamp(x,SALVAGE_BOUNDS.left,SALVAGE_BOUNDS.right),
         y:this._clamp(y,SALVAGE_BOUNDS.top,SALVAGE_BOUNDS.bottom),r:18,type:token.type,age:0,
         vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,salvage:true,value:token.value,life:SALVAGE_LIFE});
     });
@@ -1317,6 +1917,11 @@ export class Game {
     p.level=p.power=1;p.escorts=0;p.escortSlots.length=0;p.sidewinder=0;p.signature=0;p.drones=0;
     this._syncOrbitals();this._syncArsenal();
     this.stats.scatters++;
+    // Act II: scavengers are called in after the salvage (sector only; the
+    // flagship launches its own in phase 3).
+    if(this.stage>=ACT_TWO_STAGE&&!this.boss&&this._transition<=0) {
+      this._scavengerCall=this.time+SCAVENGER_CALL;this._scavengerFlank=this.threat>=RESCUE_THREAT;
+    }
     this._burst(x,y,30,"gold",240,"scatter");
     this.events.push({type:"arsenalScatter",x,y,value:dropped,tokens:tokens.length,burned});
     return tokens.length;
@@ -1327,7 +1932,7 @@ export class Game {
     p.reflector=Math.max(0,p.reflector-REFLECT_COST);
     let target=null,best=Infinity;
     for(const e of this.enemies) {
-      if(e.dead||e.y< -40)continue;
+      if(e.dead||e.y< -40||e.hidden)continue;
       const d=(e.x-b.x)**2+(e.y-b.y)**2;if(d<best){best=d;target=e;}
     }
     const angle=target?Math.atan2(target.y-b.y,target.x-b.x):-Math.PI/2;
@@ -1335,7 +1940,8 @@ export class Game {
       damage:12+p.level*.5,kind:"reflect",age:0});
     this._particle(b.x,b.y,0,0,.22,5,"violet","ring");
   }
-  _killEnemy(e,bomb=false) {
+  // silent: the target went down with its parent (no drops).
+  _killEnemy(e,bomb=false,silent=false) {
     if(e.dead)return;e.dead=true;
     if(e.type==="boss") {
       this.stats.bossesDefeated++;
@@ -1343,10 +1949,30 @@ export class Game {
       this._burst(e.x,e.y,130,"gold",360,"boss");
       this._particle(e.x,e.y,0,0,.75,16,"gold","ring");
       this.shake=18;this.flash=1;this.bullets.length=0;
-      this.boss=null;this._transition=3.5;
+      // The ACT II card plays after the Crown when the campaign continues.
+      const actBreak=!this.practiceStage&&this.stage===ACT_TWO_STAGE-1&&CAMPAIGN_STAGES>=ACT_TWO_STAGE;
+      this.boss=null;this._transition=this._transitionLength=actBreak?ACT_TWO_INTERLUDE:INTERLUDE;
+      // Everything the flagship launched goes down with it; stolen salvage falls back.
+      for(const other of this.enemies) {
+        if(other===e||other.dead)continue;
+        if(other.type==="hullTurret")this._killEnemy(other,true,true);
+        else {
+          this._releaseCarried(other);other.dead=true;
+          this._burst(other.x,other.y,8,"amber",120,"explode");
+        }
+      }
       // Flagship spoils: collected automatically during the interlude.
       this._dropMany(e.x,e.y,["power",this._bonusDropType()]);
       this._event("bossDown",e.x,e.y,this.stage);
+      // LEVIATHAN's last pose, so presentation can sink the hull after boss is null.
+      if(e.leviathan)Object.assign(this.events[this.events.length-1],
+        {w:e.w,h:e.h,angle:e.angle||0,broadside:e.broadside||0,core:e.core||0});
+      if(actBreak)this._event("actTwo",e.x,e.y,ACT_TWO_STAGE);
+    } else if(silent) {
+      // Gone with its hull: score and wreckage, no drops or combo.
+      this.stats.kills++;this._awardScore(Math.round(e.value*.5));
+      this._burst(e.x,e.y,12,"amber",140,"explode");
+      if(e.type==="hullTurret")this._turretLost(e);
     } else {
       this.stats.kills++;
       this.combo=Math.min(8,this.combo+(e.type==="mini"?.45:.13));
@@ -1359,10 +1985,11 @@ export class Game {
       const drops=[];
       // Formation scouts and wings pay out through the squadron bonus instead
       // of the random table; heavies and loners still roll it.
-      const formation=e.squad&&(e.type==="scout"||e.type==="wing");
-      if(e.drop)drops.push(e.drop);
+      const formation=e.squad&&FORMATION_TYPES.has(e.type);
+      if(e.drop)drops.push(...[].concat(e.drop));
+      else if(e.rescue&&this.threat<RESCUE_THREAT)drops.push("power");
       else if(!formation&&this._rand()<(DROP_CHANCE[e.type]??.035)){const type=this._randomDropType();if(type)drops.push(type);}
-      for(let i=0;i<(BONUS_DROPS[e.type]||0);i++)drops.push(this._bonusDropType());
+      for(let i=0;i<(BONUS_DROPS[e.type]||e.bonusDrops||0);i++)drops.push(this._bonusDropType());
       // Squadron wipe: the last kill of an intact formation adds a weighted
       // equipment item (no power) to this kill's fan.
       const squad=e.squad&&this._squads.get(e.squad);
@@ -1374,15 +2001,42 @@ export class Game {
       if(drops.length)this._dropMany(e.x,e.y,drops);
       if(wiped)this.events.push({type:"squadronBonus",x:e.x,y:e.y,value:wiped,drops:SQUADRON_BONUS_DROPS});
       this._event("enemyDown",e.x,e.y,e.type);
+      if(ACT_TWO_TYPES.has(e.type))this._actTwoKill(e);
     }
     this._event("explode",e.x,e.y,e.type);this.events[this.events.length-1].angle=e.angle||0;
     if(!this.practiceStage&&!bomb&&this.score>this.best)this.best=this.score;
+  }
+  _actTwoKill(e) {
+    if(e.type==="hullTurret") {
+      this._turretLost(e);
+      this._event("turretDown",e.x,e.y,e.gun);
+    } else if(e.type==="hull") {
+      this._burst(e.x,e.y,40,"gold",260,"explode");
+      this._particle(e.x,e.y,0,0,.6,12,"amber","ring");
+      this.shake=Math.max(this.shake,9);this.flash=Math.max(this.flash,.3);
+      for(const t of this.enemies)if(t.type==="hullTurret"&&t.parentId===e.id&&!t.dead)this._killEnemy(t,false,true);
+      this._event("hullDown",e.x,e.y,e.hullClass);
+    } else if(e.type==="scavenger") this._releaseCarried(e);
+  }
+  _turretLost(t) {
+    const parent=this._enemyById(t.parentId);
+    if(parent&&parent.turretsAlive>0)parent.turretsAlive--;
+    if(parent?.type==="boss"){this.shake=Math.max(this.shake,7);this.flash=Math.max(this.flash,.25);}
+  }
+  // A shot-down scavenger drops its stolen salvage back into play.
+  _releaseCarried(e) {
+    const c=e.carrying;if(!c)return;
+    e.carrying=null;
+    this.pickups.push({id:++this._pickupId,x:this._clamp(e.x,SALVAGE_BOUNDS.left,SALVAGE_BOUNDS.right),
+      y:this._clamp(e.y,SALVAGE_BOUNDS.top,SALVAGE_BOUNDS.bottom),r:18,type:c.type,age:SALVAGE_GRACE,
+      vx:0,vy:60,salvage:true,value:c.value,life:Math.max(5,c.life||0)});
+    this._event("scavengerDrop",e.x,e.y,c.type);
   }
   _advanceStage() {
     if(this.practiceStage){
       this.mode="victory";this._finishRun("victory");this._event("victory",270,320,this.score);return;
     }
-    if(this.stage>=3) {
+    if(this.stage>=CAMPAIGN_STAGES) {
       this.mode="victory";
       this.score+=this.player.lives*5000+this.player.bombs*1500+this.player.hp*1000;
       this.best=Math.max(this.best,this.score);
@@ -1391,7 +2045,7 @@ export class Game {
     }
     // Anything the interlude did not collect is off screen and is lost.
     for(const item of this.pickups)if(item.salvage&&!item.dead)this.stats.salvageLost+=item.value||1;
-    this.pickups.length=0;this._squads.clear();
+    this.pickups.length=0;this._squads.clear();this._scavengerCall=0;this._transitionLength=INTERLUDE;
     this.stage++;this.stageTime=0;this.wave=0;this._beatIndex=0;this._laneIndex=0;
     this._awardScore(0);
     this.enemies.length=0;this.bullets.length=0;
@@ -1422,7 +2076,12 @@ export class Game {
     let write=0;
     for(let read=0;read<this.enemies.length;read++) {
       const e=this.enemies[read];
-      if(!e.dead&&e.y<990&&e.x> -130&&e.x<670)this.enemies[write++]=e;
+      // Rising interceptors start below the field; Act II fliers that climb
+      // out of the top are gone.
+      const gone=(e.type==="hull"?e.y-e.h>=920:e.y>=(e.hidden?1200:990))||e.x<=-130||e.x>=670||
+        (e.y< -110&&e.age>1&&(e.type==="interceptor"||e.type==="scavenger"||e.type==="torpedoEnemy"));
+      if(!e.dead&&!gone)this.enemies[write++]=e;
+      else if(!e.dead&&e.type==="hullTurret")this._turretLost(e);
       else if(!e.dead&&e.squad)this._squads.delete(e.squad);  // an escapee spoils the bonus
     }
     this.enemies.length=write;
