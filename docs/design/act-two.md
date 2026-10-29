@@ -541,7 +541,7 @@ A first scatter with the reference kit drops threat from 0.82 to 0.44 two second
 - Bare deck-turret clearing takes 26–36 s (was 36–51 s), because of the weak-kit turret bonus.
 - A test now pins Crown-arrival kills at 52–72 s.
 
-**Balance bot, sector 4 plus LEVIATHAN** (`/tmp/s4-iter-sim`, the round-1 dodging bot, seeds 0, 5, 6, 7, 8, 9, 99, 1234):
+**Balance bot, sector 4 plus LEVIATHAN** (the round-1 dodging bot, seeds 0, 5, 6, 7, 8, 9, 99, 1234; the scratch scripts are not kept in the repo):
 - Hits include shield hits.
 - Steals include phase-3 steals.
 - Phase times are means over clearing runs.
