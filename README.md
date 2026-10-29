@@ -12,7 +12,7 @@ Requires Node.js 20.11 or newer. No package installation is needed to play. Brow
 npm run dev
 ~~~
 
-Open http://127.0.0.1:4173/ for the development game. The existing local workbench and review captures remain in the original workspace and are excluded from Git.
+Open http://127.0.0.1:4173/ for the development game. QA and review captures are written to `artifacts/`, which Git ignores.
 
 ## Build and deploy
 
