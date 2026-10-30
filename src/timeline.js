@@ -7,16 +7,16 @@ export const FLAGSHIP_CLASSES = Object.freeze(['', 'STRIKE CARRIER', 'REACTOR DR
 export const SECTOR_COORDS = Object.freeze(['', 'N 07°21′  E 134°28′', 'N 21°44′  E 148°02′', 'N 29°58′  E 162°40′', 'N 33°12′  E 171°05′']);
 export const SECTOR_TAGLINES = Object.freeze(['', 'Reef lanes at first light.', 'Into the teeth of the storm.', 'Where the sea folds into fire.', 'The real fleet rides the typhoon.']);
 // First sector of Act II. Act I builds the arsenal through the Crown.
-export const ACT_TWO_STAGE = 4;
+import { ACT_TWO_STAGE, actOf } from './game.js';
+export { ACT_TWO_STAGE, actOf } from './game.js';
 export const ACT_NAMES = Object.freeze(['', 'ACT I', 'ACT II']);
 export const ACT_SUBTITLES = Object.freeze(['', 'OPERATION LONG MERIDIAN', 'IRON MONSOON']);
-export const ACT_TAGLINES = Object.freeze(['', 'EVERY STORM HAS A SHORE', 'THE CROWN WAS ONLY THE GATE']);
-export function actOf(stage) { return Number(stage) >= ACT_TWO_STAGE ? 2 : 1; }
+export const ACT_TAGLINES = Object.freeze(['', 'EVERY STORM HAS A SHORE', 'The Crown was only the gate.']);
 export function actName(stage) { return ACT_NAMES[actOf(stage)]; }
 // Rank describes carried-arsenal pressure in either act; flagship states override it in the HUD.
 export function threatName(threat) {
   const rank = Math.max(0, Number(threat) || 0);
-  return rank >= .65 ? 'EXTREME' : rank >= .3 ? 'SEVERE' : 'RISING';
+  return rank >= .7 ? 'EXTREME' : rank >= .3 ? 'HIGH' : 'RISING';
 }
 
 // Seconds of warning before a campaign flagship spawns (drills start at the flagship, so no warning).

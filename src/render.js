@@ -824,7 +824,7 @@ export class Renderer {
       }
       if(['squadronBonus','arsenalScatter','salvageRecover','salvageExpire','escortJoin','sidewinderLaunch','reflect','reflectorUp','reflectorDown','signatureUp','shieldUp','orbitalEat'].includes(type)){
         if(['reflect','orbitalEat','sidewinderLaunch'].includes(type)&&this.impacts.some(f=>f.type===type&&f.age<.1))continue;
-        this.impacts.push({id:++this.effectId,type,x:event.x??this.playerPoint?.x??270,y:event.y??this.playerPoint?.y??750,value:event.value,age:0,life:type==='squadronBonus'?1.15:type==='arsenalScatter'?.95:.48,size:type==='arsenalScatter'?130:40});
+        this.impacts.push({id:++this.effectId,type,x:event.x??this.playerPoint?.x??270,y:event.y??this.playerPoint?.y??750,value:event.value,points:event.points,drops:event.drops,age:0,life:type==='squadronBonus'?1.15:type==='arsenalScatter'?.95:.48,size:type==='arsenalScatter'?130:40});
         continue;
       }
       if(type==='explode'&&event.value==='boss')continue;
@@ -1000,6 +1000,7 @@ export class Renderer {
           c.font='900 19px monospace';c.textAlign='center';c.fillStyle='#ffe89e';
           c.fillText('BONUS!',clamp(fx.x,65,W-65),fx.y-30-p*35);
           c.font='bold 10px monospace';c.fillText('SQUADRON '+(fx.value||''),clamp(fx.x,65,W-65),fx.y-13-p*35);
+          if(fx.points>0)c.fillText('+'+fx.points,clamp(fx.x,65,W-65),fx.y+2-p*35);
         }
         if(fx.type==='salvageRecover'){
           c.font='bold 12px monospace';c.textAlign='center';c.fillStyle='#baffed';

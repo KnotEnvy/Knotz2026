@@ -33,8 +33,7 @@ Listen in two passes. Set MUSIC to 0, EFFECTS to 80 and AMBIENCE to 60 in Manual
 
 ## Campaign check
 
-Act I / Operation Long Meridian covers sectors 1–3: the Shallows, Storm Wall and the Crown. Act II / Iron Monsoon is sector 4 and LEVIATHAN. Check the ACT I launch beat and sector labels, act labels in pause and drills, and the act reached on the flight record. Note whether collecting equipment raises pressure smoothly, and whether a scatter gives enough breathing room to rebuild.
-
+Act I / Operation Long Meridian covers sectors 1–3: the Shallows, Storm Wall and the Crown. Act II / Iron Monsoon is sector 4, against LEVIATHAN. Check the ACT I launch beat and sector labels, act labels in pause and drills, and the act reached on the flight record. Note whether collecting equipment raises pressure smoothly, and whether a scatter gives enough breathing room to rebuild.
 
 Start with the Vesper drill in the hangar. Compare hits taken and flight time over two or three clears with the same aircraft; separate drill bests appear on its button and result screen. Report whether the gaps stay readable, phase changes make sense, and the next attempt improves. Drill benchmarks remain separate from campaign records.
 

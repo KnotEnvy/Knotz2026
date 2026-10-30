@@ -137,7 +137,7 @@ export class Ambience {
     const drill = Number(game?.practiceStage) || 0;
     this._text('consoleKicker', drill ? 'FLAGSHIP DRILL / UNRANKED' : actName(stage) + ' / SECTOR ' + pad(stage));
     this._html('consoleHeading', drill ? 'Flagship<br><em>drill.</em>' : info.heading);
-    this._text('consoleCopy', drill ? 'Full weapons against ' + FLAGSHIP_NAMES[stage] + '. Learn the pattern; campaign records stay untouched.' : info.copy);
+    this._text('consoleCopy', drill ? 'Arrival kit against ' + FLAGSHIP_NAMES[stage] + '. Learn the pattern; campaign records stay untouched.' : info.copy);
     this._text('consoleTheater', 'PACIFIC FRONT / ' + pad(stage) + ' ' + SECTOR_NAMES[stage]);
     this._text('consoleWeather', info.weather);
     this._setSignal(info.signal);

@@ -865,10 +865,12 @@ export class Cinema {
     this.stage = Math.max(1, Math.min(CAMPAIGN_STAGES, num(this.data.stage) || 1));
     this.staticKey = ''; this.counting = false; this.revealAt = 0;
     const reached = actName(this.stage);
-    const eyebrow = $('endEyebrow');
-    if (eyebrow) eyebrow.textContent += ' / ' + (drill ? reached + ' DRILL' : 'REACHED ' + reached);
-    const introLine = $('endIntroLine');
-    if (introLine) introLine.textContent += ' / ' + (drill ? reached + ' DRILL' : 'REACHED ' + reached);
+    const record = drill ? reached + ' DRILL' : won ? 'BOTH ACTS CLEARED' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
+    for (const id of ['endEyebrow', 'endIntroLine']) {
+      const node = $(id);
+      // The shell caches its base copy; consecutive losses may retain our prior suffix.
+      if (node) node.textContent = node.textContent.replace(/ \/ (?:REACHED ACT |ACT [IV]|BOTH ACTS CLEARED).*$/, '') + ' / ' + record;
+    }
     const screen = $('endScreen');
     if (screen) { screen.classList.remove('record-in'); screen.dataset.scene = this.scene; }
     const score = String(Math.max(0, Math.floor(num(this.data.score) || 0))).padStart(8, '0');
