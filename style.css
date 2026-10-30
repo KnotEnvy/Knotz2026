@@ -126,3 +126,6 @@
 .manual-act{padding:13px;border-left:2px solid var(--hot);background:#1b2a28;color:#d4dccf;font-size:10.5px;font-weight:700;letter-spacing:.06em;line-height:1.6}
 .manual-act b{color:var(--gold)}
 @media(max-width:740px){.drill-buttons{grid-template-columns:repeat(2,1fr)}.title-act{font-size:13px;margin:-6px 0 18px}}
+
+/* Act I drill badges use the cockpit cyan; Act II keeps the typhoon coral. */
+.drill-button:not(.act-two) span em{color:var(--cyan);border-color:rgba(118,246,235,.45)}

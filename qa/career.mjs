@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {chromium,firefox} from 'playwright';
-const origin=process.env.GAME_URL||'http://127.0.0.1:4173/',output=new URL('../artifacts/career/',import.meta.url);await mkdir(output,{recursive:true});
+const origin=process.env.GAME_URL||'http://127.0.0.1:4173/',output=new URL(process.env.QA_OUTPUT||'../artifacts/career/',import.meta.url);await mkdir(output,{recursive:true});
 const type=process.env.QA_BROWSER==='firefox'?firefox:chromium;
 const browser=await type.launch({headless:true,executablePath:process.env.BROWSER_EXECUTABLE||process.env.CHROMIUM_EXECUTABLE||undefined,args:type===chromium?['--no-sandbox']:[]});
 const page=await browser.newPage({viewport:{width:1440,height:1000}}),report={origin,browser:type.name(),errors:[],checks:{}};

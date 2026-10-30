@@ -2,7 +2,7 @@
 
 **Play now: https://knotenvy.github.io/Knotz2026/**
 
-A playable, original vertical scrolling shooter. Choose one of three aircraft and fight through three Pacific sectors. Authored aircraft and environment art combine with procedural lighting, weather, effects, music and sound. The public build contains the game shell, runtime modules, five local raster game assets and the brand icon and share-card images under `assets/brand/`.
+A playable, original vertical scrolling shooter. Choose one of three aircraft and fight through four Pacific sectors in two acts. Act I / Operation Long Meridian runs through the Shallows, Storm Wall and the Crown. Act II / Iron Monsoon pits you against LEVIATHAN in the typhoon. Equipment builds across Act I, and enemy pressure follows your carried arsenal in both acts. Authored aircraft and environment art combine with procedural lighting, weather, effects, music and sound. The public build contains the game shell, runtime modules, five local raster game assets and the brand icon and share-card images under `assets/brand/`.
 
 ## Run locally
 

@@ -254,3 +254,9 @@ body[data-reduced-fx] .attitude-ball{transition:none}
    and drop the moving rain sheets. Flashes, alerts and the interlude wash stay. */
 body[data-backdrop="lite"] .console-atmosphere .atmo-sector i{animation-play-state:paused!important}
 body[data-backdrop="lite"] .atmo-rain{display:none}
+
+/* Carried arsenal pressure applies in both acts; immediate danger keeps precedence. */
+body[data-threat="calm"][data-rank="severe"] .threat-bars b:nth-child(-n+2){background:#ffc06c}
+body[data-threat="calm"][data-rank="extreme"] .threat-bars b:nth-child(-n+3){background:var(--hot)}
+body[data-threat="calm"][data-rank="severe"] #threatReadout{color:#ffcf8c}
+body[data-threat="calm"][data-rank="extreme"] #threatReadout{color:#ff9a82}

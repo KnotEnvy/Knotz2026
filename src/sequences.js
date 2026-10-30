@@ -4,7 +4,7 @@
 // Presentation only: never change game state from here.
 import {
   FLAGSHIP_NAMES, FLAGSHIP_CLASSES, SECTOR_NAMES, SECTOR_COORDS, SECTOR_TAGLINES,
-  BOSS_WARNING_LEAD, INTERLUDE_LENGTH, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, interludeLength
+  BOSS_WARNING_LEAD, INTERLUDE_LENGTH, ACT_TWO_STAGE, actName, ACT_SUBTITLES, ACT_TAGLINES, bossWarningProgress, interludeProgress, interludeLength
 } from './timeline.js';
 import { flightTime } from './progress.js';
 import { CAMPAIGN_STAGES } from './game.js';
@@ -394,16 +394,25 @@ export class Sequences {
     const bx = 108 * open + 82;
     brackets(ctx, 270 - bx, y - 72, bx * 2, 146, 12, `rgba(${accent},${.55 * a})`);
     ctx.globalAlpha = a;
-    const kicker = (act2 ? 'ACT II  ·  ' : 'OPERATION LONG MERIDIAN  ·  ') + 'SECTOR ' + two(stage) + OF;
+    const kicker = (actName(stage) + '  ·  ') + 'SECTOR ' + two(stage) + OF;
     wipe(ctx, this.label(kicker, 10, act2 ? C.coral : C.gold, { spacing: 2.4 }), 270, y - 59, ramp(.12, .62, t) * 1.02, a);
+    // Fold the act title into the existing launch card; sector one still ends at 2.6 s.
+    const launch = stage === 1;
+    const beat = launch ? 1 - ramp(.95, 1.2, t) : 0;
+    if (beat > 0) {
+      blit(ctx, this.label(actName(stage), 64, C.pale, { family: DISPLAY, weight: 900, spacing: 10 }), 270, y - 8, a * beat * ramp(.15, .4, t));
+      blit(ctx, this.label(ACT_SUBTITLES[1], 11, C.gold, { spacing: 2 }), 270, y + 27, a * beat * ramp(.3, .55, t));
+      blit(ctx, this.label(ACT_TAGLINES[1], 9, C.cyan, { spacing: 2 }), 270, y + 59, a * beat * ramp(.4, .65, t));
+    }
+    const cardA = a * (launch ? ramp(1.15, 1.4, t) : 1);
     const title = this.label(SECTOR_NAMES[stage] || 'SECTOR ' + two(stage), this.compact ? 34 : 40, C.pale, { family: DISPLAY, weight: 900, spacing: 3 });
     const reveal = this.reducedEffects ? ramp(0, .3, t) : easeOut((t - .06) / .5);
-    const edge = this.reducedEffects ? blit(ctx, title, 270, y - 8, a * reveal) : wipe(ctx, title, 270, y - 8, reveal, a);
+    const edge = this.reducedEffects ? blit(ctx, title, 270, y - 8, cardA * reveal) : wipe(ctx, title, 270, y - 8, reveal, cardA);
     if (!this.reducedEffects && reveal > 0 && reveal < 1 && edge) line(ctx, edge, y - 30, edge, y + 14, `rgba(${accent},${.9 * (1 - reveal)})`, 2);
-    if (title) this.shimmer(ctx, title, 270, y - 8, (t - 1) / .65, a);
-    const tagA = a * ramp(.32, .72, t);
+    if (title) this.shimmer(ctx, title, 270, y - 8, (t - (launch ? 1.4 : 1)) / .65, cardA);
+    const tagA = cardA * ramp(.32, .72, t);
     blit(ctx, this.label(SECTOR_TAGLINES[stage] || '', 16, C.amber, { family: SERIF, weight: 400, italic: true }), 270, y + 25 + 5 * (1 - tagA), tagA);
-    const footA = a * ramp(.5, .9, t);
+    const footA = cardA * ramp(.5, .9, t);
     blit(ctx, this.label(SECTOR_COORDS[stage] || '', 9, C.muted, { spacing: 1.6 }), 270 - 184, y + 59, footA, 1, 'left');
     blit(ctx, this.label('OBJECTIVE / ' + (FLAGSHIP_NAMES[stage] || 'FLAGSHIP'), 9, act2 ? C.gold : C.cyan, { spacing: 1.6 }), 270 + 184, y + 59, footA, 1, 'right');
     ctx.restore();
@@ -650,9 +659,9 @@ export class Sequences {
     diamond(ctx, 270 - half, cy - 66, 3, C.gold); diamond(ctx, 270 + half, cy - 66, 3, C.gold);
     wipe(ctx, this.label('OPERATION LONG MERIDIAN  ·  THE CROWN HAS FALLEN', 10, C.gold, { spacing: 2.6 }), 270, cy - 84, ramp(.05, .55, t) * 1.02, a);
     const punch = reduced ? 1 : 1 + .28 * (1 - easeOut(t / .32));
-    const title = this.label('ACT II', 92, C.pale, { family: DISPLAY, weight: 900, spacing: 14 });
+    const title = this.label(actName(ACT_TWO_STAGE), 92, C.pale, { family: DISPLAY, weight: 900, spacing: 14 });
     blit(ctx, title, 270, cy - 18, a * ramp(0, .12, t), punch);
-    if (!reduced && t < .3) blit(ctx, this.label('ACT II', 92, '#fff6e0', { family: DISPLAY, weight: 900, spacing: 14 }), 270, cy - 18, a * (1 - t / .3), punch);
+    if (!reduced && t < .3) blit(ctx, this.label(actName(ACT_TWO_STAGE), 92, '#fff6e0', { family: DISPLAY, weight: 900, spacing: 14 }), 270, cy - 18, a * (1 - t / .3), punch);
     if (title) this.shimmer(ctx, title, 270, cy - 18, (t - .5) / .8, a);
     const la = a * ramp(.55, .95, t);
     blit(ctx, this.label('The Crown was only the gate.', 24, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 34 + (reduced ? 0 : 6 * (1 - la)), la);

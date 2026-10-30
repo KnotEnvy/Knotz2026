@@ -3,6 +3,7 @@
 // Three procedural scenes render on #cinemaCanvas (1600x900): dawn victory, storm-night
 // defeat (the storm fleet, the Crown, or LEVIATHAN in the typhoon) and a dusk training range for drills. Static layers are built once and cached.
 import { SHIP_ORDER, shipShape } from './ships.js';
+import { actName, ACT_TWO_STAGE } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const W = 1600, H = 900, TAU = Math.PI * 2;
@@ -844,7 +845,7 @@ export function commendations(data = {}) {
   if (conversions >= (drill ? 10 : 25)) list.push({ tone: 'cyan', name: 'WAKE RIDER', note: conversions + ' CONVERSIONS' });
   if ((num(data.reactorsBroken) || 0) >= 2) list.push({ tone: 'hot', name: 'REACTOR SAPPER', note: 'AURELIA DISARMED' });
   if (!drill && (num(data.kills) || 0) >= 300) list.push({ tone: 'paper', name: 'MERIDIAN ACE', note: num(data.kills) + ' KILLS' });
-  if (!won && !drill && (num(data.stage) || 0) >= 4) list.push({ tone: 'hot', name: 'INTO THE TYPHOON', note: 'REACHED ACT II' });
+  if (!won && !drill && (num(data.stage) || 0) >= ACT_TWO_STAGE) list.push({ tone: 'hot', name: 'INTO THE TYPHOON', note: 'REACHED ACT II' });
   else if (!won && !drill && (num(data.stage) || 0) >= 3) list.push({ tone: 'hot', name: 'DEEP STRIKE', note: 'REACHED THE CROWN' });
   return list.slice(0, 5);
 }
@@ -863,6 +864,11 @@ export class Cinema {
     this.scene = drill ? 'range' : won ? 'victory' : 'defeat';
     this.stage = Math.max(1, Math.min(CAMPAIGN_STAGES, num(this.data.stage) || 1));
     this.staticKey = ''; this.counting = false; this.revealAt = 0;
+    const reached = actName(this.stage);
+    const eyebrow = $('endEyebrow');
+    if (eyebrow) eyebrow.textContent += ' / ' + (drill ? reached + ' DRILL' : 'REACHED ' + reached);
+    const introLine = $('endIntroLine');
+    if (introLine) introLine.textContent += ' / ' + (drill ? reached + ' DRILL' : 'REACHED ' + reached);
     const screen = $('endScreen');
     if (screen) { screen.classList.remove('record-in'); screen.dataset.scene = this.scene; }
     const score = String(Math.max(0, Math.floor(num(this.data.score) || 0))).padStart(8, '0');
