@@ -6,7 +6,7 @@ Status: approved direction (2026-10-25). Owner: lead (root thread). This file is
 
 1. **1942-scale firepower, fast.** Every pickup makes the ship visibly and audibly stronger right away. There are no per-sector caps and no "power full" dead ends. A clean run through sector 1 should end with a screen-wide wall of fire, flanking escorts and missiles.
 2. **A hit costs your arsenal, and you can win it back.** When you take a hit, your gained power and equipment scatter as floating salvage tokens. They drift and bounce around the playfield for a short window, and you can fly through them to recover them. So the main risk is losing the arsenal, not dying. A careless player is soon flying a bare plane; a careful one stays a monster.
-3. **Sectors 1–3 are the warm-up.** Keep their content. With the new arsenal they will feel easier. That is intended: they teach the loop and let players feel powerful.
+3. **Sectors 1–3 are Act I.** (Superseded 2026-10-30 by Part 3: Act I now ramps toward Act II on a slower, authored power curve.)
 4. **Act II (sectors 4–6) is the real game.** Denser, faster, armored and aware of the arsenal, so that even a fully equipped fighter has to sweat.
 
 ## Part 1: Arsenal (power and equipment)
@@ -614,6 +614,127 @@ Round 1, same bot and seeds, for comparison:
   - In phase 2 it steals the player's salvage on any hit.
   - Its final form is a full-screen bullet ballet with void and destructible bullet layers.
   - Its defeat triggers the true ending.
+
+## Part 3: Act I retune (sectors 1–3)
+
+Status: approved direction (2026-10-30). Owner: lead (root thread). This supersedes Goal 3 ("sectors 1–3 are the warm-up").
+
+The owner's playtest verdict on sector 4: "this is how we'd like the game to play." Act I (sectors 1–3) now applies sector 4's lessons from the first second.
+
+- The player's power grows more slowly and on an authored schedule, so it reaches the Act II reference kit right as Act II starts.
+- Each sector's attacks are designed around the equipment the player has just been handed.
+- Difficulty ramps across Act I toward sector 4, instead of staying a flat warm-up.
+
+Sector 4, LEVIATHAN and the Act II numbers do not change.
+
+### Goals
+
+1. **Slower, earned growth, still no caps.**
+   - Escort pairs ("drones") and main-gun power appear less often.
+   - A pilot who collects everything as it shows up still reaches the full Act II reference kit when sector 4 starts: power 24–27, 6 escorts, sidewinder 4, signature 4, shield 3, counting the Crown spoils.
+   - Nothing is capped. Levels past the ledger still count, and overflow still converts.
+2. **Drop placement drives attack design.** Each sector's important drops are authored at specific beats: the kit ledger below.
+   - The beats after a drop introduce the attack that the new equipment answers.
+   - The beat after that leans on it.
+   - Harder attacks are gated behind the drops that prepare the player for them.
+3. **Act I ramps toward Act II.**
+   - Sector 1 teaches the loop. Sector 2 pressures the kit. Sector 3 is a real test, one notch below sector 4.
+   - A ledger-kit pilot should feel Act II's "sweat" approaching rather than hitting a wall at sector 4.
+4. **It is Act I.** The game names it: the sector cards, console, pause screen, hangar drills, flight record, field manual and docs.
+
+### Kit ledger (targets)
+
+The targets are for an engaged collector who takes no hits (the arsenal-r3 regression bot) and are measured at flagship arrival. Each ship may sit within ±3 power of the row. Manta's shield overflow puts it at the top of each band, and that is acceptable.
+
+| Point | Power | Escorts | Sidewinder | Signature | Shield (non-Manta) |
+| --- | --- | --- | --- | --- | --- |
+| Launch | 2 | 0 | 0 | 0 | 0 |
+| Vesper arrival | 7–9 | 2 | 1 | 1 | 0–1 |
+| Aurelia arrival | 13–16 | 4 | 2 | 2 | 1–2 |
+| Crown arrival | 19–22 | 4–6 | 3 | 3 | 2–3 |
+| Sector 4 start (after Crown spoils) | 24–27 | 6 | 4 | 4 | 3 |
+
+- **Ramp (engaged collector).**
+  - The first escort pair arrives no earlier than about 25 s into sector 1. It was 8–13 s.
+  - Power 4 comes no earlier than about 12 s. It was 9 s.
+  - Each sector gives about one escort pair.
+  - The full wing of 6 lands in sector 3 or with the Crown spoils.
+- **Authored drops do the work.** Most of the kit comes from authored `drop:` fields, carriers, minibosses and flagship spoils.
+  - Random table rolls and the squadron bonus become flavour, at a lower rate.
+  - The bonus ladder follows the ledger.
+  - Sidewinder and signature growth must slow too. In round 3 they reached M14–21 and ★11–12 at the Crown, and that is why Crown-arrival DPS was 3,150–4,620 against a reference of about 1,800–2,100.
+- **DPS check.** At sector 4 start, the ledger kit's raw flagship DPS should sit within about +25% of the reference: Kestrel 1,820, Manta 2,090, Wraith 2,110.
+- **Drills.** `DRILL_LOADOUTS` for Vesper, Aurelia and the Crown match the ledger's arrival rows.
+
+### Attack design rules (drop → attack)
+
+Use the beat after a drop to show the new equipment off, and the beat after that to test it. These pairings are suggestions; the simulation builder may choose others, and must record the final ledger in "Simulation notes (Act I)".
+
+| Drop | Next beat introduces | Then tests it with |
+| --- | --- | --- |
+| Escort pair | Side entries and flanks the wing covers | Wider formations, pincers |
+| Sidewinder | Weaving aces and scattered loners that homing cleans up | Mixed-altitude waves |
+| Signature (Kestrel flak, Manta torpedoes, Wraith orbitals) | Denser aimed streams | Combined stream plus formation |
+| Shield | The sector's first sustained curtain or lane sweep | A curtain with a moving gap |
+| Reflector | A dense bullet wave where reflection pays | — |
+| Power past 8 (stream ceiling) | Armored and high-HP targets: turrets, carriers, minis | Heavy plus popcorn mixes |
+
+- Key drops ride on carriers or formation leads that are guarded or exposed, so taking the drop is a risk and reward decision, as with 1942's red squadrons.
+
+### Sector 4 lessons to apply in Act I
+
+- **Threat rank in Act I.** `game.threat` runs in every sector on the same curve, `0.88·tanh((arsenal−6)/37)`. A ledger kit then rises naturally across Act I: about 0.14 at Vesper and about 0.58 at the Crown.
+  - Act I enemies read it: fire cadence, bullet speed and volley size.
+  - Act I gates are gentler than Act II's. Choose them so a ledger kit meets the intended ramp.
+  - A scatter drops the threat, so a stripped ship gets a breather.
+- **Rescue drops.** While threat is below `RESCUE_THREAT`, as after a scatter, chosen formation leads carry power, so a stripped pilot can rebuild. This replaces the flat "every lead carries power" warm-up in sector 1.
+- **HP curve against the ledger.** Popcorn still melts in one or two volleys at that point's ledger kit, and kitted ships wipe 85–100% of squadrons. Heavies (turrets, carriers, minis, bombers) take sustained fire. Replace `1+(stage-1)*.22` with values tuned against the ledger.
+- **Intro cards.** Each sector's opening beat lands after its intro card, at 2.5 s or later, as sector 4 learned. Today they land at 0.6–0.7 s.
+- **Flagships.** Re-tune HP, guard par and phase pressure against the arrival-ledger kit. Kill-time targets for the invulnerable tracker with the arrival kit:
+  - Vesper 18–24 s;
+  - Aurelia 22–28 s;
+  - the Crown 26–34 s;
+  - LEVIATHAN stays at 52–72 s.
+- **Optional:** sector 3 may preview one Act II mechanic, such as scavengers answering a scatter. If it does, presentation must confirm the sprite reads in the sector 3 palette. No other new enemy types are added in Act I.
+
+### Difficulty targets (balance bot)
+
+Use the sector 4 round-1 dodging bot (good pilot and average pilot) on 8 or more seeds, running each sector from the ledger kit for that sector's start, plus a full-campaign mortal run.
+
+| Sector | Good pilot, ledger kit: sector hits | Clears (good / average) |
+| --- | --- | --- |
+| 1 | 1–2 | ≥ 8/8 / ≥ 7/8 |
+| 2 | 2–3.5 | ≥ 8/8 / ≥ 6/8 |
+| 3 | 3–5 | ≥ 7/8 / ≥ 5/8 |
+| 4 (unchanged, for reference) | 4.9–6.3 | see sector 4 round 2 |
+
+- **Mortal sector-1 dodger** (10 seeds, no lives refill): each ship clears at least 8/10. Today Kestrel is 9, Manta 10 and Wraith 2. Wraith must rise.
+- **Sector 4 with the new arrival kits** must match the round-2 reference-kit rows, within seed noise.
+
+### Act I identity (presentation)
+
+- **Sector intro cards.** Sectors 1–3 read `ACT I · SECTOR 0N`, just as sector 4 reads `ACT II`.
+- **Launch.** The sortie opens with a short ACT I title beat, folded into the sector-1 intro, so the start gets no longer than it is today. The Act I subtitle is the presentation builder's choice; one option is the existing operation name, "OPERATION LONG MERIDIAN".
+- **Other screens.**
+  - The console log notes ACT I at launch.
+  - The pause screen and hangar drills group Vesper, Aurelia and the Crown under ACT I, and LEVIATHAN under ACT II.
+  - The flight record notes the act reached.
+  - The field manual, README and PLAYTEST name the two acts.
+- **Act II HUD and audio.** Any HUD, music or audio cue that today keys on `stage >= ACT_TWO_STAGE` only because threat was 0 in Act I must be checked now that threat runs in Act I.
+
+### Builder file ownership (Act I)
+
+- **Simulation (Opus high):** owns `src/game.js`, `src/progress.js`, `test/*.mjs` and the "Simulation notes (Act I)" section below. New events or player fields go into this section first.
+- **Presentation (Sol high):** owns:
+  - `src/sequences.js`, `src/ambience.js`, `src/cinema.js`, `src/pause.js`;
+  - `src/ui.js`, `src/render.js`, `src/frontend.js`, `src/main.js`, `src/timeline.js`;
+  - `src/sfx.js`, `src/audio.js`, `src/music.js`;
+  - `index.html`, the CSS, `README.md`, `PLAYTEST.md` and `qa/*.mjs`.
+- Neither builder commits. Luna does the git work.
+
+### Simulation notes (Act I)
+
+(Simulation builder: record the final ledger, drop schedule per sector, threat gates, HP curve, flagship numbers and bot tables here.)
 
 ## Process
 
