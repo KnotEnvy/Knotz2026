@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game} from '../src/game.js';
 
+// Drill kits carry the ledger's shields; hull-hit checks fly without them.
 function arena(stage=2,phase=2){
-  const g=new Game();g.startDrill(stage);g.boss.phase=phase;g.boss.age=phase===1?3:phase===2?11:19;
+  const g=new Game();g.startDrill(stage);g.player.shield=0;g.boss.phase=phase;g.boss.age=phase===1?3:phase===2?11:19;
   g.boss.hp=g.boss.maxHp*(phase===1?.9:phase===2?.5:.25);g.boss.fireAt=999;g._updateEnemies(0);g.events=[];
   return g;
 }

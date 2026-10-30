@@ -657,7 +657,8 @@ test('scavenger edge cases: stale targets, the interlude, stolen salvage across 
   step(crown, 7);
   assert.equal(crown.stage, 4);
   assert.equal(crown.stats.salvageRecovered, recovered + 3, 'both pieces are collected by the interlude');
-  assert.equal(crown.stats.salvageLost, lost); assert.equal(crown.player.signature, signature + 2);
+  // +2 recovered, +1 from the Crown's Act I spoils (power x4, sidewinder, signature).
+  assert.equal(crown.stats.salvageLost, lost); assert.equal(crown.player.signature, signature + 3);
 });
 
 test('Crown-arrival kits kill LEVIATHAN in 52-72 s (pinned)', () => {
