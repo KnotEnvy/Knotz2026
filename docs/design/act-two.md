@@ -734,7 +734,7 @@ Use the sector 4 round-1 dodging bot (good pilot and average pilot) on 8 or more
 
 ### Simulation notes (Act I)
 
-Status: built 2026-10-30 (simulation builder). The final ledger, drop schedule, threat gates, HP curve, flagship numbers and bot tables follow the presentation notes. For Act I, these notes supersede three earlier passages: the Part 1 "Drops" bullets about sectors 1–3, the round-3 "Sector 1 is the power warm-up" note, and the old example drill loadouts.
+Status: built 2026-10-30 (simulation builder); round 2 the same day, after review (recovery, drop timing, Wraith help, Crown density). The final ledger, drop schedule, recovery rules, threat gates, HP curve, flagship numbers and bot tables follow the presentation notes. For Act I, these notes supersede three earlier passages: the Part 1 "Drops" bullets about sectors 1–3, the round-3 "Sector 1 is the power warm-up" note, and the old example drill loadouts.
 
 #### Events / fields for presentation
 
@@ -744,113 +744,200 @@ Written first, so the presentation builder can build against it. Everything else
   - It uses the same curve as Act II, in every sector; the `else this.threat=0` is gone.
   - It resets to 0 when a campaign enters a new sector, then rises at 0.15/s as before, so each sector opens on a short power trip. Sector 4 in a campaign therefore still opens at 0, exactly as it did.
   - Drills start at the drill kit's threat in every sector.
-  - Typical Act I values for an engaged pilot: about 0 at launch, about 0.15 at Vesper, about 0.4 at Aurelia and about 0.6 at the Crown.
+  - Typical Act I values for an engaged pilot: about 0 at launch, about 0.18 at Vesper, about 0.45 at Aurelia and about 0.62 at the Crown.
   - A scatter drops it toward 0 in any sector.
   - **Consequence:** `threat > 0` no longer means Act II. Any HUD, music or audio code that used threat as an Act II signal must test `game.act === 2` (or `stage >= ACT_TWO_STAGE`) instead. In today's tree only `qa/audio.mjs` reads `threat`.
 - **`game.act`** (getter, 1 or 2): the act of the current sector. Also `export function actOf(stage)` from `src/game.js`, which returns 1 for sectors 1–3 and 2 from `ACT_TWO_STAGE` on.
 - **`summary.act`**: the act of the sector the run ended in (victory runs report the last sector's act). The flight record can show it.
-- **`squadronBonus`**: in Act I, a wipe now always pays a small score bonus (150 per craft) and drops a reflector about 30% of the time.
+- **`squadronBonus`**: in Act I, a wipe always pays a small score bonus (150 per craft) and drops a reflector about 30% of the time.
   - `drops` is 0 or 1 in Act I. It is still 1 in Act II.
   - The event also carries `points`, the score awarded for the wipe.
   - The "SQUADRON BONUS!" banner stays truthful either way.
 - **Pickups:** no new pickup types and no new enemy types. Act I flagship spoils are a wider fan, collected automatically during the interlude as before. The Crown's spoils are 6 items: four power, a sidewinder and a signature.
+- **Recovery tokens (round 2).** A recovery token is an ordinary pickup (`power`, `escort`, `sidewinder` or `signature`).
+  - Its `drop` event carries `recovery: true` and `amount`.
+  - A power token may carry `value` 2–4 and is collected as that many levels. The `pickup` event still reports `power`, so one power cue plays.
+  - Presentation may treat recovery tokens like any other drop. A distinct cue is optional and not required.
+- **Flagship HP (round 2).** In a campaign, an Act I flagship can arrive with a lower `maxHp` than authored (see "Recovery and mercy"). HUD code that shows `hp / maxHp` needs no change. Drills and LEVIATHAN always use the authored HP.
+- **Hull repair (round 2).** Clearing sector 1 or 2 now restores the hull to full. Entering sector 4 still adds one point. The `stage` event is unchanged.
 - **Enemy fields:**
-  - Act I formation leads may carry `e.rescue = true`. They drop power only while `threat < RESCUE_THREAT` (0.5), as in Act II.
-  - `e.drop` may now be a string or an array of pickup types. Arrays were already accepted.
+  - Act I formation leads may carry `e.rescue = true`, which drops power while `threat < RESCUE_THREAT` (0.5), as in Act II.
+  - They may also carry `e.recover = true`, a recovery lead.
+  - `e.drop` may be a string or an array of pickup types.
 - **No new telegraph events:** Act I's new attacks reuse existing patterns, `wave`, `flank` and `lane` events.
+
+#### Round 2 summary
+
+The review scored balance 4/10. Recovery could not sustain a continuous campaign: the reconstructed average bot cleared Act I on 0/8, 6/8 and 0/8 seeds (Kestrel / Manta / Wraith). Every key drop was also collected after the attack it was meant to prepare for. Round 2 made five changes:
+
+1. **Drop timing measured at collection.** Key items now ride formation leads, which die about 4–6 s after their beat; carriers took 5–11 s. Each key item is in hand at least 1 s before the attack beat that shows it off, so about 2.5 s before that attack's first shot. The sector-3 closing bomb now drops before the Crown.
+2. **Recovery** (rules below). Rescue leads, new recovery leads and Act I flagship phase breaks top up a kit that has fallen below its entitlement, counting live salvage first. Missing equipment is replaced one token per opportunity. A clean collector never sees a token: zero tokens across 144 clean runs.
+3. **Mercy.** A kit short of its entitlement meets softer craft and flagships, down to 40% HP. A ledger kit meets the authored HP.
+4. **Campaign survival.**
+   - Act I flagship salvos are 1.2× slower (`ACT_ONE_BOSS_PACE_BASE` 1.25 → 1.5); flagships were the campaign's largest source of hits.
+   - The Crown's final phase fires its counter-fan on alternate salvos.
+   - Act I sector clears repair the hull.
+5. **Wraith.** Its orbitals come earlier in sectors 1 and 2 (`wraith` beat overrides; same items per sector). Recovery hands Wraith orbitals first.
+
+**Continuous Act I campaign** (sectors 1–3 back to back, normal healing and extends, no manual refill). The bot is the reviewer's: the rebuilt dodger, which never barrel-rolls. Clears are Kestrel / Manta / Wraith.
+
+| Code | Pilot | Reviewer seeds (8) | 48 seeds |
+| --- | --- | --- | --- |
+| `a1d523c` (round 3, before the Act I retune) | Average | 8/8, 8/8, 8/8 | — |
+| `a1d523c` | Mortal | 7/8, 8/8, 5/8 | — |
+| Round 1 (`aab27f3`) | Average | 0/8, 6/8, 0/8 | 2/48, 29/48, 1/48 |
+| Round 1 | Mortal | 0/8, 0/8, 0/8 | 0/48, 0/48, 0/48 |
+| **Round 2** | **Average** | **7/8, 8/8, 4/8** | **41/48, 48/48, 34/48** |
+| **Round 2** | **Mortal** | **1/8, 3/8, 0/8** | **11/48, 16/48, 2/48** |
+
+- The reviewer seeds are 0, 5, 6, 7, 8, 9, 99 and 1234. The 48 seeds add 11–18, 21–28 and 31–54.
+- Eight seeds swing by ±2 clears, because any change reshuffles the seeded stream, so decisions used the 48-seed column.
+
+Round-2 detail, 48 seeds, Kestrel / Manta / Wraith:
+
+| Pilot | Hits per sector, flagship included (S1 / S2 / S3) | Of which flagship | Scatters | Recovery tokens (S1 / S2 / S3) | Flagship arrival power (V / A / C) |
+| --- | --- | --- | --- | --- | --- |
+| Average | 6.5/7.3/8.5, 5.2/6.0/11.7, 6.5/8.9/9.8 | 2.9/2.4/4.2, 3.3/3.6/6.6, 2.8/3.0/4.1 | 19.2, 12.4, 22.1 | 1.2/7.3/9.0, 0.9/2.9/8.6, 0.9/8.5/10.7 | 5.5/8.4/14.9, 7.3/12.9/16.0, 6.0/9.1/13.0 |
+| Mortal | 9.8/9.4/4.1, 9.7/13.2/11.9, 11.0/8.7/1.2 | 3.4/2.4/2.0, 4.2/4.9/5.0, 4.3/1.3/0.3 | 20.8, 23.5, 18.6 | 2.0/9.2/4.8, 1.8/11.3/11.3, 2.1/7.1/1.1 | 4.3/7.5/13.8, 5.4/6.6/12.2, 4.7/6.4/11.5 |
+
+The mortal pilot's hits per sector only count runs that reach that sector.
 
 #### Kit ledger as built
 
-Measured with the engaged no-hit collector (the arsenal-r3 regression bot: fire held, lines up under the lowest enemy, detours to pickups within 300 px, invulnerable). Power is the range over seeds 0–5, with the mean in brackets. Escorts, sidewinder and signature landed exactly on the row on every seed and ship.
+Measured with the engaged no-hit collector (the arsenal-r3 regression bot: fire held, lines up under the lowest enemy, detours to pickups within 300 px, invulnerable). Power is the range over seeds 0–5 with the mean in brackets, then the range over 48 seeds. Escorts, sidewinder, signature and shields landed exactly on the row on every seed and ship.
 
 | Point | Target | Kestrel | Manta | Wraith |
 | --- | --- | --- | --- | --- |
-| Vesper arrival | P7–9, E2, M1, ★1, S0–1 | P8–9 (8.2), S1 | P8–9 (8.2), S3 | P8–9 (8.2), S1 |
-| Aurelia arrival | P13–16, E4, M2, ★2, S1–2 | P15–17 (16.0), S2 | P17–19 (17.7), S3 | P16 (16.0), S2 |
-| Crown arrival | P19–22, E4–6, M3, ★3, S2–3 | P20–23 (22.0), E6, S3 | P23–26 (24.3), E6, S3 | P21–22 (21.3), E6, S3 |
-| Sector 4 start | P24–27, E6, M4, ★4, S3 | P24–27 (26.0) | P27–30 (28.3) | P25–26 (25.5) |
+| Vesper arrival | P7–9, E2, M1, ★1, S0–1 | P8–9 (8.2); 8–9. S1 | P8–9 (8.2); 8–9. S3 | P8–9 (8.2); 8–10. S1 |
+| Aurelia arrival | P13–16, E4, M2, ★2, S1–2 | P15–16 (15.2); 15–18. S2 | P17–19 (17.8); 17–19. S3 | P15–18 (15.8); 15–18. S2 |
+| Crown arrival | P19–22, E4–6, M3, ★3, S2–3 | P20–22 (21.0); 20–24. E6, S3 | P23–25 (24.3); 23–27. E6, S3 | P20–23 (21.3); 20–24. E6, S3 |
+| Sector 4 start | P24–27, E6, M4, ★4, S3 | P24–26 (25.0); 24–28 | P27–29 (28.3); 27–31 | P24–27 (25.3); 24–28 |
 
+- **Unchanged from round 1** within a level: the closing bomb now converts to power for a full bay, so sector 3 authors one power fewer.
 - **Ramp (sector 1).**
-  - Power 4 at 13.9–14.9 s (round 3: 9 s).
-  - First escort pair at 30.5–31.7 s (round 3: 8–14 s).
-  - Power 6 at 43–44 s, or 25–26 s on the seeds where a flavour power drops early.
-- **Threat at arrival:** Vesper 0.17–0.23, Aurelia 0.43–0.52, the Crown 0.60–0.67.
-- **Squadron wipes:** 82–100% in sector 1, which opens bare; 100% in sectors 2 and 3.
-- **Manta.** Its two shield overflows (Vesper's spoils and the sector-3 relay) put it 2–4 levels above the others from Aurelia on. At the Crown it reaches P26 on 1 seed of 6, one level past the +3 tolerance; its mean is 24.3.
-- **DPS check at sector-4 start** (raw flagship DPS, guard ignored, invulnerable tracker), for the default-seed kits against the reference:
-  - Kestrel P27: 1,899 against 1,811 (+5%);
-  - Manta P29: 2,244 against 2,054 (+9%);
-  - Wraith P25: 2,125 (+0%).
-
-  Round 3's Crown-arrival kits measured 3,150–4,620.
+  - Power 4 at 13.9–15.1 s.
+  - First escort pair at 25.2–27.1 s (round 1: 30.5–31.7 s; the target is 25 s or later).
+  - Power 6 at 43–44 s, or 26.8–30 s on the seeds where a flavour power drops early.
+- **Threat at arrival:** Vesper 0.17–0.23, Aurelia 0.43–0.52, the Crown 0.60–0.68.
+- **Squadron wipes:** 83–100% in sector 1, which opens bare; 100% in sectors 2 and 3.
+- **Manta.** Its two shield overflows put it 2–4 levels above the others from Aurelia on. At sector-4 start it reaches P30–31 on 4 seeds of 48, past the +3 tolerance; its mean is 28.4.
+- **Missed equipment.** With any one escort, sidewinder or signature withheld (its carrier removed without a drop), every ship still enters sector 4 on E6 / M4 / ★4. One recovery token replaces it, at the next recovery lead or flagship phase break. Round 1 entered sector 4 on E4.
+- **DPS check at sector-4 start:** unchanged from round 1 (+0% to +9% against the reference).
 
 #### Drop schedule
 
 The schedule is authored on `STAGE_BEATS` (exported read-only for tests). Each Act I beat is `[time, pattern, drops]`:
 - `lead`: the drop rides on the formation lead.
 - `heavy`: it rides on the carrier, the mini or the centre turret.
-- `rescue`: the lead carries power while threat < 0.5.
+- `rescue`: the lead also carries power while threat < 0.5. It now pays on top of an authored drop.
+- `recover`: the lead is a recovery lead (see "Recovery and mercy").
+- `wraith`: overrides the beat's drops for Wraith only.
 
-Times are beat spawns; the items reach the player 2–6 s later.
+"Collected" is the measured first pickup by the engaged collector, over 48 seeds and three ships. "Shown by" is the attack beat that shows the item off; its enemies open fire about 1.5 s after their beat. A lane sweep spawns at its time and reaches the ship about 5 s later.
 
 **Sector 1, THE SHALLOWS (62 s).** Launch P2 → P8, E2, M1, ★1, S1. Lane sweeps at 19.5, 32 and 49 s.
 
-| Beat | Drop | Drop → attack |
-| --- | --- | --- |
-| 2.8 split | rescue power | The opening teaches shooting and collecting |
-| 7 drift | — | |
-| 10 wing | lead: power (power 4 at about 14 s) | |
-| 14.5 bomber | lead: shield | The 19.5 s lane sweep, the sector's first |
-| 21 drift | rescue power | |
-| 24.5 wing | carrier: escort pair | 29 flank (side entries), then 33 split (a wider formation) |
-| 37.5 turret | centre turret: power | |
-| 41.5 mini | sidewinder, power | 46.5 ace (weaving aces), then 50.5 drift (mixed altitudes) |
-| 52.5 cross | carrier: signature, power | 57 bomber (denser aimed streams), then Vesper |
+| Beat | Drop | Collected | Shown by |
+| --- | --- | --- | --- |
+| 2.8 split | rescue power | ~7 | The opening teaches shooting and collecting |
+| 7 drift | — | | |
+| 10 wing | lead: power (power 4) | 13.9–15.1 | |
+| 14.5 bomber | lead: shield | 19.6–22.3 | The 19.5 s lane sweep, which lands about 24.5 s |
+| 21.5 drift | lead: escort pair | 25.2–27.1 | 29 flank (side entries), then 33 split (a wider formation) |
+| 24.5 wing | rescue power | | |
+| 33 split | recovery lead | | |
+| 37.5 turret | lead: sidewinder; turret: power. **Wraith:** lead signature | 42.2–43.7 | 46.5 ace (weaving aces). **Wraith:** the aces' aimed streams |
+| 41.5 mini | power | | |
+| 46.5 ace | recovery lead | | |
+| 50.5 drift | lead: signature. **Wraith:** lead sidewinder | 55.1–56.1 | 57.5 bomber (denser aimed streams). **Wraith:** bomber plus loose scouts |
+| 52.5 cross | carrier: power | | |
+| 57.5 bomber | recovery lead | | Then Vesper |
 
 **Sector 2, STORM WALL (73 s).** Starts at P9, E2, M1, ★1, S2, after Vesper's spoils (power, shield). Ends at P15, E4, M2, ★2. Lane sweeps at 9, 23, 41 and 59 s.
 
-| Beat | Drop | Drop → attack |
-| --- | --- | --- |
-| 2.6 wing | carrier: power | Vesper's shield meets the 9 s lane sweep |
-| 6.5 drift | rescue power | |
-| 10.5 turret | centre turret: power | Power past 8 meets heavies, then 15 mini (heavy plus popcorn) |
-| 15 mini | signature | 20.5 ace (denser aimed streams), then 24 bomber (streams plus formation) |
-| 24 bomber | lead: power | |
-| 28.5 relay | carrier: escort pair | The relay is a curtain with a moving gap. Then 33.5 flank and 37.5 pincer |
-| 37.5 pincer | rescue power | |
-| 42.5 drift | — | |
-| 45.5 mini | sidewinder, power | 51 pincer (weaving aces), then 55 wing (mixed altitudes) |
-| 60 relay | carrier: bomb | Closing: 64.5 turret, 68.5 flank |
+| Beat | Drop | Collected | Shown by |
+| --- | --- | --- | --- |
+| 2.6 wing | carrier: power. **Wraith:** carrier signature | **Wraith:** 9.5–10.3 | Vesper's shield meets the 9 s lane sweep |
+| 6.5 drift | rescue power | | |
+| 10.5 turret | turret: signature. **Wraith:** turret power | 16.2–16.6 | 15 mini (heavy plus popcorn), then 20.5 ace (denser aimed streams) |
+| 15 mini | power | | |
+| 20.5 ace | recovery lead | | |
+| 24 bomber | lead: escort pair | 28.2–30.2 | 28.5 relay (a curtain with a moving gap), 33.5 flank, 37.5 pincer |
+| 28.5 relay | lead: power | | |
+| 37.5 pincer | rescue power | | |
+| 42.5 drift | lead: sidewinder; recovery lead | 47.2–48.7 | 51 pincer (weaving aces), then 55 wing (mixed altitudes) |
+| 45.5 mini | power | | |
+| 51 pincer, 55 wing | recovery leads | | |
+| 60 relay | carrier: bomb | 70–72 | Closing: 64.5 turret, 68.5 flank |
+| 64.5 turret, 68.5 flank | recovery leads | | |
 
-**Sector 3, THE CROWN (82 s).** Starts at P16, E4, M3, ★2, S2, after Aurelia's spoils (power, sidewinder). Ends at P21, E6, M3, ★3, S3. Lane sweeps at 21, 39.5, 53.5, 67.5 and 77.5 s.
+**Sector 3, THE CROWN (82 s).** Starts at P16, E4, M3, ★2, S2, after Aurelia's spoils (power, sidewinder). Ends at P20, E6, M3, ★3, S3, plus the bomb (a power level for a full bay). Lane sweeps at 21, 39.5, 53.5, 67.5 and 77.5 s.
 
-| Beat | Drop | Drop → attack |
-| --- | --- | --- |
-| 2.6 curtain | — | Opening |
-| 7 pincer | rescue power | Aurelia's sidewinder meets weaving aces, then 11 drift (mixed altitudes) |
-| 14 relay | carrier: shield | The 21 s lane sweep, then 22 curtain |
-| 26.5 mini | signature, power | 32 ace (denser streams), then 36 wing (streams plus formation) |
-| 36 wing | carrier: power | |
-| 41 relay | carrier: escort pair (the full wing) | 46 flank, then 50 pincer (wide) |
-| 50 pincer | rescue power (lapses for a ledger kit, whose threat is past 0.5 by then) | |
-| 55.5 mini | reflector, power | 61 curtain, a dense wave where reflection pays |
-| 79 relay | carrier: bomb | Closing gauntlet: 65.5 drift, 69 ace, 72.5 turret, 75.5 flank |
+| Beat | Drop | Collected | Shown by |
+| --- | --- | --- | --- |
+| 2.6 curtain | — | | Opening |
+| 7 pincer | rescue power | | Aurelia's sidewinder meets weaving aces, then 11 drift (mixed altitudes) |
+| 11 drift | lead: shield | 15.4–16.6 | The 21 s lane sweep (lands about 25.5 s), then 22 curtain |
+| 14 relay | recovery lead | | |
+| 22 curtain | lead: signature | 27.5–28.5 | 32 ace (denser streams), then 36 wing (streams plus formation) |
+| 26.5 mini | — | | |
+| 32 ace | recovery lead | | |
+| 36 wing | lead: escort pair (the full wing); carrier: power | 40.2–41.3 | 41 relay, 46 flank, then 50 pincer (wide) |
+| 41 relay | recovery lead | | |
+| 50 pincer | lead: reflector; rescue power (lapses for a ledger kit, whose threat is past 0.5) | ~56 | 61 curtain, a dense wave where reflection pays |
+| 55.5 mini | power | | |
+| 61 curtain, 65.5 drift | recovery leads | | |
+| 75.5 flank | lead: bomb; recovery lead | 76.9–77.6 | Before the Crown (82 s). Round 1's 79 s relay carrier reached the Crown spawn at 1,100 HP and was deleted. |
+| 79 relay | — | | |
 
+- **Pickup → attack margin** (attack beat minus collection, worst case over 48 seeds and three ships):
+
+  | Item | Sector 1 | Sector 2 | Sector 3 |
+  | --- | --- | --- | --- |
+  | Escort pair | 1.9 s | 3.3 s | 4.7 s |
+  | Sidewinder | 2.8 s (Wraith 1.6 s) | 2.3 s | — |
+  | Signature | 1.4 s (Wraith 3.2 s) | 3.9 s | 3.5 s |
+  | Shield | about 2.2 s before the sweep lands | — | 5.4 s |
+
+  Round 1 collected every escort pair, sidewinder and signature after its attack beat. The worst cases were the sector-2 and sector-3 escorts, both about 6 s late.
 - **Flagship spoils** (collected in the interlude):
   - Vesper: power, shield;
   - Aurelia: power, sidewinder;
   - the Crown: power ×4, sidewinder, signature.
 
   LEVIATHAN is unchanged (power plus a ladder item).
-- **Openings** land at 2.8, 2.6 and 2.6 s (they were 0.6–0.7 s). Sector 4 keeps 2.5 s.
-- **Roster and length** are unchanged: the same enemy types per sector, and goals of 62, 73 and 82 s. Sector 3 has 18 beats (it had 19).
+- **Openings** land at 2.8, 2.6 and 2.6 s. Sector 4 keeps 2.5 s.
+- **Roster and length** are unchanged: the same enemy types per sector, and goals of 62, 73 and 82 s.
 - **Not taken:** the optional scavenger preview in sector 3 was not built.
+
+#### Recovery and mercy
+
+- **Entitlement.** A sector owes the pilot its entry row plus every authored item, and every rescue power, of the beats flown so far.
+  - The entry rows are P2 / E0 / M0 / ★0 at launch, P9 / E2 / M1 / ★1 in sector 2, and P16 / E4 / M3 / ★2 in sector 3 (`ACT_ONE_ENTRY`).
+  - At a flagship, the whole sector counts.
+- **Held.** What the pilot holds or can still catch: the kit, plus live salvage and pickups, plus drops still riding live enemies (and live rescue power below 0.5), plus the kill's own fan.
+- **Opportunities.** Rescue leads, recovery leads and Act I flagship phase breaks (phases 2 and 3).
+  - Recovery leads: sector 1 at 33, 46.5 and 57.5 s; sector 2 at 20.5, 42.5, 51, 55, 64.5 and 68.5 s; sector 3 at 14, 32, 41, 61, 65.5 and 75.5 s.
+- **Equipment.** Each opportunity pays at most one token: the first type where held is below the entitlement.
+  - The order is escort pair, signature, sidewinder. Wraith takes signature first.
+  - An escaped carrier, a pickup lost off the bottom and expired salvage are all replaced this way. One that is still in play is not.
+- **Power.** When held power is more than `ACT_ONE_RECOVER_SLACK` (3) levels short, the opportunity adds one power token.
+  - The token is worth one level per `ACT_ONE_RECOVER_STEP` (2) levels of shortfall past the slack, up to `ACT_ONE_RECOVER_MAX` (4).
+  - For example, 4–5 levels short pays 1 and 12 short pays 4.
+- **Mercy.** Each Act I beat's craft, and each Act I flagship on arrival, spawn with HP × max(`ACT_ONE_MERCY_FLOOR` 0.4, 1 − `ACT_ONE_MERCY_PER_LEVEL` 0.045 × shortfall).
+  - The shortfall is in arsenal levels against the entitlement: power, 1 per escort, 1.5 per sidewinder or signature level.
+  - Floating salvage counts as held, so mercy starts only once kit is truly gone.
+  - Flagships still hold their learn windows, so a softened Crown still runs about 30 s.
+  - Drills, directly spawned craft and sector 4 never soften.
+  - In the scripted comeback (below), Vesper arrives with 3,287 HP instead of 3,800.
+- **Never for a clean collector.** By construction, a clean collector is always at or above its entitlement. Zero recovery tokens and no softened craft were seen across 144 clean runs (48 seeds × 3 ships).
+- **Comeback, scripted.** Each ship is stripped four times with every salvage token deleted, at sector 1 at 45 s, sector 2 at 35 and 58 s, and sector 3 at 30 s. It still enters sector 4 on E6 / M4 / ★4 at P22–23 (clean: P24–27), from 34 recovery tokens.
 
 #### Generated drops (flavour)
 
 - **Random rolls (Act I).** Rates: scout 0.8%, wing 1%, bomber 8%, ace 4%, turret 6%. The table is reflector 60, power 40. Rolls never give escorts, sidewinders, signatures or shields. Carriers and minis drop only what their beat authors.
 - **Squadron wipes (Act I).** A wipe pays 150 points per craft and has a 30% chance of a reflector.
-- **Bombs** are authored only, on the closing relays of sectors 2 and 3, because a full bay converts a bomb to power.
+- **Bombs** are authored only: sector 2's closing relay carrier and sector 3's closing flank lead. A full bay converts a bomb to power.
 - **The bonus ladder** is Act II only. A campaign enters Act II on the equipment cycle (`_bonusIndex` ≥ 6); drill 4 still opens on the starter rungs, unchanged.
 - **Flavour for the engaged collector** adds about one power level per sector, already included in the ledger table above. A pilot who never bombs also gets two bomb conversions.
 
@@ -865,14 +952,18 @@ Times are beat spawns; the items reach the player 2–6 s later.
   - Below 0.12 (`ACT_ONE_SMALL`, covering all of sector 1 and any stripped ship), volleys shrink a size: wing 3, bomber 5, turret 3, carrier 7, mini radial 9.
   - Past each type's gate they grow: ace 0.4 (3 → 5), carrier 0.45 (9 → 12), wing 0.5 (5 → 7), turret 0.5 (5 → 7), mini 0.5 (radial 12 → 16, spread 3 → 5), bomber 0.55 (7 → 9), scout 0.6 (1 → 2).
   - A ledger kit meets the big tier only in the second half of sector 3.
-- **Flagships.** Act I flagship salvo cadence is multiplied by `1.25/(1 + 0.6t)`: about 1.13 at Vesper's rank and 0.91 at the Crown's. LEVIATHAN keeps `_bossPace`.
+- **Flagships.** Act I flagship salvo cadence is multiplied by `1.5/(1 + 0.6t)` (round 1: 1.25): about 1.36 at Vesper's rank and 1.09 at the Crown's. LEVIATHAN keeps `_bossPace`.
 - **Rescue drops.**
-  - The rescue leads are the 2.8 split and the 21 drift in sector 1; the 6.5 drift and the 37.5 pincer in sector 2; and the 7 and 50 pincers in sector 3.
+  - The rescue leads are the 2.8 split and the 24.5 wing in sector 1; the 6.5 drift and the 37.5 pincer in sector 2; and the 7 and 50 pincers in sector 3.
   - They drop power while threat < 0.5 (`RESCUE_THREAT`, shared with Act II). For a ledger kit that covers sectors 1–2 and early sector 3, so they are counted in the ledger. After that they pay only a stripped ship.
-  - The flat sector-1 warm-up, where every lead carried power, is gone.
-- **Sector 4 is untouched.** Its borrowed Act I craft (the scavenger curtain) keep the old curve, cadence and volleys. Played from the same entry state, sector 4 is bit-identical on the round-3 code and the new code: same score, stats, RNG, enemies, bullets and boss HP over 6 runs of 160 s each.
+  - Rescue leads are recovery opportunities too.
+- **Sector 4 is untouched.**
+  - Its borrowed Act I craft (the scavenger curtain) keep the old curve, cadence and volleys.
+  - Played from the same entry state, sector 4 is bit-identical on the round-3 code, the round-1 code and the round-2 code: same score, stats, RNG, enemies, bullets and boss HP over 6 runs of 160 s each.
 
 #### HP curve
+
+These are the authored values, met by a kit on its entitlement. "Recovery and mercy" softens them for a short kit.
 
 | Type | Sector 1 | Sector 2 | Sector 3 | Old (×(1+(stage−1)·0.22)) |
 | --- | --- | --- | --- | --- |
@@ -891,20 +982,16 @@ Times are beat spawns; the items reach the player 2–6 s later.
 
 | | Vesper | Aurelia | The Crown |
 | --- | --- | --- | --- |
-| HP | 3,800 (was 2,600) | 9,000 (4,700) | 10,500 (5,800) |
+| HP (ledger kit) | 3,800 (was 2,600) | 9,000 (4,700) | 10,500 (5,800) |
 | Learn windows (phase 2 / phase 3 / defeat) | 10 / 18 / 22 | 12 / 21 / 25 (10 / 18 / 22) | 13 / 25 / 30 (10 / 18 / 22) |
 | Guard par | 0.19 (0.22) | 0.14 (0.19) | 0.15 (0.17) |
 | Guard K | 2.6 | 5.2 (2.6) | 5.2 (2.6) |
 | Base cadence, phases 1 / 2 / 3 (s) | 0.9 / 0.68 / 0.6 (0.78 / 0.58 / 0.52) | 0.78 / 0.58 / 0.5 (phase 3 was 0.48) | 0.8 / 0.6 / 0.52 (0.78 / 0.58 / 0.42) |
-| Patterns | unchanged | unchanged | phase 1 fan 23 → 19; phase 3 fans 19 + 19 → 16 + 16 |
+| Patterns | unchanged | unchanged | phase 1 fan 23 → 19. Phase 3: a 16-bullet magenta fan every salvo, and the 16-bullet amber counter-fan every second salvo (`CROWN_FINAL_FAN`, `CROWN_FINAL_COUNTER_EVERY`). Was 19 + 19 every salvo before the retune, and 16 + 16 every salvo in round 1. |
 
 - **Par** is the arrival kit's share of HP per second, so that kit keeps the authored pacing.
 - **K** was doubled for Aurelia and the Crown so that surplus power still buys time on their deeper HP pools.
-
-Kill times, with an invulnerable tracker holding fire under the boss, in seconds:
-- The drill kit is the ledger row.
-- The arrival kit is the engaged collector's default-seed arrival kit.
-- P25 is the reference kit.
+- **Kill times are unchanged from round 1.** Drills fly the authored HP, and cadence does not move the guard clock. Values are in seconds, for an invulnerable tracker holding fire under the boss:
 
 | Ship | Vesper: drill / arrival / bare / P25 | Aurelia: drill / arrival / bare / P25 | Crown: drill / arrival / bare / P25 | LEVIATHAN: reference / arrival |
 | --- | --- | --- | --- | --- |
@@ -912,26 +999,31 @@ Kill times, with an invulnerable tracker holding fire under the boss, in seconds
 | Manta | 20.5 / 20.5 (P8) / 25.3 / 13.4 | 24.3 / 23.2 (P18) / 54.7 / 19.5 | 28.3 / 26.4 (P25) / 60.8 / 25.8 | 67.3 / 66.7 (P29) |
 | Wraith | 20.9 / 20.9 (P8) / 30.6 / 12.8 | 24.5 / 23.9 (P16) / 73.9 / 19.1 | 28.2 / 27.7 (P21) / 84.0 / 25.3 | 67.8 / 67.8 (P25) |
 
-All within target: Vesper 18–24, Aurelia 22–28, the Crown 26–34, LEVIATHAN 52–72.
+All within target: Vesper 18–24, Aurelia 22–28, the Crown 26–34, LEVIATHAN 52–72. In a campaign, mercy shortens the "bare" columns, because a bare kit meets a softened flagship.
+
+- **Flagship fights for the dodging bots.** Each run starts from that sector's ledger kit, with 16 seeds. Peak live bullets, mean fight length and hits are given as round 2 (round 1), Kestrel / Manta / Wraith:
+
+  | Flagship | Good pilot | Average pilot |
+  | --- | --- | --- |
+  | Vesper | peak 99–108 (122–128); 21–22 s; hits 1.4 / 2.5 / 2.5 (1.7 / 4.2 / 2.3) | hits 2.6 / 3.2 / 3.0 (2.8 / 3.8 / 3.3) |
+  | Aurelia | peak 148–157 (172–184); 25–27 s; hits 1.8 / 2.3 / 1.8 (2.4 / 3.3 / 4.2) | hits 2.8 / 3.8 / 3.4 (4.3 / 4.8 / 6.2) |
+  | The Crown | peak 116–127 (179–198); 29–30 s; hits 2.5 / 4.4 / 3.6 (3.3 / 6.4 / 5.7) | 30–31 s (35–38 s); hits 3.8 / 6.9 / 4.9 (7.1 / 9.1 / 8.7) |
 
 #### Balance bots
 
-**Method.** The round-1 dodging bot was not archived, so it was rebuilt. The scratch scripts live in `~/knotz2026-dev-archive/act1-sim`, not in the repo.
+**Method.** The round-1 dodging bot was not archived, so it was rebuilt. The scratch scripts live in `~/knotz2026-dev-archive/act1-sim`, not in the repo; the round-2 campaign runner was a scratch file.
 - **How it flies:**
   - Every `replan` seconds it scores 55 candidate positions over a 0.55–0.85 s horizon, predicting bullets and enemy bodies linearly.
   - It sees each bullet with probability `attention`, and acts on each plan `latency` seconds later.
   - It aims under the lowest enemy (on a flagship: reactor or turrets first) with `noise` px of error, and detours to pickups and salvage.
-  - It bombs when a collision looks unavoidable.
+  - It bombs when a collision looks unavoidable. It never barrel-rolls.
 - **Good pilot:** latency 0.14 s, replan 0.06 s, attention 0.97, noise 14 px.
 - **Average pilot:** latency 0.22 s, replan 0.08 s, attention 0.93, noise 24 px.
-- **Calibration** on unchanged sector 4 with the reference kit (8 seeds):
-  - Good: clears 7/8, 8/8, 8/8 with 4.8 / 4.8 / 4.5 sector hits. Round 2 had 8/8, 7/8, 6/8 with 4.9 / 6.1 / 6.3.
-  - Average: clears 7/8, 8/8, 6/8. Round 2 had 7/8, 6/8, 8/8.
-  - The round-1 average latency of 0.3 s cleared only 0–1/8 with this bot, so 0.22 s was chosen to match round 2's aggregate of 21/24 clears.
-- **Mortal sector-1 dodger:** latency 0.4 s, replan 0.15 s, attention 0.78, noise 50 px, no bombs.
-  - It flies 10 seeds from launch with no lives refill; a clear means Vesper is down.
-  - It does not reproduce round 3's Wraith 2/10. On the round-3 code it gives Kestrel 10/10, Manta 10/10, Wraith 9/10, with mean hits of 9.3 / 9.7 / 11.7; a game over takes 12.
-- **Sector runs** start from the ledger kit for that sector, at threat 0 (as a campaign enters it), with full hull and lives:
+- **Mortal pilot:** latency 0.4 s, replan 0.15 s, attention 0.78, noise 50 px, no bombs.
+- **Calibration** (round 1, unchanged sector 4):
+  - Good: clears 7/8, 8/8, 8/8 with 4.8 / 4.8 / 4.5 sector hits.
+  - Average: clears 7/8, 8/8, 6/8, matching sector-4 round 2's aggregate of 21/24.
+- **Sector runs** start from the ledger kit for that sector, at threat 0, with full hull and lives:
   - sector 1: launch;
   - sector 2: P9, E2, M1, ★1, S2;
   - sector 3: P16, E4, M3, ★2, S2;
@@ -939,72 +1031,70 @@ All within target: Vesper 18–24, Aurelia 22–28, the Crown 26–34, LEVIATHAN
 
   Hits include shield hits. "Sector hits" exclude the flagship.
 
-**Per sector, ledger kits.** 16 seeds: 0, 5, 6, 7, 8, 9, 99, 1234 and 11–18. Values are Kestrel / Manta / Wraith.
+**Per sector, ledger kits (round 2).** 16 seeds: 0, 5, 6, 7, 8, 9, 99, 1234 and 11–18. Values are Kestrel / Manta / Wraith.
 
 | Sector | Pilot | Clears | Sector hits | Target hits | Flagship hits | Scatters, sector only | Threat, mean / max |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Good | 16/16, 16/16, 16/16 | 2.1 / 1.1 / 2.4 | 1–2 | 1.7 / 4.2 / 2.3 | 1.3 / 0.0 / 1.6 | 0.02 / 0.15–0.21 |
-| 1 | Average | 16/16, 16/16, 16/16 | 3.9 / 2.1 / 3.6 | (clears ≥ 7/8) | 2.8 / 3.8 / 3.3 | 2.9 / 0.1 / 2.6 | 0.01–0.04 / 0.19 |
-| 2 | Good | 16/16, 16/16, 16/16 | 2.8 / 1.8 / 4.8 | 2–3.5 | 2.4 / 3.3 / 4.2 | 0.9 / 0.1 / 2.8 | 0.22–0.32 / 0.47 |
-| 2 | Average | 15/16, 16/16, 14/16 | 4.4 / 2.8 / 6.5 | (clears ≥ 6/8) | 4.3 / 4.8 / 6.2 | 2.4 / 0.8 / 4.5 | 0.18–0.30 / 0.45 |
-| 3 | Good | 16/16, 16/16, 16/16 | 3.0 / 4.1 / 5.1 | 3–5 | 3.3 / 6.4 / 5.7 | 0.8 / 0.4 / 2.3 | 0.43–0.52 / 0.61 |
-| 3 | Average | 14/16, 16/16, 12/16 | 6.4 / 6.1 / 6.8 | (clears ≥ 5/8) | 7.1 / 9.1 / 8.7 | 3.5 / 1.7 / 3.8 | 0.39–0.47 / 0.63 |
+| 1 | Good | 16/16, 16/16, 16/16 | 1.8 / 0.9 / 2.4 | 1–2 | 1.4 / 2.5 / 2.5 | 1.1 / 0.0 / 1.6 | 0.02–0.05 / 0.23 |
+| 1 | Average | 16/16, 16/16, 16/16 | 3.9 / 2.2 / 4.1 | (clears ≥ 7/8) | 2.6 / 3.2 / 3.0 | 2.9 / 0.1 / 3.1 | 0.01–0.04 / 0.19 |
+| 2 | Good | 16/16, 16/16, 16/16 | 3.6 / 1.7 / 4.0 | 2–3.5 | 1.8 / 2.3 / 1.8 | 1.7 / 0.0 / 2.1 | 0.26–0.33 / 0.47 |
+| 2 | Average | 16/16, 16/16, 15/16 | 4.8 / 2.3 / 5.5 | (clears ≥ 6/8) | 2.8 / 3.8 / 3.4 | 2.8 / 0.3 / 3.5 | 0.23–0.33 / 0.45 |
+| 3 | Good | 16/16, 16/16, 16/16 | 3.3 / 4.6 / 5.3 | 3–5 | 2.5 / 4.4 / 3.6 | 0.8 / 0.7 / 2.3 | 0.44–0.50 / 0.60 |
+| 3 | Average | 16/16, 16/16, 16/16 | 5.2 / 5.9 / 7.3 | (clears ≥ 5/8) | 3.8 / 6.9 / 4.9 | 2.3 / 1.8 / 4.3 | 0.40–0.48 / 0.60 |
 
-**The same bot on the round-3 code**, sector 1, for comparison:
-- Good pilot: sector hits 2.2 / 1.2 / 2.6, flagship hits 1.1 / 0.4 / 1.1.
-- Average pilot: sector hits 3.6 / 2.1 / 4.2.
-- All 16/16. Fights were 17–20 s against P11–13.
+- **Ship means** are 1.7 / 3.1 / 4.4, inside every band, and the ramp is monotonic.
+- **Wraith** is within 0.5 of every band: 2.4, 4.0 and 5.3 (round 1: 2.4 / 4.8 / 5.1). Its sector-2 orbitals now arrive at about 10 s instead of 16 s.
+- **Off-band ships:** Manta stays under in sectors 1–2, because its shields absorb. Kestrel is 0.1 over in sector 2.
 
-**Mortal sector-1 dodger** (10 seeds, no lives refill; target ≥ 8/10):
+**Mortal sector-1 dodger** (10 seeds, no lives refill; target ≥ 8/10): Kestrel 10/10 with 10.3 hits, Manta 10/10 with 9.9 hits, Wraith 9/10 with 11.1 hits.
 
-| Ship | Clears | Mean hits | Mean scatters | Round-3 code, same bot |
-| --- | --- | --- | --- | --- |
-| Kestrel | 9/10 | 10.8 | 9.6 | 10/10, 9.3 hits |
-| Manta | 10/10 | 9.8 | 6.0 | 10/10, 9.7 hits |
-| Wraith | 10/10 | 10.8 | 9.4 | 9/10, 11.7 hits |
-
-Deaths cluster at 37–58 s (the mini, aces and cross) and inside Vesper.
-
-**Sector 4 plus LEVIATHAN from the new arrival kits**, 8 seeds (0, 5, 6, 7, 8, 9, 99, 1234):
-- The arrival kits are about the 6-seed medians: P26 / P28 / P26, with E6, M4, ★4, S3.
-- Scatters are sector plus flagship. Sector-only scatters, reference → arrival: good 0.4 → 0.0, 0.0 → 0.1, 1.3 → 1.3; average 1.4 → 1.3, 0.1 → 0.3, 2.9 → 3.3.
-
-| Pilot | Ship | Reference kit: clears, sector hits, scatters | Arrival kit: clears, sector hits, scatters |
-| --- | --- | --- | --- |
-| Good | Kestrel | 8/8, 4.5, 3.6 | 8/8, 3.8, 3.0 |
-| Good | Manta | 8/8, 3.9, 4.6 | 8/8, 3.5, 6.1 |
-| Good | Wraith | 7/8, 6.4, 7.5 | 6/8, 6.5, 8.8 |
-| Average | Kestrel | 6/8, 5.9, 10.4 | 5/8, 6.4, 11.3 |
-| Average | Manta | 6/8, 4.4, 12.1 | 6/8, 4.4, 9.9 |
-| Average | Wraith | 5/8, 9.0, 12.3 | 5/8, 8.5, 13.1 |
-
-The arrival kits match the reference-kit rows within seed noise. Sector 4's threat runs 0.67–0.75 mean and 0.81–0.83 max.
+**Sector 4 plus LEVIATHAN** were not re-flown in round 2.
+- Sector 4 is bit-identical from the same entry state.
+- The clean arrival kits are within a level of round 1's: P24–28 / P27–31 / P24–28 with E6, M4, ★4, S3.
+- The round-1 table (sector 4 round 2's reference rows, matched within seed noise) stands.
 
 #### Known costs and misses
 
-- **Wraith is the hardest Act I ship for this bot.**
-  - Good-pilot sector hits are 2.4 / 4.8 / 5.1 against bands of 1–2 / 2–3.5 / 3–5. Sector 2 is over by 1.3.
-  - At P2–6 it flies one or two narrow rails while Kestrel fires 3–7 streams, and its 1–2 orbitals screen far less than Kestrel's flak.
-  - Its clears still meet every target.
-  - Widening Wraith's low-power rails would also change bare Wraith in sector 4, so it was left alone. Fanning its escort rails only moved hits between sectors.
-- **Off-band ships:** Kestrel is just over the sector-1 band (2.1). Manta sits under the bands in sectors 1–2 (1.1 and 1.8) because its shields absorb. The ship means are 1.9 / 3.1 / 4.1, inside every band, and the ramp is monotonic.
-- **Flagships cost more hits.** Vesper is now a 22 s fight against a P6–8 kit rather than 12–15 s against P13. Good-pilot flagship hits (including shield hits) are 1.7–4.2 at Vesper, 2.4–4.2 at Aurelia and 3.3–6.4 at the Crown.
-- **Peak bullets.** Sector-3 peaks reach 159–198 (the Crown's fans over a 26–30 s fight), against 119–138 in sector 4. That is far under the 700 cap.
-- **Manta** reaches the Crown at P26 on 1 seed of 6.
-- **The mortal bot** cannot reproduce round 3's baseline, as noted under Method.
+- **The mortal campaign target (≥ 2/8 per ship) is met for Kestrel and Manta (23% and 33% over 48 seeds), not for Wraith (2/48, 4%).**
+  - The mortal bot takes about 10 hits in sector 1 alone, about as many as on the round-3 code, so it reaches sector 2 on about one life.
+  - In sector 2 the good-pilot band plus Aurelia already implies about 4–6 hits, and the mortal bot takes about twice the average pilot's.
+  - Trials showed the limit:
+    - removing every lane sweep took round 1 to only 2/8, 1/8, 0/8;
+    - an extreme mercy (enemy and flagship HP to 40%, slower fire) reached 4/8, 0/8, 0/8.
+  - Clearing Wraith's mortal campaign would need Act I to be easy for a weak pilot even with the kit restored. That contradicts the approved ramp, so round 2 stops here.
+- **Wraith's average campaign** is 34/48 (71%; 4/8 on the reviewer's eight seeds), against a target of 75%.
+  - With the same kit, Wraith takes about 30% more hits than Kestrel: longer flagship fights at low power, narrower rails, and lanes.
+  - A Wraith-only sector-3 orbital move did not help (16/24 against 18/24), and a stronger mercy did not help (32/48), so neither was kept.
+- **Hull repair, mercy and slower flagship salvos** are generosity choices beyond the reviewer's list.
+  - Recovery alone (with none of the three) cleared 12 / 19 / 4 of 24 seeds in the average campaign.
+  - In a trial with power-only mercy over 48 seeds, all three together cleared 41 / 47 / 31. Without the repair, Wraith fell to 24/48; without the slower salvos, to 19/48.
+  - The repair and the slower salvos are each one constant to revert if the owner wants Act I harsher.
+- **Scatters sting less.** A pilot who loses everything four times still enters sector 4 about 2–4 power below a clean collector, on the full equipment row. The sting is lost power, lost time and a softened, lower-scoring run, not a permanently short wing.
+- **Peak bullets:** Aurelia's fight now peaks at 143–157 bullets (round 1: 165–184), the Crown's at 116–127 and Vesper's at 99–110. Sector 4 peaks at 118–137.
+- **Manta** reaches sector 4 at P30–31 on 4 of 48 seeds, past the +3 tolerance.
+- **The mortal bot** cannot reproduce round 3's sector-1 baseline, as noted in round 1.
 
 #### Tests
 
-- **Re-pinned:**
-  - `arsenal-r3`: the arrival test now pins the ledger. Power bands are Vesper 7–9, Aurelia 13–19, the Crown 19–25 and sector 4 24–30; equipment and shields must match exactly. The ramp pins power 4 at 12–17 s, escorts at 25–34 s and power 6 by 47 s.
-  - `arsenal-r2`: the Vesper guard clock. The drill kit takes 19–22.5 s, a P15 full kit 14–18 s and P25 12–15.5 s. The sector-1 ramp test was also re-pinned.
-  - Drill loadouts (`arsenal`, `progress`).
-  - `game.test`: the opening, breather, relay bomb, flagship cadence and spoils tests.
-  - Lance and reactor arenas now fly without the drill shields.
-  - The sector-4 scavenger test counts the Crown's signature spoil.
-  - The burst-cue duel uses a deep HP pool so it measures burst cues only. Off the guard floor it is 2.8 per second, unchanged from round 3.
-- **New:** `test/act-one.test.mjs`, 11 tests.
-- **Status:** 163 tests pass, and the build passes.
+- **Round 1:**
+  - re-pinned `arsenal-r3` (ledger arrival), `arsenal-r2` (the Vesper guard clock), the drill loadouts, and the `game.test` opening, breather, relay bomb, flagship cadence and spoils tests;
+  - added `test/act-one.test.mjs` (11 tests).
+- **Round 2, re-pinned:**
+  - `game.test`: an Act I sector clear repairs the hull, and Act II entry adds one point.
+  - `game.test`: the closing bombs ride sector 2's relay carrier and sector 3's flank lead.
+  - `game.test`: the Vesper and Aurelia final-phase cadence (0.83 s and 0.6 s at their arrival ranks).
+  - `act-one`: the schedule counts, with sector 3 at four levels plus the bomb, and Wraith's overrides keep each sector's items.
+  - `act-one`: the rescue test ignores recovery tokens.
+  - `act-one`: flagship HP is pinned at the ledger kit.
+  - `reactors`: the centred-firing drill (it never dodges) now flies with spare lives, so it pins the firing line rather than survival.
+- **Round 2, new in `act-one` (17 tests in all):**
+  - key drops are collected at least 1 s before their attack beat on every ship; the first escort pair comes at 25 s or later; the sector-3 bomb drops once, before the Crown; and a clean collector sees zero recovery tokens;
+  - a recovery lead replaces a missing item once, and not while a pickup, carrier or salvage still holds it; the token order (Wraith first takes orbitals); and the power token steps;
+  - mercy softens craft and flagships for a short kit only, never at the ledger, in drills, for directly spawned craft or on LEVIATHAN;
+  - flagship phase-break recovery happens for a short kit only;
+  - the scripted comeback campaign: four total strips on each ship still reach sector 4 on E6 / M4 / ★4 at P20–27;
+  - the Crown's final phase alternates its counter-fan (16 magenta every salvo, 16 amber every second salvo).
+- **Status:** 169 tests pass, and the build passes.
 
 ## Process
 

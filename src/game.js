@@ -130,8 +130,9 @@ const ACT_ONE_HP = {scout:[18,36,60],wing:[26,50,84],ace:[50,85,150],bomber:[85,
   turret:[115,420,760],carrier:[150,650,1100],mini:[450,2000,3200]};
 // Act I generated drops are flavour: heavies (and the odd loner) roll a small
 // table, a squadron wipe always pays points and sometimes a reflector. Bombs
-// are authored (each sector's closing relay from sector 2 on), because a full
-// bay converts them to power.
+// are authored (sector 2's closing relay carrier, sector 3's closing flank
+// lead), because a full bay converts them to power. HP is the authored value
+// for a kit on its entitlement; ACT_ONE_MERCY softens it for a short kit.
 const ACT_ONE_DROP_CHANCE = {scout:.008,wing:.01,bomber:.08,ace:.04,turret:.06,carrier:0,mini:0};
 const ACT_ONE_FLAVOUR = [["reflector",60],["power",40]];
 const ACT_ONE_SQUAD_FLAVOUR = [["reflector",1]];
@@ -150,17 +151,50 @@ const ACT_ONE_PACE_BASE = 1.45, ACT_ONE_PACE_K = 1.3, ACT_ONE_SPEED = .12;
 // Authored per-sector cadence on top of the rank (was 1-(stage-1)*.08): the
 // Act I ramp toward sector 4.
 const ACT_ONE_STAGE_PACE = [0, 1.15, 1.1, 1];
-// Act I flagships lean on the rank like LEVIATHAN does, more gently: x1.25
-// slower for a stripped ship, ~1.1 for Vesper's arrival kit, ~0.93 at the Crown.
-const ACT_ONE_BOSS_PACE_BASE = 1.25, ACT_ONE_BOSS_PACE_K = .6;
+// Act I flagships lean on the rank like LEVIATHAN does, more gently: x1.5
+// slower for a stripped ship, ~1.36 for Vesper's arrival kit, ~1.1 at the
+// Crown's (round 2: was 1.25 base; flagship hits were the campaign's biggest cost).
+const ACT_ONE_BOSS_PACE_BASE = 1.5, ACT_ONE_BOSS_PACE_K = .6;
 // Act I flagship salvo cadence per phase (s, before the rank). Vesper teaches
 // (was .78/.58/.52); Aurelia and the Crown keep their pressure (was .78/.58/.48
 // and .78/.58/.42) over longer fights.
 const BOSS_CADENCE = [null,[.9,.68,.6],[.78,.58,.5],[.8,.6,.52]];
+// The Crown's final phase: a CROWN_FINAL_FAN-bullet magenta fan every salvo
+// and an amber counter-fan every CROWN_FINAL_COUNTER_EVERY salvos (round 1
+// fired both every salvo: 16+16, was 19+19). Density target: peak live enemy
+// bullets about 150 or fewer in the Crown fight, near sector 4's 118-137.
+const CROWN_FINAL_FAN = 16, CROWN_FINAL_COUNTER_EVERY = 2;
 const ACT_ONE_GATES = {ace:.4,carrier:.45,wing:.5,turret:.5,mini:.5,bomber:.55,scout:.6};
 // Below this a ship is bare or stripped (or early in sector 1): volleys shrink
 // a size (wing 5->3, bomber 7->5, turret 5->3, carrier 9->7, mini 12->9).
 const ACT_ONE_SMALL = .12;
+// Act I recovery: a comeback for a scattered or stripped pilot, never a
+// bonus for a clean one. A sector owes the pilot its entry row (below; escorts
+// in pairs) plus every authored item and rescue power of the beats flown so
+// far. Rescue and recovery leads (STAGE_BEATS `rescue` / `recover`) top up
+// whatever is missing: salvage that expired, a carrier that escaped, a pickup
+// that fell off the bottom. What the pilot holds counts the kit plus
+// everything still in play (live salvage and pickups, drops still riding
+// enemies), so a clean collector, always at or above the ledger, never sees a
+// recovery token. Each lead pays at most one equipment token (escort, then
+// signature, then sidewinder; Wraith takes its orbitals first) and, when power
+// is more than ACT_ONE_RECOVER_SLACK levels short, one power token worth a
+// level per ACT_ONE_RECOVER_STEP levels of shortfall past the slack (up to
+// ACT_ONE_RECOVER_MAX). Act I flagship phase breaks are opportunities too.
+const ACT_ONE_ENTRY = [null,
+  {power:2,escort:0,sidewinder:0,signature:0},     // launch
+  {power:9,escort:1,sidewinder:1,signature:1},     // after Vesper's spoils
+  {power:16,escort:2,sidewinder:3,signature:2}];   // after Aurelia's spoils
+const ACT_ONE_RECOVER_SLACK = 3, ACT_ONE_RECOVER_STEP = 2, ACT_ONE_RECOVER_MAX = 4;
+const ACT_ONE_RECOVER_ORDER = ["escort","signature","sidewinder"];
+const ACT_ONE_RECOVER_ORDER_WRAITH = ["signature","escort","sidewinder"];
+// Act I mercy: a kit short of its entitlement meets softer craft. Each beat's
+// craft (and each flagship, on arrival) spawn with HP x max(ACT_ONE_MERCY_FLOOR,
+// 1 - ACT_ONE_MERCY_PER_LEVEL x shortfall), the shortfall counted in arsenal
+// levels (power, 1 per escort, 1.5 per sidewinder or signature level) against
+// what the pilot holds or can still catch. A clean collector is never short,
+// so it meets the authored HP; flagships still hold their learn windows.
+const ACT_ONE_MERCY_PER_LEVEL = .045, ACT_ONE_MERCY_FLOOR = .4;
 const DRILL_LOADOUTS = [null,
   // Act I drills start on the ledger's arrival rows (Manta adds its +2 shield, capped).
   {level:8,escorts:2,sidewinder:1,signature:1,shield:1},    // Vesper
@@ -224,55 +258,73 @@ const LANE_BEATS = [null,
 // Act I beats are [time, pattern, drops]. The drops are the authored kit
 // ledger (docs/design/act-two.md, Part 3): `lead` is carried by the
 // formation lead, `heavy` by the carrier, mini or centre turret, and
-// `rescue` makes the lead carry power while threat < RESCUE_THREAT. The beat
-// after a key drop introduces the attack that equipment answers; the beat
-// after that tests it. Openings land after the intro card (2.5 s or later).
+// `rescue` makes the lead carry power while threat < RESCUE_THREAT.
+// `recover` makes the lead a recovery lead (see _actOneRecovery): it pays
+// only a kit that has fallen below its entitlement, so a clean collector
+// never sees it. Rescue leads recover equipment too.
+// Drop -> attack is timed at collection, not spawn: a lead's drop reaches an
+// engaged collector ~4-6 s after its beat, a heavy's ~5-11 s, so each key
+// drop rides a beat early enough to be in hand about 2 s before the attack
+// that shows it off starts firing (~1.5 s after that attack's beat; a lane
+// sweep needs ~5 s to reach the ship). Openings land after the intro card
+// (2.5 s or later). A `wraith` entry overrides the beat's drops for Wraith
+// (Act I only): its low-power rails screen little, so its orbitals come
+// earlier in sectors 1 and 2. Same items per sector, same ledger.
 // Exported read-only for tests (the authored drop schedule).
 export const STAGE_BEATS = [null,
   // Sector 1, THE SHALLOWS: teach the loop. P2 -> P8, one escort pair,
   // sidewinder, signature, one shield.
   [[2.8,"split",{rescue:1}],[7,"drift"],
-   [10,"wing",{lead:"power"}],                     // power 4 at ~13 s
-   [14.5,"bomber",{lead:"shield"}],                // shield -> the 19.5 s lane sweep
-   [21,"drift",{rescue:1}],
-   [24.5,"wing",{heavy:["escort"]}],               // escort pair at ~28 s ->
+   [10,"wing",{lead:"power"}],                     // power 4 at ~14 s
+   [14.5,"bomber",{lead:"shield"}],                // shield (~20 s) -> the 19.5 s lane sweep (lands ~24 s)
+   [21.5,"drift",{lead:"escort"}],                 // escort pair (~26 s) ->
+   [24.5,"wing",{rescue:1}],
    [29,"flank"],                                   //   side entries the wing covers ->
-   [33,"split"],                                   //   a wider formation
-   [37.5,"turret",{heavy:["power"]}],
-   [41.5,"mini",{heavy:["sidewinder","power"]}],   // sidewinder ->
-   [46.5,"ace"],                                   //   weaving aces it cleans up ->
-   [50.5,"drift"],                                 //   mixed altitudes
-   [52.5,"cross",{heavy:["signature","power"]}],   // signature ->
-   [57,"bomber"]],                                 //   denser aimed streams (then Vesper)
-  // Sector 2, STORM WALL: pressure the kit. P9 -> P14, escort pair,
+   [33,"split",{recover:1}],                       //   a wider formation
+   [37.5,"turret",{lead:"sidewinder",heavy:["power"],   // sidewinder (~43 s) ->
+     wraith:{lead:"signature"}}],                  //   (Wraith: its orbitals here, then the aces' streams)
+   [41.5,"mini",{heavy:["power"]}],
+   [46.5,"ace",{recover:1}],                       //   weaving aces it cleans up ->
+   [50.5,"drift",{lead:"signature",                //   mixed altitudes; signature (~55.5 s) ->
+     wraith:{lead:"sidewinder"}}],                 //   (Wraith: the sidewinder, then mixed loners)
+   [52.5,"cross",{heavy:["power"]}],
+   [57.5,"bomber",{recover:1}]],                   //   denser aimed streams (then Vesper)
+  // Sector 2, STORM WALL: pressure the kit. P9 -> P15, escort pair,
   // sidewinder, signature (Vesper's spoils bring the second shield).
-  [[2.6,"wing",{heavy:["power"]}],[6.5,"drift",{rescue:1}],
-   [10.5,"turret",{heavy:["power"]}],              // power past 8 -> heavies ->
-   [15,"mini",{heavy:["signature"]}],              //   heavy plus popcorn; signature ->
-   [20.5,"ace"],                                   //   denser aimed streams ->
-   [24,"bomber",{lead:"power"}],                   //   streams plus formation
-   [28.5,"relay",{heavy:["escort"]}],              // a curtain with a moving gap; escort pair ->
+  [[2.6,"wing",{heavy:["power"],                   // Vesper's shield meets the 9 s lane sweep
+     wraith:{heavy:["signature"]}}],               //   (Wraith: its second orbital, ~8 s)
+   [6.5,"drift",{rescue:1}],
+   [10.5,"turret",{heavy:["signature"],            // power past 8 -> heavies; signature (~16.5 s) ->
+     wraith:{heavy:["power"]}}],
+   [15,"mini",{heavy:["power"]}],                  //   heavy plus popcorn ->
+   [20.5,"ace",{recover:1}],                       //   denser aimed streams
+   [24,"bomber",{lead:"escort"}],                  // escort pair (~30 s) ->
+   [28.5,"relay",{lead:"power"}],                  //   a curtain with a moving gap ->
    [33.5,"flank"],[37.5,"pincer",{rescue:1}],      //   flanks, then pincers
-   [42.5,"drift"],
-   [45.5,"mini",{heavy:["sidewinder","power"]}],   // sidewinder ->
-   [51,"pincer"],                                  //   weaving aces ->
-   [55,"wing"],                                    //   mixed altitudes
-   [60,"relay",{heavy:["bomb"]}],[64.5,"turret"],[68.5,"flank"]],
-  // Sector 3, THE CROWN: a real test, one notch below sector 4. P15 -> P20,
+   [42.5,"drift",{lead:"sidewinder",recover:1}],   // sidewinder (~48 s) ->
+   [45.5,"mini",{heavy:["power"]}],
+   [51,"pincer",{recover:1}],                      //   weaving aces ->
+   [55,"wing",{recover:1}],                        //   mixed altitudes
+   [60,"relay",{heavy:["bomb"]}],[64.5,"turret",{recover:1}],[68.5,"flank",{recover:1}]],
+  // Sector 3, THE CROWN: a real test, one notch below sector 4. P16 -> P20
+  // (plus the closing bomb, a power level for a full bay),
   // the third escort pair, signature, shield and a reflector.
   [[2.6,"curtain"],
-   [7,"pincer",{rescue:1}],                        // Aurelia's sidewinder -> weaving aces ->
-   [11,"drift"],                                   //   mixed altitudes
-   [14,"relay",{heavy:["shield"]}],                // shield -> the 21 s lane sweep ->
-   [22,"curtain"],                                 //   a curtain with a moving gap
-   [26.5,"mini",{heavy:["signature","power"]}],    // signature ->
-   [32,"ace"],                                     //   denser aimed streams ->
-   [36,"wing",{heavy:["power"]}],                  //   streams plus formation
-   [41,"relay",{heavy:["escort"]}],                // the full wing ->
-   [46,"flank"],[50,"pincer",{rescue:1}],          //   flanks, then wide pincers
-   [55.5,"mini",{heavy:["reflector","power"]}],    // reflector ->
-   [61,"curtain"],                                 //   a dense wave where reflection pays
-   [65.5,"drift"],[69,"ace"],[72.5,"turret"],[75.5,"flank"],[79,"relay",{heavy:["bomb"]}]],
+   [7,"pincer",{rescue:1}],                        // Aurelia's sidewinder -> weaving aces
+   [11,"drift",{lead:"shield"}],                   // shield (~16 s) -> the 21 s lane sweep ->
+   [14,"relay",{recover:1}],
+   [22,"curtain",{lead:"signature"}],              //   a curtain with a moving gap; signature (~27 s) ->
+   [26.5,"mini"],
+   [32,"ace",{recover:1}],                         //   denser aimed streams ->
+   [36,"wing",{lead:"escort",heavy:["power"]}],    //   streams plus formation; the full wing (~41 s) ->
+   [41,"relay",{recover:1}],
+   [46,"flank"],                                   //   flanks, then wide pincers
+   [50,"pincer",{lead:"reflector",rescue:1}],      // reflector (~56 s) ->
+   [55.5,"mini",{heavy:["power"]}],
+   [61,"curtain",{recover:1}],                     //   a dense wave where reflection pays
+   [65.5,"drift",{recover:1}],[69,"ace"],[72.5,"turret"],
+   [75.5,"flank",{lead:"bomb",recover:1}],         // the closing bomb (~77.5 s), before the Crown
+   [79,"relay"]],
   // Sector 4, IRON MONSOON (~95 s). 1: squadrons to melt (2.5-12 s; the first
   // waits out the 3.4 s intro card, and the four stay ~2.3 s apart so a weak
   // ship can wipe each and catch its rescue drop). 2: the
@@ -312,6 +364,7 @@ export class Game {
     this._sidewinderClock=0; this._signatureClock=0; this._escortVolley=0; this._bonusIndex=0;
     this._squads=new Map(); this._squadId=0;
     this._pickupId=0; this._scavengerCall=0; this._scavengerFlank=false; this.threat=0;
+    this._hpScale=1;
     this._syncArsenal();
   }
   selectShip(id) {
@@ -488,7 +541,7 @@ export class Game {
     else if (!this.boss) {
       const beats=STAGE_BEATS[this.stage];
       while(this._beatIndex<beats.length&&this.stageTime>=beats[this._beatIndex][0]) {
-        this._spawnStageBeat(beats[this._beatIndex][1],beats[this._beatIndex][2]);
+        this._spawnStageBeat(beats[this._beatIndex][1],this._beatDrops(beats[this._beatIndex][2]));
         this._beatIndex++;
       }
       const lanes=LANE_BEATS[this.stage];
@@ -776,7 +829,7 @@ export class Game {
     // Act I: HP tuned against the ledger kit per sector. Sector 4 borrows
     // Act I craft for its scavenger curtain and keeps the old flat curve.
     const [baseHp,r,vy,value]=specs[type];
-    const hp=this.stage<ACT_TWO_STAGE?ACT_ONE_HP[type][this.stage-1]:baseHp*(1+(this.stage-1)*.22);
+    const hp=this.stage<ACT_TWO_STAGE?ACT_ONE_HP[type][this.stage-1]*this._hpScale:baseHp*(1+(this.stage-1)*.22);
     const e={id:++this._id,type,x,y,baseX:x,r,hp,maxHp:hp,age:0,vy:o.vy??vy,
       vx:o.vx||0,turnAt:o.turnAt||999,turnVx:o.turnVx||0,amp:o.amp||0,freq:o.freq||1.4,phase:o.phase||0,
       fireAt:o.fireAt??this._range(.9,2.1),fireRate:o.fireRate||2.4,
@@ -788,10 +841,13 @@ export class Game {
   _newSquad() { const id=++this._squadId;this._squads.set(id,{total:0,killed:0});return id; }
   // drops: the beat's authored ledger drops (Act I), see STAGE_BEATS.
   _spawnStageBeat(pattern,drops) {
+    // Act I mercy: the beat's craft spawn softer for a kit below its entitlement.
+    if(this.stage<ACT_TWO_STAGE)this._hpScale=this._actOneMercy();
     if(this.stage>=ACT_TWO_STAGE&&pattern!=="curtain"&&pattern!=="drift"&&pattern!=="flank") this._spawnActTwoBeat(pattern);
     else if(pattern==="drift") this._spawnDrift(drops);
     else if(pattern==="flank") this._spawnFlank(drops);
     else this._spawnWave(pattern,drops);
+    this._hpScale=1;
     this._event("wave",270,0,pattern);
   }
   // Authored drops ride on a formation's lead (or its rescue power) and on
@@ -800,6 +856,7 @@ export class Game {
     if(!drops)return;
     if(lead&&drops.lead)lead.drop=drops.lead;
     if(lead&&drops.rescue)lead.rescue=true;
+    if(lead&&drops.recover)lead.recover=true;
     if(heavy&&drops.heavy)heavy.drop=drops.heavy.length===1?drops.heavy[0]:[...drops.heavy];
   }
   _spawnWave(pattern,drops) {
@@ -922,7 +979,8 @@ export class Game {
     for(const e of this.enemies)if(!e.dead&&e.carrying)this.stats.salvageLost+=e.carrying.value||1;
     this.enemies=[];this.bullets.length=0;this._scavengerCall=0;
     const names=["","VESPER","AURELIA","THE CROWN","LEVIATHAN"];
-    const hp=BOSS_HP[this.stage]??LEVIATHAN_HP;
+    // Act I mercy: a flagship meets a short kit with less HP (never in drills).
+    const hp=(BOSS_HP[this.stage]??LEVIATHAN_HP)*(this.stage<ACT_TWO_STAGE&&!this.practiceStage?this._actOneMercy(true):1);
     const leviathan=this.stage===4;
     // w/h are the collision half-extents (an ellipse); LEVIATHAN is far wider.
     this.boss={id:++this._id,type:"boss",name:names[this.stage],
@@ -1376,6 +1434,12 @@ export class Game {
           this._particle(e.x,e.y,0,0,.65,10,"magenta","ring");
           this._event("bossPhase",e.x,e.y,phase);
           if(e.leviathan)this._leviathanEnterPhase(e);
+          // Act I: a phase break is a recovery opportunity for a kit below
+          // the sector's entitlement (a clean collector gets nothing).
+          else if(this.stage<ACT_TWO_STAGE) {
+            const tokens=this._actOneRecovery(e,[]);
+            if(tokens.length)this._dropMany(e.x,e.y+40,tokens);
+          }
         }
         if(e.phase===3&&e.guard&&this._bossUnlocked(e)) {
           e.guard=false;e.guardUntil=0;
@@ -1431,6 +1495,52 @@ export class Game {
   // speed (+12% at threat 1) and, past each type's gate, a bigger volley.
   // Sector 4's borrowed Act I craft keep their authored fire.
   _actOnePace() { return ACT_ONE_PACE_BASE/(1+ACT_ONE_PACE_K*this.threat); }
+  // A beat's drops for the current ship (STAGE_BEATS `wraith` overrides).
+  _beatDrops(drops) { return drops?.wraith&&this.player.shipId==="wraith"?{...drops,...drops.wraith}:drops; }
+  // Act I entitlement: the sector's entry row plus every authored item (and
+  // rescue power) of the beats flown so far.
+  _actOneOwed(wholeSector=false) {
+    const owed={...ACT_ONE_ENTRY[this.stage]},beats=STAGE_BEATS[this.stage];
+    for(let i=0;i<(wholeSector?beats.length:this._beatIndex)&&i<beats.length;i++) {
+      const d=this._beatDrops(beats[i][2]);if(!d)continue;
+      for(const type of [].concat(d.lead||[],d.heavy||[]))if(type in owed)owed[type]++;
+      if(d.rescue)owed.power++;
+    }
+    return owed;
+  }
+  // What the pilot holds or can still catch: the kit, live salvage and
+  // pickups, drops still riding enemies, and a kill's pending fan.
+  _actOneHeld(pending=[]) {
+    const p=this.player,held={power:p.level,escort:p.escorts/2,sidewinder:p.sidewinder,signature:p.signature};
+    const add=(type,n)=>{if(type in held)held[type]+=n;};
+    for(const item of this.pickups)if(!item.dead)add(item.type,Math.max(1,Math.floor(item.value||1)));
+    for(const e of this.enemies) {
+      if(e.dead)continue;
+      if(e.drop)for(const type of [].concat(e.drop))add(type,1);
+      if(e.rescue&&this.threat<RESCUE_THREAT)add("power",1);
+    }
+    for(const entry of pending)add(entry.type||entry,entry.value||1);
+    return held;
+  }
+  // Act I mercy factor (HP scale) for a kit short of its entitlement, in
+  // arsenal levels; 1 for a kit at or above the ledger.
+  _actOneMercy(wholeSector=false) {
+    if(!ACT_ONE_ENTRY[this.stage])return 1;
+    const owed=this._actOneOwed(wholeSector),held=this._actOneHeld();
+    const level=k=>k.power+2*k.escort+1.5*k.sidewinder+1.5*k.signature;
+    return Math.max(ACT_ONE_MERCY_FLOOR,1-ACT_ONE_MERCY_PER_LEVEL*Math.max(0,level(owed)-level(held)));
+  }
+  // The recovery tokens a rescue or recovery lead adds to its kill's fan.
+  _actOneRecovery(e,pending) {
+    if(this.practiceStage||!ACT_ONE_ENTRY[this.stage])return [];
+    const owed=this._actOneOwed(),held=this._actOneHeld(pending),out=[];
+    const order=this.player.shipId==="wraith"?ACT_ONE_RECOVER_ORDER_WRAITH:ACT_ONE_RECOVER_ORDER;
+    const type=order.find(t=>held[t]<owed[t]);
+    if(type)out.push({type,recovery:true});
+    const short=owed.power-held.power;
+    if(short>ACT_ONE_RECOVER_SLACK)out.push({type:"power",value:Math.min(ACT_ONE_RECOVER_MAX,Math.ceil((short-ACT_ONE_RECOVER_SLACK)/ACT_ONE_RECOVER_STEP)),recovery:true});
+    return out;
+  }
   _enemyFire(e,p) {
     const actOne=this.stage<ACT_TWO_STAGE,t=actOne?this.threat:0;
     const speed=(160+this.stage*18)*(1+ACT_ONE_SPEED*t);
@@ -1501,9 +1611,10 @@ export class Game {
         this._radial(e.x+60,e.y+24,14,speed,-angle,"cyan",4.5);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,5,.11,speed+82,"red",5);
       } else {
-        // Act I retune: 16+16 (was 19+19) over the Crown's longer final phase.
-        this._radial(e.x,e.y+38,16,speed+20,sway,"magenta",4.6,Math.PI*.06,Math.PI*.94);
-        this._radial(e.x,e.y+38,16,speed-28,-sway+.05,"amber",4.4,Math.PI*.06,Math.PI*.94);
+        // The final crossfire: a magenta fan every salvo, the slower amber
+        // counter-fan on alternate salvos (CROWN_FINAL_*).
+        this._radial(e.x,e.y+38,CROWN_FINAL_FAN,speed+20,sway,"magenta",4.6,Math.PI*.06,Math.PI*.94);
+        if(salvo%CROWN_FINAL_COUNTER_EVERY===0)this._radial(e.x,e.y+38,CROWN_FINAL_FAN,speed-28,-sway+.05,"amber",4.4,Math.PI*.06,Math.PI*.94);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,7,.105,speed+95,"cyan",4.5);
       }
     }
@@ -1673,8 +1784,17 @@ export class Game {
     return type;
   }
   // Several items from one kill fan out sideways so each is readable.
+  // Entries are a type, or {type,value,recovery} for an Act I recovery token
+  // (a power token may be worth 2-4 levels; the drop event carries
+  // recovery:true and amount).
   _dropMany(x,y,types) {
-    types.forEach((type,i)=>this._drop(x,y,type,(i-(types.length-1)/2)*70));
+    types.forEach((entry,i)=>{
+      const item=this._drop(x,y,entry.type||entry,(i-(types.length-1)/2)*70);
+      if(entry.recovery) {
+        item.recovery=true;if(entry.value>1)item.value=entry.value;
+        Object.assign(this.events[this.events.length-1],{recovery:true,amount:entry.value||1});
+      }
+    });
   }
   _updatePickups(h) {
     const p=this.player,interlude=this._transition>0;
@@ -2118,22 +2238,28 @@ export class Game {
       this._burst(e.x,e.y,e.type==="mini"?32:e.type==="bomber"||e.type==="carrier"?16:8,
         e.type==="ace"?"cyan":"amber",e.type==="mini"?220:130,"explode");
       this.shake=Math.max(this.shake,e.type==="mini"?7:e.type==="bomber"?4:2);
-      // Authored drops stay; carriers and minibosses add ladder bonuses
-      // (2-3 items total); ordinary kills roll the weighted table.
+      // Authored drops stay. Act II carriers and minibosses add ladder
+      // bonuses; Act I heavies carry only what their beat authors. Ordinary
+      // kills roll a table.
       const drops=[],actOne=this.stage<ACT_TWO_STAGE;
       // Formation scouts and wings pay out through the squadron bonus instead
       // of the random table; heavies and loners still roll it. Act I rolls a
       // smaller flavour table at lower rates: the ledger is authored.
       const formation=e.squad&&FORMATION_TYPES.has(e.type);
+      const rescued=e.rescue&&this.threat<RESCUE_THREAT;
       if(e.drop)drops.push(...[].concat(e.drop));
-      else if(e.rescue&&this.threat<RESCUE_THREAT)drops.push("power");
-      else if(!formation&&this._rand()<((actOne?ACT_ONE_DROP_CHANCE:DROP_CHANCE)[e.type]??.035)) {
+      // Act I: a rescue lead pays its power on top of an authored drop.
+      if(rescued&&(actOne||!e.drop))drops.push("power");
+      else if(!e.drop&&!rescued&&!formation&&this._rand()<((actOne?ACT_ONE_DROP_CHANCE:DROP_CHANCE)[e.type]??.035)) {
         const type=actOne?this._rollTable(ACT_ONE_FLAVOUR):this._randomDropType();if(type)drops.push(type);
       }
       if(!actOne)for(let i=0;i<(BONUS_DROPS[e.type]||e.bonusDrops||0);i++)drops.push(this._bonusDropType());
+      // Act I recovery: a rescue or recovery lead tops up a kit that has
+      // fallen below its entitlement (never a clean collector's).
+      const recovery=actOne&&(e.rescue||e.recover)?this._actOneRecovery(e,drops):[];
       // Squadron wipe: the last kill of an intact formation adds a weighted
       // equipment item (no power) to this kill's fan. Act I: the wipe pays
-      // points, and sometimes an R or a bomb.
+      // points, and sometimes a reflector.
       const squad=e.squad&&this._squads.get(e.squad);
       let wiped=0,bonusDrops=SQUADRON_BONUS_DROPS,points=0;
       if(squad&&++squad.killed>=squad.total) {
@@ -2144,6 +2270,7 @@ export class Game {
           if(bonusDrops)drops.push(this._rollTable(ACT_ONE_SQUAD_FLAVOUR));
         } else for(let i=0;i<SQUADRON_BONUS_DROPS;i++)drops.push(this._randomDropType(true));
       }
+      if(recovery.length)drops.push(...recovery);
       if(drops.length)this._dropMany(e.x,e.y,drops);
       if(wiped)this.events.push({type:"squadronBonus",x:e.x,y:e.y,value:wiped,drops:bonusDrops,points});
       this._event("enemyDown",e.x,e.y,e.type);
@@ -2200,7 +2327,9 @@ export class Game {
     if(this.stage===ACT_TWO_STAGE)this._bonusIndex=Math.max(this._bonusIndex,BONUS_LADDER.length);
     this._awardScore(0);
     this.enemies.length=0;this.bullets.length=0;
-    this.player.hp=Math.min(this.player.maxHp,this.player.hp+1);
+    // Act I sector clears repair the hull (round 2: the campaign has to be
+    // winnable for an average pilot); entering Act II still adds one point.
+    this.player.hp=this.stage<ACT_TWO_STAGE?this.player.maxHp:Math.min(this.player.maxHp,this.player.hp+1);
     this.player.bombs=Math.min(MAX_BOMBS,this.player.bombs+1);
     this.player.invuln=3;this.flash=.7;
     this._event("stage",270,170,this.stage);

@@ -71,8 +71,14 @@ test('defeating a boss advances sector and replenishes resources', () => {
   game._killEnemy(game.boss);
   step(game, 240);
   assert.equal(game.stage, 2);
-  assert.equal(game.player.hp, 2);
+  assert.equal(game.player.hp, game.player.maxHp, 'an Act I sector clear repairs the hull (round 2)');
   assert.equal(game.player.bombs, 1);
+  // Entering Act II still adds a single hull point.
+  const crown = new Game(); start(crown); crown.stage = 3; crown.player.invuln = 999;
+  crown._spawnBoss(); crown.player.hp = 1; crown._killEnemy(crown.boss);
+  for (let i = 0; i < 60 * 7 && crown.stage === 3; i++) crown.update(1/60, {});
+  assert.equal(crown.stage, 4);
+  assert.equal(crown.player.hp, 2);
 });
 
 test('equal input sequences produce equal enemy and bullet state', () => {
@@ -294,9 +300,14 @@ test('capped score resources and early relays no longer generate surplus bombs',
   assert.equal(bombs(1).length, 0, 'sector 1 sorties carry their starting bombs only');
   for (const stage of [2, 3]) {
     assert.equal(bombs(stage).length, 1, 'one authored bomb in sector ' + stage);
-    assert.equal(bombs(stage)[0][1], 'relay');
-    assert.ok(bombs(stage)[0][0] >= STAGE_BEATS[stage].at(-1)[0] - 9, 'on the closing relay');
+    assert.ok(bombs(stage)[0][0] >= STAGE_BEATS[stage].at(-1)[0] - 9, 'in the closing beats');
   }
+  // Sector 2's rides the closing relay's carrier; sector 3's rides the closing
+  // flank's lead, which dies before the Crown arrives (a relay carrier spawned
+  // at 79 s never could).
+  assert.deepEqual(bombs(2)[0][2], { heavy: ['bomb'] });
+  assert.equal(bombs(3)[0][1], 'flank');
+  assert.equal(bombs(3)[0][2].lead, 'bomb');
 });
 
 test('Vesper final phase alternates its counter-tide at a half-second cadence', () => {
@@ -308,8 +319,8 @@ test('Vesper final phase alternates its counter-tide at a half-second cadence', 
   boss.fireAt = 20;
   game.threat = .15;  // about Vesper's arrival-ledger rank
   game._updateEnemies(1/120);
-  // Act I retune: Vesper teaches, 0.6 s base cadence on the gentle flagship rank pace.
-  assert.ok(boss.fireAt - boss.age > .66 && boss.fireAt - boss.age < .71,
+  // Act I retune: Vesper teaches, 0.6 s base cadence x 1.5/(1+0.6t) (round 2).
+  assert.ok(boss.fireAt - boss.age > .8 && boss.fireAt - boss.age < .85,
     'the first boss gives a long beat between final-phase waves: ' + (boss.fireAt - boss.age).toFixed(3));
 
   const volley = () => {
@@ -356,8 +367,8 @@ test('Aurelia final phase alternates wing spirals without a pressure spike', () 
   boss.fireAt = 20;
   game.threat = .4;  // about Aurelia's arrival-ledger rank
   game._updateEnemies(1/120);
-  assert.ok(boss.fireAt - boss.age > .49 && boss.fireAt - boss.age < .52,
-    'Aurelia phase three should leave a half-second dodge interval: ' + (boss.fireAt - boss.age).toFixed(3));
+  assert.ok(boss.fireAt - boss.age > .59 && boss.fireAt - boss.age < .62,
+    'Aurelia phase three should leave a 0.6 s dodge interval: ' + (boss.fireAt - boss.age).toFixed(3));
   const volley = () => {
     const before = game.bullets.length;
     game._bossFire(boss);
