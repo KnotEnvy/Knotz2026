@@ -7,7 +7,8 @@
 //   stop()                       fade out and release every node.
 // state = { screen, mode, time, stage, stageTime, bossWarning (-1 | 0..1), boss, bossName,
 //           bossPhase, bossHp, interlude (-1 | 0..1), intensity, critical, outcome, grade,
-//           practice, paused, events }
+//           practice, paused, events, barPhase, barLength }
+//   clock(now)                   { barPhase, barLength, bpm, cue } of the audible bar, or null.
 //
 // Musical identity: one main theme, "Long Meridian" (D major with a bVI-bVII-I lift), recurs as
 // the title anthem, the Shallows lead, the hangar fragment, the victory hymn, and in minor as the
@@ -40,8 +41,13 @@ const CHANNELS = {
   keys: { level: 0.46, verb: 0.3, echo: 0.16 },
   strings: { level: 0.5, verb: 0.32 },
   arp: { level: 0.4, verb: 0.24, echo: 0.3 },
-  fx: { level: 0.42, verb: 0.45 }
+  fx: { level: 0.42, verb: 0.45 },
+  // Sector 6: the formant choir and glass sit in a wider, wetter space.
+  halo: { level: 0.46, verb: 0.62, echo: 0.18 },
+  glass: { level: 0.44, verb: 0.5, echo: 0.26 }
 };
+// Formant centres (F1-F3, Hz) for the sector-6 choir. Notes morph between two vowels.
+const VOWELS = { u: [325, 700, 2530], o: [450, 800, 2830], a: [760, 1150, 2900], e: [420, 1650, 2700], i: [300, 2150, 3000] };
 const VEL = { X: 1.15, x: 1, o: 0.7, '-': 0.38 };
 
 function env(p, at, a, peak, d, sus, hold, rel) {
@@ -325,6 +331,24 @@ const CUES = {
         }
         return;
       }
+      if (I.variant === 'ascent') {
+        // HALCYON -> ZERO MERIDIAN: the climb leaves the atmosphere. F Lydian strings thin out as
+        // they rise, then the air is gone: a formant choir on Bbmaj7 opens onto A sus4, the
+        // dominant of sector 6's D, under glass harmonics. No drums after the first hit.
+        if (b === 0) {
+          m.taiko(I, t, 0.6, true); m.crash(I, t, 0.3);
+          m.pad(I, 'strings', t, S * 14, [53, 60, 65, 71], 0.208, { attack: 0.1, rel: 0.6, trem: 1 / S, cutoff: 2600 });
+          for (let k = 0; k < 16; k++) m.spicc(I, 'strings', t + k * S, 65 + [0, 7, 12, 14][k % 4] + Math.floor(k / 4) * 2, 0.2 - k * 0.009);
+          m.riser(I, t, S * 16, 0.18);
+          m.bass(I, t, S * 12, 41, 0.45, { type: 'synth' });
+        } else {
+          m.voices(I, 'halo', t, S * 8, m.voicing(K, [8, 'maj7'], 62, 4), 0.3, { vowel: 'u', to: 'o', attack: 0.15, rel: 0.4 });
+          m.voices(I, 'halo', t + S * 8, S * 8, m.voicing(K, [7, 'sus4'], 64, 4), 0.3, { vowel: 'o', to: 'a', attack: 0.2, rel: 0.6 });
+          m.bass(I, t, S * 7.6, 34, 0.4, { type: 'synth' }); m.bass(I, t + S * 8, S * 7.6, 33, 0.42, { type: 'synth' });
+          [81, 86, 88, 93, 98].forEach((n, k) => m.glass(I, 'glass', t + S * (1 + k * 3), n, 0.07, 2.2));
+        }
+        return;
+      }
       if (b === 0) {
         m.taiko(I, t, 0.8, true);
         m.chord(I, 'brass', t, S * 5, K, [8, 'maj'], 62, 0.36, { timbre: 'brass', attack: 0.015 });
@@ -351,6 +375,40 @@ const CUES = {
     bpm: 84, key: 62, intro: 1, loop: true, level: 1,
     bar(m, I, b, t, S, s) {
       const K = 62, B = 38, grand = /^[SA]/.test(String(I.grade || 'A'));
+      if (I.variant === 'actTwo') {
+        // ACT II COMPLETE: three bars before the hymn. The theme's own lift (Bb, C) lands on a full
+        // D major, the theme's head rings out over bells and timpani, then everything falls away to
+        // a quiet choir that leans on G# (the raised fourth) and does not resolve: something lies
+        // past the meridian. The hymn then begins at its first phrase.
+        if (b === 0) {
+          m.taiko(I, t, 0.7, true); m.boom(I, t, 0.6); m.crash(I, t, 0.4);
+          m.chord(I, 'brass', t, S * 7.5, K, [8, 'maj'], 62, 0.3, { timbre: 'brass', attack: 0.02, bright: 0.7 });
+          m.chord(I, 'brass', t + S * 8, S * 7.5, K, [10, 'maj'], 64, 0.32, { timbre: 'brass', attack: 0.02, bright: 0.8 });
+          m.bass(I, t, S * 7.6, 34, 0.38, { type: 'synth' }); m.bass(I, t + S * 8, S * 7.6, 36, 0.38, { type: 'synth' });
+          m.voices(I, 'halo', t, S * 16, [58, 62, 65, 70], 0.16, { vowel: 'o', to: 'a', attack: 0.3, rel: 0.4 });
+          m.roll(I, 'timp', t + S * 10, S * 6, 50, 0.08, 0.4, S / 2);
+          return;
+        }
+        if (b === 1) {
+          m.crash(I, t, 0.5); m.taiko(I, t, 0.9, true); m.boom(I, t, 0.6);
+          m.chord(I, 'brass', t, S * 15, K, [0, 'maj'], 62, 0.4, { timbre: 'brass', attack: 0.02, bright: 0.9 });
+          m.voices(I, 'halo', t, S * 16, [62, 66, 69, 74], 0.18, { vowel: 'a', attack: 0.15, rel: 0.8 });
+          m.mel(I, 'lead', [[0, 4], [7, 6], [12, 6]], t, S, K + 12, { vel: 0.36, bright: 1, vib: 10 });
+          m.bass(I, t, S * 15, B, 0.42, { type: 'synth' });
+          m.timp(I, t, B + 12, 0.4, 1.6);
+          [86, 90, 93, 98, 102].forEach((n, k) => m.glass(I, 'glass', t + S * (2 + k * 2.5), n, 0.05, 2.6));
+          return;
+        }
+        if (b === 2) {
+          m.voices(I, 'halo', t, S * 14, [62, 68, 69, 74], 0.13, { vowel: 'o', to: 'u', attack: 0.8, rel: 1.6 });
+          m.bass(I, t, S * 14, B, 0.22, { type: 'synth' });
+          m.glass(I, 'glass', t + S * 6, 92, 0.05, 3.5);
+          m.glass(I, 'glass', t + S * 12, 98, 0.035, 3);
+          m.revCymbal(I, t + S * 8, S * 8, 0.18);
+          return;
+        }
+        b -= 2;
+      }
       if (b === 0) {
         m.revCymbal(I, t, S * 16, 0.34);
         m.roll(I, 'timp', t, S * 16, 45, 0.05, 0.42, S / 2);
@@ -443,6 +501,13 @@ for (let stage = 1; stage < BOSS_KEYS.length; stage++) {
           m.pad(I, 'strings', t, left, [77, 81, 84], 0.13, { attack: 0.08, rel: 0.3, trem: 1 / S, cutoff: 3600 });
           m.pad(I, 'strings', t + left * 0.45, left * 0.55, [77, 80, 83], 0.15, { attack: left * 0.3, rel: 0.25, trem: 1 / S, cutoff: 3200 });
           m.boom(I, t, 0.45);
+        }
+        if (stage === 6) {
+          // The mirror wakes: a choir cluster opens from 'oo' to 'ee' while glass strikes fall in
+          // pairs, each answered by its reflection a beat later.
+          const left = Math.max(0.5, (1 - p0) * BOSS_WARNING_LEAD);
+          m.voices(I, 'halo', t, left, [62, 63, 69, 74], 0.16, { vowel: 'u', to: 'e', attack: left * 0.6, rel: 0.3 });
+          [[86, 0], [84, 1], [81, 2]].forEach(([n, k]) => { const at = t + k * S * 4; if (at < t + left) { m.glass(I, 'glass', at, n, 0.05, 1.4); m.glass(I, 'glass', at + S * 2, 2 * 74 - n + 12, 0.035, 1.2); } });
         }
       }
       for (let n = 0; n < 16; n++) {
@@ -740,6 +805,178 @@ CUES.boss5 = {
   }
 };
 
+
+// Act II finale, sector 6 — "Zero Meridian" (D, 140 bpm). The edge of space at eclipse: a formant
+// choir that opens from 'oo' to 'ah', a soft eighth-note pulse and glass bells over near silence.
+// It builds in sections by flight time (or when the Meridian Gate arrives), reaches the full
+// ensemble at the Gate, breathes, then returns for the remix gauntlet. The A section is a new
+// melody over open sus/maj7 chords; the B section is "Long Meridian" itself, where it ends.
+const ZM_A = [[0, 'sus2'], [8, 'maj7'], [3, 'maj7'], [7, 'sus4'], [0, 'sus2'], [8, 'maj7'], [5, 'min7'], [7, 'maj']];
+const ZM_LEAD = [
+  [[12, 4], [14, 4], [19, 8]],
+  [[17, 6], [14, 2], [19, 8]],
+  [[15, 4], [14, 4], [10, 4], [7, 4]],
+  [[7, 8], [12, 4], [14, 4]],
+  [[12, 4], [14, 4], [19, 6], [21, 2]],
+  [[22, 8], [21, 4], [17, 4]],
+  [[19, 4], [17, 4], [15, 4], [14, 4]],
+  [[13, 8], [16, 8]]
+];
+// Section start times (seconds into the sector). The Gate can arrive earlier (stationEnter).
+const ZM_BUILD = 12, ZM_RISE = 34, ZM_GATE = 58, ZM_BREATH = 80, ZM_GAUNTLET = 88;
+function zmSection(m, s) {
+  const st = Number(s.stageTime) || 0, gate = Math.min(ZM_GATE, m.zmGateAt ?? Infinity);
+  const stationUp = m.zmGateAt != null && m.zmGateDown == null;
+  if (st >= ZM_GAUNTLET) return 3;
+  if (st >= ZM_BREATH && !stationUp) return 1.5;  // breather: choir, pulse and bells only
+  if (st >= gate) return 3;
+  if (st >= ZM_RISE) return 2;
+  return st >= ZM_BUILD ? 1 : 0;
+}
+function zmArp(m, I, t, S, key, chord, center, vel) {
+  const v = m.voicing(key, chord, center, 3), pool = [v[0], v[1], v[2], v[0] + 12, v[1] + 12, v[2] + 12];
+  [0, 2, 4, 1, 3, 5, 2, 4].forEach((idx, k) => m.pluck(I, 'glass', t + k * 2 * S, pool[idx], vel * (k % 4 === 0 ? 1 : 0.75), { wave: 'triangle', decay: 0.5, bright: 0.6 }));
+}
+CUES.sector6 = {
+  bpm: 140, key: 62, intro: 2, loop: true, level: 1,
+  bar(m, I, b, t, S, s) {
+    const K = 62, B = 38, inten = clamp(s.intensity ?? 0.5, 0, 1);
+    if (b === 0) {
+      // The sky goes black: a held 'oo' on open D, three glass harmonics, a low synth floor.
+      m.voices(I, 'halo', t, S * 16, [50, 57, 62, 69], 0.2, { vowel: 'u', to: 'o', attack: S * 8, rel: 1.2 });
+      [86, 93, 98].forEach((n, k) => m.glass(I, 'glass', t + S * (3 + k * 4), n, 0.045, 3));
+      m.bass(I, t, S * 15, B, 0.2, { type: 'synth' });
+      return;
+    }
+    if (b === 1) {
+      m.voices(I, 'halo', t, S * 16, m.voicing(K, [8, 'maj7'], 62, 4), 0.19, { vowel: 'o', to: 'a', attack: 0.6, rel: 1 });
+      for (let k = 8; k < 16; k += 2) m.pluck(I, 'arp', t + k * S, B + 12, 0.07 + k * 0.004, { wave: 'triangle', decay: 0.2, bright: 0.3 });
+      m.revCymbal(I, t + S * 4, S * 12, 0.2);
+      m.bass(I, t, S * 15, B - 4, 0.2, { type: 'synth' });
+      return;
+    }
+    const L = (b - 2) % 16, A = L < 8, i = L % 8, ch = A ? ZM_A[i] : THEME_CH[i], r = norm(ch[0]);
+    const sec = zmSection(m, s), full = sec >= 3, breath = sec === 1.5;
+    const lead = A ? ZM_LEAD[i] : THEME[i];
+    // Choir: always present, opening its vowel as the sector builds.
+    m.voices(I, 'halo', t, S * 16, m.voicing(K, ch, 62, 4), full ? 0.17 : 0.14 + 0.01 * sec,
+      { vowel: full ? 'o' : 'u', to: full ? 'a' : 'o', attack: full ? 0.25 : 0.6, rel: 0.9 });
+    // The pulse: quarters in the drift, eighths from the build, sixteenths with accents at the Gate.
+    const pulse = sec === 0 ? 'x...x...x...x...' : full && inten > 0.5 ? 'x-x-x-xxx-x-x-xx' : 'x.x.x.x.x.x.x.x.';
+    for (let k = 0; k < 16; k++) if (VEL[pulse[k]]) m.pluck(I, 'arp', t + k * S, B + 12 + r + (k % 8 === 6 ? 7 : 0), 0.085 * VEL[pulse[k]], { wave: 'triangle', decay: 0.18, bright: 0.35 });
+    // Glass bells carry the melody until the Gate; there the lead and brass take it.
+    if (!full) m.mel(I, 'glass', lead, t, S, K + 12, { voice: 'glass', vel: sec === 0 ? 0.045 : 0.055, decay: 2.4 });
+    else m.mel(I, 'glass', lead, t, S, K + 24, { voice: 'glass', vel: 0.03, decay: 1.6 });
+    if (sec >= 1 && !breath) m.bassPat(I, sec >= 2 ? 'R-------R---F---' : 'R---------------', t, S, B, ch, 0.3, { type: 'synth' });
+    if (breath) { if (i % 2 === 0) m.bass(I, t, S * 15, B + r, 0.2, { type: 'synth' }); return; }
+    if (sec >= 1) {
+      m.drums(I, 'r', '....x.......x...', t, S, 0.22);
+      m.drums(I, 'z', inten > 0.4 ? 'x-x-x-x-x-x-x-x-' : '..x...x...x...x.', t, S, 0.1);
+    }
+    if (sec >= 2) {
+      m.drums(I, 'k', full ? 'x...x...x...x...' : 'x.......x.......', t, S, full ? 0.56 : 0.46);
+      m.drums(I, 'h', inten > 0.55 ? '-.x--.x--.x--.x-' : '..x...x...x...x.', t, S, 0.13);
+      zmArp(m, I, t, S, K, ch, 79, full ? 0.04 : 0.034);
+      m.chord(I, 'strings', t, S * 16, K, ch, 69, full ? 0.08 : 0.06, { attack: 0.4, rel: 0.6, cutoff: 2400 });
+    }
+    if (sec === 2 && !A) m.mel(I, 'lead', lead, t, S, K, { vel: 0.2, bright: 0.6, attack: 0.08, vib: 9 });
+    if (full) {
+      if (i === 0) { m.crash(I, t, 0.32); m.taiko(I, t, 0.5, true); }
+      m.drums(I, 's', i === 7 ? '....x.......x.xx' : '....x.......x...', t, S, 0.42);
+      if (inten > 0.65) m.drums(I, 'm', '..x.....x..x....', t, S, 0.32, { tom: 50 });
+      m.mel(I, 'lead', lead, t, S, K, { vel: 0.32, bright: 0.85, vib: 9 });
+      if (!A) m.mel(I, 'brass', lead, t, S, K - 12, { vel: 0.16, bright: 0.45, vib: 0 });
+      for (let k = 0; k < 16; k++) m.spicc(I, 'strings', t + k * S, 50 + r + [0, 7, 12, 7][k % 4], 0.1 * (k % 4 === 0 ? 1 : 0.65));
+      if (i === 7) m.drums(I, 'm', '............xxxx', t, S, 0.42, { tom: 47 });
+    }
+  }
+};
+
+// THE SOVEREIGN (D, 160 bpm), the mirror capital ship. Its score is made of the earlier flagships'
+// motifs, each answered by its own mirror image (a diatonic inversion about its middle note).
+//   Phase 1 "Reflection": four bars per flagship in turn (Vesper, Aurelia, the Crown, LEVIATHAN,
+//     HALCYON): two bars of the original on the lead, then the SOVEREIGN's mirrored copy on glass.
+//   Phase 2 "Theft": only the mirrored motifs, two bars each, over a D pedal with a rubbing
+//     minor-second choir, a growl ostinato and ticking glass.
+//   Phase 3 "Ballet": all of them at once. The minor "Long Meridian" leads while the mirrored
+//     motifs rotate underneath as a counter-line; below 20% hull the major theme breaks through.
+const D_MINOR = [0, 2, 3, 5, 7, 8, 10];
+function mirrorBar(bar, axis) {
+  const deg = o => { const oct = Math.floor(o / 12), pc = ((o % 12) + 12) % 12; let k = 6; while (D_MINOR[k] > pc) k--; return [oct * 7 + k, pc - D_MINOR[k]]; };
+  const [ax] = deg(axis);
+  return bar.map(([o, l]) => {
+    if (o == null) return [o, l];
+    const [d, acc] = deg(o), m = 2 * ax - d, oct = Math.floor(m / 7);
+    return [oct * 12 + D_MINOR[((m % 7) + 7) % 7] - acc, l];
+  });
+}
+// The mirror line sits about the motif's middle, so the reflection keeps the original's register.
+const midNote = bars => { const n = bars.flat().map(x => x[0]).filter(x => x != null); return Math.round((Math.min(...n) + Math.max(...n)) / 2); };
+// Each quote: the motif bars (offsets from the key root), their chords and the register (lead base).
+const SOV_QUOTES = [
+  { bars: V_LEAD, ch: V_CH, base: 62 },
+  { bars: A_LEAD, ch: A_CH, base: 62 },
+  { bars: C_MOTIF, ch: C_CH1, base: 62 },
+  { bars: IRON_LEAD, ch: THEME_MINOR_CH, base: 62 },
+  // HALCYON's Phrygian line, sung on A: A Phrygian is D minor's own scale, so its chords move up a fifth.
+  { bars: HAL_LEAD[3], ch: HAL_CH[3].map(([r, q]) => [r + 7, q]), base: 57 }
+].map(q => ({ ...q, mirror: q.bars.map(bar => mirrorBar(bar, midNote(q.bars))) }));
+CUES.boss6 = {
+  bpm: 160, key: 62, intro: 0, loop: true, level: 0.88,
+  bar(m, I, b, t, S, s) {
+    const K = 62, B = 38, ph = clamp(s.bossPhase || 1, 1, 3), low = (s.bossHp ?? 1) < 0.2, drill = I.variant === 'drill';
+    if (I.phase !== ph) { I.phase = ph; I.phaseBar = b; }
+    const j = b - I.phaseBar, i = j % 8;
+    if (ph === 1) {
+      // Reflection: original, then its mirror.
+      const q = SOV_QUOTES[Math.floor(j / 4) % 5], k = j % 4, ch = q.ch[k], r = norm(ch[0]);
+      if (b === 0) impact(m, I, t, K, ch, 60, 0.48);
+      else if (k === 0) { m.crash(I, t, 0.3); m.taiko(I, t, 0.45, true); }
+      if (k < 2) m.mel(I, 'lead', q.bars[k], t, S, q.base, { vel: 0.3, bright: 0.85, timbre: drill ? 'sim' : undefined });
+      else {
+        m.mel(I, 'glass', q.mirror[k - 2], t, S, q.base + 12, { voice: 'glass', vel: 0.075, decay: 1.4 });
+        m.mel(I, 'lead', q.mirror[k - 2], t, S, q.base, { vel: 0.2, bright: 0.55, timbre: 'sim', vib: 0 });
+      }
+      m.voices(I, 'halo', t, S * 16, m.voicing(K, ch, 62, 4), 0.12, { vowel: 'o', to: k < 2 ? 'a' : 'u', attack: 0.2, rel: 0.5 });
+      m.bassPat(I, 'R-R-R-R-R-R-R-O-', t, S, B, ch, 0.32, { type: 'pulse', accent: SKY_ACC });
+      m.drums(I, 'k', 'x...x...x...x...', t, S, 0.56);
+      m.drums(I, 's', k === 3 ? '....x.......x.xx' : '....x.......x...', t, S, 0.44);
+      m.drums(I, 'h', '..x...x...x...x.', t, S, 0.15);
+    } else if (ph === 2) {
+      // Theft: mirrored motifs only, two bars each, over a pedal that will not resolve.
+      const q = SOV_QUOTES[Math.floor(j / 2) % 5], k = j % 2;
+      if (j === 0) { impact(m, I, t, K, [0, 'min'], 60, 0.5); }
+      else if (i === 0) { m.crash(I, t, 0.34); m.boom(I, t, 0.4); }
+      m.mel(I, 'lead', q.mirror[(j >> 1) % 2 ? k + 2 : k], t, S, q.base, { vel: 0.32, bright: 0.95, timbre: drill ? 'sim' : undefined });
+      m.mel(I, 'glass', q.bars[k], t + S * 2, S, q.base + 24, { voice: 'glass', vel: 0.03, decay: 0.8 });
+      m.voices(I, 'halo', t, S * 16, i % 2 ? [57, 62, 63, 69] : [50, 57, 62, 63], 0.13, { vowel: 'a', to: 'e', attack: 0.15, rel: 0.4 });
+      m.bassPat(I, 'RRR-RRO-RRR-RRF-', t, S, B, [0, 'min'], 0.33, { type: 'growl', accent: SKY_ACC });
+      for (let n = 0; n < 16; n++) if ('x.x..x.x.x..x.xx'[n] === 'x') m.pluck(I, 'arp', t + n * S, K + 24 + (n % 4 === 1 ? 1 : 0), 0.04, { wave: 'square', decay: 0.06, bright: 1 });
+      m.drums(I, 'k', 'x...x...x..xx...', t, S, 0.58);
+      m.drums(I, 's', i === 7 ? '....x...x.x.xxxx' : '....x.......x..x', t, S, 0.46);
+      m.drums(I, 'h', '-x-x-x-x-x-x-x-x', t, S, 0.16);
+      m.drums(I, 'm', '..x.....x..x....', t, S, 0.32, { tom: 48 });
+    } else {
+      // Ballet: the theme leads, the mirrors turn beneath it.
+      const major = low && !drill, ch = major ? THEME_CH[i] : THEME_MINOR_CH[i], r = norm(ch[0]);
+      const q = SOV_QUOTES[j % 5];
+      if (j === 0) impact(m, I, t, K, ch, 60, 0.5);
+      else if (i === 0) { m.crash(I, t, 0.34); m.boom(I, t, 0.42); }
+      m.mel(I, 'lead', major ? THEME[i] : THEME_MINOR[i], t, S, K, { vel: 0.3, bright: 0.9, timbre: drill ? 'sim' : undefined });
+      m.mel(I, 'glass', q.mirror[j % 4], t, S, q.base + 12, { voice: 'glass', vel: 0.05, decay: 1 });
+      if (!drill) m.voices(I, 'halo', t, S * 16, m.voicing(K, ch, 62, 4), 0.13, { vowel: 'o', to: 'a', attack: 0.2, rel: 0.5 });
+      for (let k = 0; k < 16; k++) m.spicc(I, 'strings', t + k * S, 50 + r + HAL_OST[1][k], 0.13 * (SKY_ACC[k] === 'x' ? 1 : 0.62));
+      m.bassPat(I, 'RRRORRFRRRRORRFR', t, S, B, ch, 0.3, { type: 'growl', accent: SKY_ACC });
+      m.drums(I, 'T', 'x.....x.x.......', t, S, 0.5);
+      m.drums(I, 'k', 'x...x...x...x...', t, S, 0.5);
+      m.drums(I, 's', i === 7 ? '....x.......xxxx' : '....x.......x...', t, S, 0.44);
+      m.drums(I, 'h', '-x-x-x-x-x-x-x-x', t, S, 0.15);
+      if (low && i % 2 === 1) m.roll(I, 'snare', t + S * 12, S * 4, 0, 0.1, 0.36, S / 2);
+    }
+    if (drill && j % 2 === 0) m.bell(I, 'keys', t, K + 24, 0.05, 0.7);
+  }
+};
+
 for (const [id, def] of Object.entries(CUES)) { def.id = id; def.minor = /^(sector2|sector3|sector4|actTwo|boss|warning|gameover|drillFail)/.test(id); }
 
 function impulse(ctx, seconds = 2.3, decay = 3.2) {
@@ -803,12 +1040,24 @@ export class MusicDirector {
 
   get cueId() { return this.cur?.def.id || ''; }
 
+  // The audible bar clock of the current cue: { barPhase 0..1, barLength (s), bpm, cue }, or null
+  // when no cue is running. audio.js publishes it in the shared state (the sector-6 aurora pulses on it).
+  clock(now = this.ctx.currentTime) {
+    const I = this.cur;
+    if (!this.alive || !I || I.done) return null;
+    const bd = I.barDur;
+    let b0 = I.nextBar - bd;
+    if (b0 > now) b0 -= bd * Math.ceil((b0 - now) / bd - 1e-9);
+    const phase = (now - b0) / bd;
+    return { barPhase: ((phase % 1) + 1) % 1, barLength: bd, bpm: I.def.bpm, cue: I.def.id };
+  }
+
   update(state, now) {
     if (!this.alive || !state) return;
     now = Number.isFinite(now) ? now : this.ctx.currentTime;
     this.state = state;
     this._prune(now);
-    // HALCYON's eclipse protocol (stage 5+, phase 3) is the densest mix in the game: the score
+    // HALCYON's eclipse protocol and THE SOVEREIGN's ballet (stage 5+, phase 3) are the densest mixes in the game: the score
     // sits DENSE_TRIM lower there (after its glue compressor, about -1 dB), so with every level
     // at full the limiter's input keeps its headroom.
     const dense = Boolean(state.boss && state.stage >= 5 && state.bossPhase === 3 && state.mode === 'playing');
@@ -851,11 +1100,14 @@ export class MusicDirector {
   _pick(s) {
     const drill = (Number(s.practice) || 0) > 0;
     const screen = s.screen || 'play';
+    if (screen === 'title' || screen === 'hangar') this.actTwoDone = false;
     if (screen === 'title') return { id: 'title', key: 'title' };
     if (screen === 'hangar') return { id: 'hangar', key: 'hangar' };
     if (screen === 'end' || s.mode === 'victory' || s.mode === 'gameover') {
       const won = s.outcome ? s.outcome === 'victory' : s.mode === 'victory';
       const id = drill ? (won ? 'drillClear' : 'drillFail') : (won ? 'victory' : 'gameover');
+      // THE SOVEREIGN's fall ends Act II: the hymn opens with the ACT II COMPLETE sting.
+      if (id === 'victory' && (this.actTwoDone || (Number(s.stage) >= 6 && CAMPAIGN_STAGES === 6))) return { id, key: 'victoryActTwo', grade: s.grade, variant: 'actTwo' };
       return { id, key: id, grade: s.grade };
     }
     if (screen === 'pause' || s.paused || s.mode === 'paused') return { id: 'pause', key: 'pause' };
@@ -863,6 +1115,8 @@ export class MusicDirector {
     if (s.actTwo || (s.stage === 3 && (Number(s.time) || 0) < (this.actTwoUntil ?? -1))) return { id: 'actTwo', key: 'actTwo' };
     if (Number(s.interlude) >= 0) {
       const climb = !drill && Number(s.stage) === 4 && CAMPAIGN_STAGES >= 5;
+      const ascent = !drill && Number(s.stage) === 5 && CAMPAIGN_STAGES >= 6;
+      if (ascent) return { id: 'interlude', key: 'interludeAscent', variant: 'ascent' };
       return climb ? { id: 'interlude', key: 'interludeClimb', variant: 'climb' } : { id: 'interlude', key: 'interlude' };
     }
     // A sector without its own score yet borrows the latest one written (never a missing cue).
@@ -1020,8 +1274,12 @@ export class MusicDirector {
   _event(e, s, now) {
     switch (e?.type) {
       case 'actTwo': this.actTwoUntil = (Number(s.time) || 0) + 6.5; break;
-      case 'stage': this.actTwoUntil = -1; break;
-      case 'bossDown': if (!s.events?.some(e => e.type === 'actTwo')) this._stingBossDown(now + 0.02); break;
+      case 'stage': this.actTwoUntil = -1; this.zmGateAt = null; this.zmGateDown = null; break;
+      // The Meridian Gate brings sector 6's full ensemble in early; its fall lets the breather come.
+      case 'stationEnter': if (this.zmGateAt == null) this.zmGateAt = Number(s.stageTime) || 0; break;
+      case 'stationDown': this.zmGateDown = Number(s.stageTime) || 0; break;
+      case 'actTwoComplete': this.actTwoDone = true; break;
+      case 'bossDown': if (!s.events?.some(e => e.type === 'actTwo')) this._stingBossDown(now + 0.02, Number(e.stage ?? e.value ?? s.stage) === 6); break;
       case 'lifeLost':
         if (s.mode === 'playing' && now - this._lastLife > 1) { this._lastLife = now; this._stingLife(now + 0.02); }
         break;
@@ -1032,8 +1290,10 @@ export class MusicDirector {
     }
   }
 
-  _stingBossDown(at) {
+  _stingBossDown(at, mirror = false) {
     const I = this.sting;
+    // THE SOVEREIGN: the brass hit is answered by glass falling away in mirrored pairs.
+    if (mirror) [98, 93, 91, 86, 81, 79].forEach((n, k) => this.glass(I, 'glass', at + 0.25 + k * 0.16, n, 0.05 - k * 0.005, 1.8));
     this.boom(I, at, 0.9); this.crash(I, at, 0.6); this.taiko(I, at, 1, true);
     this.chord(I, 'brass', at, 0.9, 62, [0, 'maj'], 62, 0.42, { timbre: 'brass', attack: 0.012, rel: 0.6 });
     this.roll(I, 'timp', at + 0.05, 0.5, 50, 0.4, 0.05, 0.045);
@@ -1053,6 +1313,16 @@ export class MusicDirector {
 
   _phaseFill(I, at) {
     const beat = I.step * 4;
+    if (I.def.id === 'boss6') {
+      // The mirror turns: a glass run climbs while its reflection falls, into a low hit.
+      for (let k = 0; k < 8; k++) {
+        this.glass(I, 'glass', at - beat + k * beat / 8, 74 + [0, 2, 3, 5, 7, 8, 10, 12][k], 0.04 + k * 0.004, 0.6);
+        this.glass(I, 'glass', at - beat + k * beat / 8, 74 - [0, 2, 3, 5, 7, 8, 10, 12][k], 0.03, 0.6);
+      }
+      this.crash(I, at, 0.4); this.boom(I, at, 0.5); this.taiko(I, at, 0.7, true);
+      this.chord(I, 'brass', at, 0.4, I.def.key, [0, 'five'], I.def.key - 5, 0.3, { timbre: 'brass', attack: 0.01 });
+      return;
+    }
     if (I.def.id === 'boss5') {
       // HALCYON shifts mode: a string run tears upward into a tom triplet and a low hit.
       for (let k = 0; k < 8; k++) this.spicc(I, 'strings', at - beat + k * beat / 8, I.def.key - 12 + [0, 2, 3, 5, 7, 8, 10, 12][k], 0.14 + k * 0.025);
@@ -1091,6 +1361,7 @@ export class MusicDirector {
         const at = t + pos * S, dur = len * S * (o.leg ?? 0.94), v = (o.vel ?? 0.4) * (pos % 4 === 0 ? 1 : 0.86);
         if (o.voice === 'pluck') this.pluck(I, ch, at, base + off, v, o);
         else if (o.voice === 'bell') this.bell(I, ch, at, base + off, v, o.decay ?? 1.6);
+        else if (o.voice === 'glass') this.glass(I, ch, at, base + off, v, o.decay ?? 2.2);
         else this.brass(I, ch, at, dur, base + off, v, o);
       }
       pos += len;
@@ -1242,6 +1513,50 @@ export class MusicDirector {
     }
     tail.connect(this._ch(I, ch));
     this._track(I, srcs, nodes, at, end);
+  }
+
+  // Formant choir (sector 6): per note two detuned saws with a shared vibrato, summed through three
+  // vowel formants. The vowel can morph across the note (o.vowel -> o.to), e.g. 'u' opening to 'a'.
+  voices(I, ch, at, dur, notes, vel, o = {}) {
+    const c = this.ctx, a = o.attack ?? 0.5, rel = o.rel ?? 0.9, end = at + dur + rel + 0.06;
+    const from = VOWELS[o.vowel] || VOWELS.o, to = VOWELS[o.to] || from, nyq = c.sampleRate * 0.45;
+    const sum = c.createGain(), g = c.createGain();
+    sum.gain.value = 1;
+    // The formant bank passes a narrow slice of each saw, so the voice is made up here.
+    env(g.gain, at, a, vel * 2.6 / Math.sqrt(notes.length * 2), 0.6, 0.9, dur, rel);
+    const srcs = [], nodes = [sum, g];
+    for (const [k, [q, amp]] of [[6, 1], [9, 0.5], [12, 0.22]].entries()) {
+      const bp = c.createBiquadFilter(), fg = c.createGain();
+      bp.type = 'bandpass'; bp.Q.value = q; fg.gain.value = amp;
+      bp.frequency.setValueAtTime(Math.min(nyq, from[k]), at);
+      if (to !== from) bp.frequency.linearRampToValueAtTime(Math.min(nyq, to[k]), at + Math.max(0.1, dur));
+      sum.connect(bp); bp.connect(fg); fg.connect(g); nodes.push(bp, fg);
+    }
+    const l = this._osc('sine', 4.8 + this._r() * 0.7, at, end), vg = c.createGain();
+    vg.gain.value = o.vib ?? 7; l.connect(vg); srcs.push(l); nodes.push(l, vg);
+    for (const n of notes) {
+      const f = mtof(n);
+      for (const d of [-7, 7]) {
+        const x = this._osc('sawtooth', f, at, end);
+        x.detune.setValueAtTime(d + (this._r() - 0.5) * 6, at); vg.connect(x.detune); x.connect(sum);
+        srcs.push(x); nodes.push(x);
+      }
+    }
+    g.connect(this._ch(I, ch));
+    this._track(I, srcs, nodes, at, end);
+  }
+
+  // Glass bell (sector 6): near-harmonic partials with a beating twin on the fundamental, so each
+  // strike shimmers as it fades. Brighter and longer than bell().
+  glass(I, ch, at, midi, vel, decay = 2.2) {
+    const c = this.ctx, f = mtof(midi), out = this._ch(I, ch), srcs = [], nodes = [];
+    for (const [mul, amp, d] of [[1, 1, 1], [1.0034, 0.7, 0.9], [2.005, 0.32, 0.5], [3.01, 0.14, 0.32], [4.98, 0.05, 0.16]]) {
+      if (f * mul > c.sampleRate * 0.45) continue;
+      const x = this._osc('sine', f * mul, at, at + decay * d + 0.05), g = c.createGain();
+      perc(g.gain, at, vel * amp * 0.8, decay * d, 0.003);
+      x.connect(g); g.connect(out); srcs.push(x); nodes.push(x, g);
+    }
+    this._track(I, srcs, nodes, at, at + decay + 0.05);
   }
 
   bass(I, at, dur, midi, vel, o = {}) {

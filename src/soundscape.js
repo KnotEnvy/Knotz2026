@@ -342,7 +342,8 @@ export class Soundscape {
     else if (name === 'sector3') this._crown(bed);
     else if (name === 'sector4') this._typhoon(bed);
     else if (name === 'sector5') this._skyforge(bed);
-    else if (/^sector\d+$/.test(name)) this._skyforge(bed); // later sectors borrow the latest bed until scored
+    else if (name === 'sector6') this._meridian(bed);
+    else if (/^sector\d+$/.test(name)) this._meridian(bed); // later sectors borrow the latest bed until scored
     else if (name === 'endVictory') this._calm(bed);
     else if (name === 'endDefeat') this._storm(bed);
     else if (name === 'pressure') this._pressureBed(bed);
@@ -427,6 +428,74 @@ export class Soundscape {
     bed.every(4.5, 10, at => this._foundryClank(bed, at), [1.5, 3.5]);
     bed.every(17, 33, at => this._vent(bed, at), [8, 14]);
     this._flightModulation(bed, rush, 0.042);
+  }
+  _meridian(bed) {
+    // Sector 06: the edge of space at eclipse. Near silence: thin canopy air, a high solar-wind
+    // hiss drifting across the field, faint radio static, and an aurora shimmer (D and A, very
+    // high and soft) that swells once per bar of the score (state.barPhase). No thunder:
+    // lightningAt(t, 6) has no strikes.
+    const rush = this._rush(bed, { level: 0.045, cut: 2600 });
+    const hissHp = this._filter('highpass', 3800, 0.6), hissBand = this._filter('bandpass', 7200, 0.9), hiss = this._gain(0.034), hissPan = this._panner(0);
+    this._chain([this._loop(bed, 'white', this.between(0.97, 1.03)), hissHp, hissBand, hiss, hissPan, bed.gain]);
+    this._lfo(bed, hissBand.frequency, 0.029, 1700);
+    this._lfo(bed, hiss.gain, 0.047, 0.012);
+    if (hissPan.pan) this._lfo(bed, hissPan.pan, 0.019, 0.6);
+    // A constant bed of static, barely there, band-limited like a far receiver.
+    const staticBand = this._filter('bandpass', 2300, 1.6), staticAmp = this._gain(0.007);
+    this._chain([this._loop(bed, 'white', 0.71), staticBand, staticAmp, bed.gain]);
+    this._lfo(bed, staticAmp.gain, 0.13, 0.003);
+    this._keep(bed, hissHp, hissBand, hiss, hissPan, staticBand, staticAmp);
+    // The aurora: a soft cluster on D6, A6 and E7 with slow chorus; each bar it swells and settles.
+    const shimmer = this._gain(0), shimmerLp = this._filter('lowpass', 5200, 0.5), shimmerSend = this._gain(0.9);
+    shimmer.connect(shimmerLp); shimmerLp.connect(bed.gain); shimmerLp.connect(shimmerSend); shimmerSend.connect(bed.send);
+    for (const [f, a, pan] of [[1174.66, 0.5, -0.4], [1176.1, 0.35, 0.4], [1760, 0.32, 0.25], [2637, 0.12, -0.2]]) {
+      const osc = this.ctx.createOscillator(); osc.frequency.value = f;
+      const g = this._gain(a), p = this._panner(pan); osc.connect(g); g.connect(p); p.connect(shimmer); osc.start(this.now);
+      bed.sources.push(osc); this._keep(bed, g, p);
+      this._lfo(bed, osc.frequency, this.between(0.11, 0.2), f * 0.0012);
+    }
+    this._keep(bed, shimmer, shimmerLp, shimmerSend);
+    bed.every(3, 8.5, at => this._radio(bed, at), [1.5, 4]);
+    bed.every(14, 30, at => this._heterodyne(bed, at), [6, 12]);
+    this._flightModulation(bed, rush, 0.045);
+    const air = bed.modulate;
+    let last = -1;
+    bed.modulate = (s, now) => {
+      air(s, now);
+      const phase = Number.isFinite(s.barPhase) ? s.barPhase : -1, bar = Number(s.barLength) > 0 ? s.barLength : 240 / 140;
+      // Swell on each downbeat (the phase wraps), settle across the bar.
+      if (phase >= 0 && phase < last - 0.5) {
+        const peak = s.mode === 'gameover' ? 0 : 0.017, floor = 0.004;
+        shimmer.gain.cancelScheduledValues?.(now);
+        shimmer.gain.setTargetAtTime(peak, now, 0.12);
+        shimmer.gain.setTargetAtTime(floor, now + bar * 0.3, bar * 0.22);
+      }
+      if (phase >= 0) last = phase;
+    };
+  }
+  _radio(bed, at) {
+    // Faint radio static: a short band-limited crackle burst, chopped by a fast syllable-like gate.
+    const dur = this.between(0.25, 0.9), noise = this._burst('white', at, dur + 0.1);
+    const band = this._filter('bandpass', this.between(1600, 3200), this.between(2, 4)), am = this._gain(0.5), env = this._gain(0);
+    const chop = this.ctx.createOscillator(); chop.type = 'square'; chop.frequency.value = this.between(9, 26);
+    const depth = this._gain(0.45); chop.connect(depth); depth.connect(am.gain);
+    env.gain.setValueAtTime(0, at); env.gain.linearRampToValueAtTime(1, at + 0.03);
+    env.gain.setValueAtTime(1, at + dur * 0.7); env.gain.linearRampToValueAtTime(0, at + dur);
+    const spot = this._spot(bed, this.between(-0.6, 0.6), 0.5), out = this._gain(0.02);
+    this._chain([noise, band, am, env, out, spot.input]);
+    chop.start(at); chop.stop(at + dur + 0.05);
+    this._release(noise, [noise, band, am, env, chop, depth, out, ...spot.nodes]);
+  }
+  _heterodyne(bed, at) {
+    // A distant carrier drifting through the band: a thin whistle that slides and fades.
+    const dur = this.between(2.5, 4.5), f = this.between(700, 1300);
+    const osc = this.ctx.createOscillator(), env = this._gain(0), out = this._gain(0.0045);
+    osc.frequency.setValueAtTime(f, at); osc.frequency.linearRampToValueAtTime(f * this.between(1.15, 1.5), at + dur);
+    env.gain.setValueAtTime(0, at); env.gain.linearRampToValueAtTime(1, at + dur * 0.4); env.gain.linearRampToValueAtTime(0, at + dur);
+    const spot = this._spot(bed, this.between(-0.7, 0.7), 0.7);
+    this._chain([osc, env, out, spot.input]);
+    osc.start(at); osc.stop(at + dur + 0.05);
+    this._release(osc, [osc, env, out, ...spot.nodes]);
   }
   _engines(bed, o) {
     // Distant multi-engine drone: four radial engines per side, a few cents apart, so the
