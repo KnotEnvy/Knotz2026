@@ -119,6 +119,7 @@ export function coastWaterAt(stage,x,groundY){
   return map[cy*WATER_COLS+cx];
 }
 export function drawCoast(c,scroll,stage) {
+  if(stage===6){drawZeroMeridian(c,scroll);return true;}
   if(stage===5){drawSkyforge(c,scroll);return true;}
   if(stage>PAINTED_STAGES){drawMonsoonSea(c,scroll);return true;}
   if(!coast)return false;
@@ -337,4 +338,79 @@ export function drawSkyforge(c,scroll=0,platforms=true){
   c.save();c.strokeStyle='rgba(231,180,158,.16)';c.lineWidth=1;
   for(let i=0;i<6;i++){const y=(i*173+scroll*.035)%1000-50;c.beginPath();c.moveTo(35+i*82,y);c.lineTo(100+i*82,y+125);c.stroke();}
   c.restore();c.restore();
+}
+
+// ZERO MERIDIAN: 24 bounded raster slices. No image readback or full-frame noise.
+let zeroMeridian;
+export function warmZeroMeridian(){
+  if(zeroMeridian?.done)return true;
+  if(!zeroMeridian){
+    const stars=seaCanvas(540,900),sc=stars.getContext('2d');
+    for(let i=0;i<240;i++){
+      const x=((Math.sin(i*127.1)*43758.5453)%1+1)%1*540,y=((Math.sin(i*311.7+9)*23421.17)%1+1)%1*900;
+      sc.fillStyle=i%9===0?'#9aafc6':'#4f607b';sc.fillRect(x,y,i%9===0?1.3:.7,i%9===0?1.3:.7);
+    }
+    zeroMeridian={canvas:seaCanvas(540,900),stars,next:0,done:false};
+  }
+  const s=zeroMeridian,c=s.canvas.getContext('2d',{willReadFrequently:true}),n=s.next++;
+  c.save();c.beginPath();c.rect(0,n*38,540,38);c.clip();
+  const sky=c.createLinearGradient(0,0,0,900);
+  sky.addColorStop(0,'#02040d');sky.addColorStop(.65,'#060d20');sky.addColorStop(.85,'#14233c');sky.addColorStop(1,'#382a43');
+  c.fillStyle=sky;c.fillRect(0,0,540,900);
+  // Low contrast eclipse, half occluded by the planetary horizon.
+  const corona=c.createRadialGradient(470,780,24,470,780,112);
+  corona.addColorStop(0,'rgba(226,210,188,.5)');corona.addColorStop(.17,'rgba(179,186,215,.16)');corona.addColorStop(1,'rgba(110,139,199,0)');
+  c.fillStyle=corona;c.fillRect(350,660,240,240);
+  c.fillStyle='#081223';c.beginPath();c.arc(470,780,25,0,Math.PI*2);c.fill();
+  // A hairline of light on the upper rim keeps the eclipse readable as a motif.
+  c.strokeStyle='rgba(255,236,206,.55)';c.lineWidth=1.2;c.beginPath();c.arc(470,780,25.5,Math.PI*1.08,Math.PI*1.92);c.stroke();
+  // Large-radius planetary limb, with a thin atmosphere and a distant typhoon.
+  c.fillStyle='#0a1c30';c.strokeStyle='#496b84';c.lineWidth=2;
+  c.beginPath();c.ellipse(210,1210,780,458,0,0,Math.PI*2);c.fill();c.stroke();
+  c.strokeStyle='rgba(115,149,171,.22)';c.lineWidth=.7;
+  for(let j=0;j<11;j++){
+    c.beginPath();for(let k=0;k<100;k++){const a=k*.065+j*.55,r=2+k*.39,x=192+Math.cos(a)*r*1.8,y=817+Math.sin(a)*r*.32;k?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();
+  }
+  c.restore();c.getImageData(0,n*38,1,1);s.done=s.next>=24;return s.done;
+}
+export function drawZeroMeridian(c,scroll=0){
+  while(!warmZeroMeridian()){} // Cold entry completes before the first visible frame.
+  c.drawImage(zeroMeridian.canvas,0,0);
+  // Two copies of the baked star tile wrap seamlessly; the limb stays distant.
+  const drift=((scroll*.028)%900+900)%900;
+  c.save();c.beginPath();c.rect(0,0,540,720);c.clip();
+  c.drawImage(zeroMeridian.stars,0,drift);c.drawImage(zeroMeridian.stars,0,drift-900);c.restore();
+}
+let zeroDawn;
+export function drawZeroDawn(c,progress=1){
+  if(!zeroDawn){
+    zeroDawn=seaCanvas(540,900);const d=zeroDawn.getContext('2d');
+    const glow=d.createRadialGradient(470,750,4,470,750,240);
+    glow.addColorStop(0,'rgba(255,238,204,.85)');glow.addColorStop(.16,'rgba(244,191,141,.24)');glow.addColorStop(.5,'rgba(174,124,156,.09)');glow.addColorStop(1,'rgba(174,124,156,0)');
+    d.fillStyle=glow;d.fillRect(230,510,310,390);
+    d.fillStyle='#ffe5b5';d.beginPath();d.arc(470,750,18,0,Math.PI*2);d.fill();
+    // The moon and the Earth remain in front as the sun clears their edges.
+    d.fillStyle='#081223';d.beginPath();d.arc(470,780,25,0,Math.PI*2);d.fill();
+    d.fillStyle='#0a1c30';d.strokeStyle='#71899a';d.lineWidth=2;
+    d.beginPath();d.ellipse(210,1210,780,458,0,0,Math.PI*2);d.fill();d.stroke();
+  }
+  c.save();c.globalAlpha*=Math.max(0,Math.min(1,progress));c.drawImage(zeroDawn,0,0);c.restore();
+}
+const zeroAuroraGradients={};
+export function drawZeroAurora(c,time=0,phase=0,over=false,reduced=false){
+  c.save();const pulse=.65+.35*Math.cos(phase*Math.PI*2);
+  c.globalAlpha=(over?.025:.16)*(reduced?.55:1)*pulse;
+  const key=over?'over':'under';
+  if(!zeroAuroraGradients[key]){
+    const g=c.createLinearGradient(0,0,0,over?900:540);
+    g.addColorStop(0,'rgba(67,197,177,0)');g.addColorStop(.3,'#53b7b3');g.addColorStop(.65,'#7062aa');g.addColorStop(1,'rgba(70,90,150,0)');zeroAuroraGradients[key]=g;
+  }
+  c.fillStyle=zeroAuroraGradients[key];
+  for(let band=0;band<3;band++){
+    const y=x=>95+band*75+Math.sin(x*.008+time*.09+band)*55+Math.sin(x*.019-time*.055)*23;
+    c.beginPath();
+    for(let x=-20;x<=560;x+=2)x===-20?c.moveTo(x,y(x)):c.lineTo(x,y(x));
+    for(let x=560;x>=-20;x-=2)c.lineTo(x,y(x)+(over?530:260)+Math.sin(x*.015+band)*70);
+    c.closePath();c.fill();
+  }c.restore();
 }

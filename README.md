@@ -124,3 +124,7 @@ Aurelia has an optional positional objective in phases two and three: direct fir
 Crown's later phases introduce a tracking lance. Its marked lane follows the player for 0.65 seconds, locks for 0.85 seconds, then fires for 0.45 seconds. Bait the tracking aim and leave the lane after it locks. The accompanying projectile curtains are lighter; each full cycle lasts about 4.45 seconds in phase two and 3.85 seconds in phase three. Rolls retain their normal invulnerability, and any ship special vents the current charge. Pause freezes the attack. Warning/fire cues each use two voices on the effects combat bus; music composition remains unchanged. `npm run qa:lance` checks normal-rule Manta Crown play with assisted access only, then explicitly staged critical-hull portrait/landscape warning and control layouts.
 
 SKYFORGE (sector 5) climbs above the typhoon into dusk. Watch for bombers from below, marked flak bands, sky aces and flying foundries. Break HALCYON’s bays, follow the laser gaps and roll through EMP pulses to protect escorts. HALCYON ends the current campaign; its drill unlocks on encounter. Act II continues.
+
+### Sector 6: ZERO MERIDIAN
+
+Six sectors now end with THE SOVEREIGN, a mirror capital ship at the edge of space. Break its escorts, shoot shards and cut salvage tethers. Clearing it completes Act II; Act III remains unplanned. Check the eclipse, Earth limb, aurora, climb from SKYFORGE, clear tally and ACT III tease on desktop, phone, compact and reduced effects.

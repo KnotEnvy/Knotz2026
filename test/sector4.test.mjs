@@ -43,7 +43,7 @@ const tracker = game => {
 };
 
 test('the campaign runs the Crown, an ACT II interlude, sector 4, then LEVIATHAN hands over to sector 5', () => {
-  assert.equal(CAMPAIGN_STAGES, 5);
+  assert.equal(CAMPAIGN_STAGES, 6);
   const game = sortie(); game.player.invuln = 999;
   game.stage = 3; game._spawnBoss(); game.boss.y = 285;
   game.events = []; game._killEnemy(game.boss);

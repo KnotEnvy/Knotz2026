@@ -500,7 +500,7 @@ test('the EMP hum comes back for the time left after a pause or an unmute, and o
   });
 });
 
-test('repeated combat sits 1.5 dB lower in HALCYON phase 3 only', async () => {
+test('repeated combat sits 1.5 dB lower in HALCYON phase 3 and SOVEREIGN phases 2-3 only', async () => {
   await unlocked((engine) => {
     engine.setScreen('play');
     const level = (stage, phase) => {

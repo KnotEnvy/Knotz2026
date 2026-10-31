@@ -67,8 +67,8 @@ const engaged = game => {
 
 // ---- Campaign and drills --------------------------------------------------
 
-test('LEVIATHAN hands over to sector 5 on an ordinary interlude; victory follows HALCYON', () => {
-  assert.equal(CAMPAIGN_STAGES, 5);
+test('LEVIATHAN hands over to sector 5 on an ordinary interlude; HALCYON hands over to sector 6', () => {
+  assert.equal(CAMPAIGN_STAGES, 6);
   const game = sortie('manta'); game.player.invuln = 999;
   game.stage = 4; game._spawnBoss(); game.boss.y = 190;
   const hp = game.player.hp = 2, bombs = game.player.bombs = 1;
@@ -82,11 +82,11 @@ test('LEVIATHAN hands over to sector 5 on an ordinary interlude; victory follows
   assert.equal(game.stageGoal[5], 100); assert.equal(game.threat, 0, 'the sector opens on a power trip');
   game._spawnBoss();
   assert.equal(game.boss.name, 'HALCYON'); assert.ok(game.boss.halcyon);
-  game.events = []; game._killEnemy(game.boss);
-  assert.equal(game._transition, 3.5);
+  game.player.hp = 1; game.events = []; game._killEnemy(game.boss);
+  assert.equal(game._transition, 3.5); assert.equal(count(game.events, 'actTwo'), 0);
   step(game, 4);
-  assert.equal(game.mode, 'victory'); assert.equal(game.summary.outcome, 'victory'); assert.equal(game.summary.stage, 5);
-  assert.equal(game.summary.act, 2);
+  assert.equal(game.mode, 'playing'); assert.equal(game.stage, 6); assert.equal(game.summary, null);
+  assert.equal(game.player.hp, game.player.maxHp, 'clearing HALCYON repairs the hull');
 });
 
 test('sector 5 has no lane sweeps and authors 100 s of beats before HALCYON', () => {
@@ -122,14 +122,14 @@ test('drill 5 starts HALCYON with the sector-5 reference kit; career and drill r
     game.events = []; game._killEnemy(game.boss); step(game, 4);
     assert.equal(game.mode, 'victory', 'a drill ends in victory');
   }
-  const clamped = new Game(); clamped.startDrill(99); assert.equal(clamped.stage, 5);
+  const clamped = new Game(); clamped.startDrill(99); assert.equal(clamped.stage, CAMPAIGN_STAGES);
   const values = new Map(), storage = { getItem: k => values.get(k), setItem: (k, v) => values.set(k, v) };
   const progress = readProgress(storage);
   assert.ok(markEncounter(progress, 5)); assert.equal(progress.bossSeen, 5);
   const clear = { shipId: 'wraith', practiceStage: 5, outcome: 'victory', time: 74.2, hitsTaken: 0, livesLost: 0 };
   assert.equal(drillClearTier(clear), 'flawless');
   assert.deepEqual(recordDrill({}, clear, storage), { bestTime: 74.2, fewestHits: 0 });
-  assert.equal(readProgress({ getItem: () => JSON.stringify({ bossSeen: 99 }) }).bossSeen, 5);
+  assert.equal(readProgress({ getItem: () => JSON.stringify({ bossSeen: 99 }) }).bossSeen, CAMPAIGN_STAGES);
 });
 
 // ---- Sector 4 is untouched -------------------------------------------------

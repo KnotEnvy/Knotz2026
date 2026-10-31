@@ -280,3 +280,8 @@ body[data-sector="5"] .atmo-flash{background:radial-gradient(ellipse at 50% 80%,
 /* Keep node tops aligned and complete route names on one line. */
 .console-route span{align-items:flex-start;overflow:visible}
 .console-route span small{white-space:nowrap;overflow:visible;overflow-wrap:normal;max-width:none;width:auto;text-align:left;padding:0}
+
+body[data-sector="6"]{background:radial-gradient(ellipse at 72% 82%,#26334a 0, #0a1125 32%,#02040c 75%);--sector-glow:96,154,185}
+.console-route{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px}
+.console-route>i{display:none}
+.console-route span small{font-size:8px;letter-spacing:.3px}

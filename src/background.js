@@ -1,5 +1,6 @@
+import { auroraBarPhase } from './timeline.js';
 // Cached procedural sea, coast and cloud geography for Storm Atlas.
-import { coastWaterAt, drawSkyforge, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
+import { coastWaterAt, drawZeroMeridian, drawZeroDawn, drawZeroAurora, drawSkyforge, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
 import { lightningAt, bossWarningProgress, interludeProgress } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 // Sectors 1-3 share the painted-coast pipeline (render.js adds its own weather tile, light
@@ -167,6 +168,7 @@ function boat(c,x,y,stage){
   c.fillStyle=stage===2?'#c49675':'#bac6b4';c.fillRect(x-3,y-7,6,8);
 }
 export function drawAtlasScenery(c,stage){
+  if(stage===6){drawZeroMeridian(c,0);return;}
   if(stage===5){drawSkyforge(c,0);return;}
   if(worldPaintsStage(stage)){drawMonsoonSea(c,0);return;}
   const p=pal[stage-1];
@@ -319,9 +321,10 @@ const COVER={
   3:{fog:'#3e3058',lit:'200,168,236',body:'86,66,120',shade:'32,22,52'},
   4:{fog:'#141d1b',lit:'150,160,146',body:'46,58,54',shade:'8,13,13'},
   5:{fog:'#51334e',lit:'255,196,133',body:'111,77,127',shade:'35,28,61'},
-  6:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
+  6:{fog:'#050a18',lit:'105,155,180',body:'24,35,58',shade:'3,7,18'},
+  7:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
 };
-const DAWN=6;
+const DAWN=7;
 
 export class WorldAmbience {
   constructor(){
@@ -427,7 +430,7 @@ export class WorldAmbience {
       c.fillStyle='rgba(255,120,80,.32)';c.fillRect(-2,-2,2.5,1.6);
     }));
     this.coverPuffs={};
-    for(const key of [1,2,3,4,5,6]){
+    for(const key of [1,2,3,4,5,6,7]){
       const p=COVER[key];
       // Cumulus: a shaded base, firm lobes and sunlit crowns, so the deck reads as cloud, not haze.
       // A broken cumulus bank seen from above: irregular lobes, shade only along the lower rim,
@@ -452,6 +455,7 @@ export class WorldAmbience {
   }
   // Called once per frame before any ambient layer.
   begin(game,t,scroll,stage,step,reduced){
+    if(game.stage===6)stage=6;
     this.reduced=!!reduced;this.game=game;this.gameT=t;this.scroll=scroll;
     const mode=game.mode||'playing';
     // The world keeps breathing at a slower rate while the end-of-run outro holds the action.
@@ -469,20 +473,23 @@ export class WorldAmbience {
   }
   // Water-surface life and low air, drawn right after the terrain.
   drawSurface(c,stage){
+    if(this.game?.stage===6)stage=6;
     c.save();
     if(stage===1){this.drawFoam(c,1);this.drawGlints(c);this.drawBoats(c,1);this.drawCloudShadows(c);}
     else if(stage===2){this.drawRipples(c);this.drawBoats(c,2);this.drawStacks(c);}
     else if(stage===3){this.drawPools(c);this.drawDebris(c);this.drawSpiral(c);}
-    else if(stage===5){}
+    else if(stage===5||stage===6){}
     else this.drawMonsoonSurface(c);
     c.restore();
   }
   // Weather above the surface (still beneath enemies and fire).
   drawAir(c,stage){
+    if(this.game?.stage===6)stage=6;
     c.save();
     if(stage===1)this.drawBirds(c);
     else if(stage===2){this.drawFog(c);this.drawScud(c);this.drawRain(c);}
     else if(stage===3)this.drawEmbers(c);
+    else if(stage===6)drawZeroAurora(c,this.gameT,auroraBarPhase(this.game),false,this.reduced);
     else if(stage===5){}
     else this.drawMonsoonAir(c);
     if(this.strike)this.drawLightning(c,stage);
@@ -498,7 +505,7 @@ export class WorldAmbience {
     else if(game.boss&&game.mode!=='victory'){const e=Math.max(0,1-(Number(game.boss.age)||0)/2.5);dark=.27*e;red=.12*e;}
     if(dark>.003){c.globalAlpha=dark;c.fillStyle='#03060e';c.fillRect(-20,-20,FW+40,FH+40);}
     if(red>.003){c.globalAlpha=red;c.fillStyle='#6e1422';c.fillRect(-20,-20,FW+40,FH+40);}
-    if(this.cover>.004||this.lines>.004)this.drawCover(c);
+    if(this.cover>.004||this.lines>.004||game.stage===6&&game.mode==='victory')this.drawCover(c);
     c.restore();
   }
   updateTransition(game,stage){
@@ -506,7 +513,7 @@ export class WorldAmbience {
     const final=stage>=CAMPAIGN_STAGES||!!game.practiceStage;
     let cover=-1,lines=0;
     if(ip>=0&&game.mode==='playing'){
-      this.palette=final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
+      this.palette=stage===6?'zero-dawn':final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
       cover=ease(.5,.95,ip)*(final?.6:1);lines=ease(.16,.7,ip);
     }else if(game.mode==='playing'&&!game.boss&&!game.practiceStage&&Number(game.stageTime)<1.25){
       // A new sector opens out of the cloud deck the interlude ended in.
@@ -517,6 +524,14 @@ export class WorldAmbience {
     this.flow+=this.dt*(.35+this.lines*2.6);
   }
   drawCover(c){
+    if(this.palette==='zero-dawn'||this.game?.stage===6&&this.game.mode==='victory'){
+      const ip=interludeProgress(this.game);
+      drawZeroDawn(c,ip>=0?ease(0,.8,ip):1);return;
+    }
+    if(this.palette===6){
+      const ip=interludeProgress(this.game),a=ip>=0?ease(.15,.95,ip):1;
+      c.save();c.globalAlpha=a;drawZeroMeridian(c,this.scroll);drawZeroAurora(c,this.gameT,auroraBarPhase(this.game),false,this.reduced);c.restore();return;
+    }
     const p=COVER[this.palette||1],puffs=this.coverPuffs[this.palette||1],cover=this.cover;
     if(cover>.004){
       // The deck closes almost completely as the sector swaps underneath it.
@@ -733,6 +748,7 @@ export class WorldAmbience {
   }
   // Called after the player and before bullets by Renderer.
   drawSkyforgeOver(c,game){
+    if(game.stage===6){drawZeroAurora(c,Number(game.time)||0,auroraBarPhase(game),true,this.reduced);return;}
     if(game.stage!==5||this.reduced)return;
     c.save();
     for(let i=0;i<3;i++){
