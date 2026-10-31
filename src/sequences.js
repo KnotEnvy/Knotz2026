@@ -545,7 +545,7 @@ export class Sequences {
     ctx.fillStyle = 'rgba(255,95,168,.55)'; ctx.fillRect(-300, -34, 7, 68); ctx.fillRect(293, -34, 7, 68);
     const final = fx.phase >= 3;
     blit(ctx, this.label('PHASE ' + fx.phase, 42, final ? C.gold : C.pale, { family: DISPLAY, weight: 900, spacing: 6 }), 0, -7, a);
-    blit(ctx, this.label((final ? 'FINAL PATTERN' : 'PATTERN SHIFT') + '  ·  ' + fx.name, 10, C.coral, { spacing: 3 }), 0, 24, a);
+    blit(ctx, this.label((fx.name==='HALCYON'?(final?'ECLIPSE PROTOCOL':'LATTICE'):(final ? 'FINAL PATTERN' : 'PATTERN SHIFT')) + '  ·  ' + fx.name, 10, C.coral, { spacing: 3 }), 0, 24, a);
     ctx.restore();
   }
 
@@ -632,7 +632,7 @@ export class Sequences {
     if (fa > 0) {
       const lines = d.drill ? [['UNRANKED  ·  CAMPAIGN RECORDS PRESERVED', C.muted]]
         : d.actTwo ? [['THE CROWN FALLS  ·  THE GATE OPENS', C.gold]]
-        : d.final ? [['LEVIATHAN SUNK  ·  THE TYPHOON BREAKS', C.gold]]
+        : d.final ? [[(d.stage===5?'HALCYON FALLS  ·  THE SKY OPENS':'LEVIATHAN SUNK  ·  THE TYPHOON BREAKS'), C.gold]]
         : [['RESUPPLY  ·  HULL +1  ·  SPECIAL +1', C.cyan], ['NEXT  ·  SECTOR ' + two(d.stage + 1) + ' — ' + (SECTOR_NAMES[d.stage + 1] || ''), C.muted]];
       this.band(ctx, bottom + 24 + (lines.length - 1) * 9.5, 30 + lines.length * 19, .5 * fa);
       lines.forEach(([str, color], i) => blit(ctx, this.label(str, 10, color, { spacing: 2 }), 270, bottom + 24 + i * 19, fa));

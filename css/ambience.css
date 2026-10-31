@@ -260,3 +260,13 @@ body[data-threat="calm"][data-rank="high"] .threat-bars b:nth-child(-n+2){backgr
 body[data-threat="calm"][data-rank="extreme"] .threat-bars b:nth-child(-n+3){background:var(--hot)}
 body[data-threat="calm"][data-rank="high"] #threatReadout{color:#ffcf8c}
 body[data-threat="calm"][data-rank="extreme"] #threatReadout{color:#ff9a82}
+
+body[data-sector="5"] .atmo-s5{opacity:1;visibility:visible}
+.atmo-dusk{position:absolute;inset:0;background:radial-gradient(circle at 78% 29%,#edb77a 0 3%,rgba(190,77,132,.35) 8%,transparent 28%),linear-gradient(#151c35,#64405e 35%,#28263f 55%,#111c30)}
+body[data-sector="5"] #consoleWeather{color:#edb77a}
+body[data-sector="5"] .atmo-flash{background:radial-gradient(ellipse at 50% 80%,rgba(165,104,240,.35),transparent 65%)}
+.console-route span{flex:1;min-width:0}.console-route small{overflow-wrap:anywhere}
+.mission-route{flex-wrap:wrap}
+.hold-nodes{grid-template-columns:repeat(var(--campaign-stages,5),minmax(0,1fr))}
+.drill-buttons{flex-wrap:wrap}
+.console-route small{display:block;white-space:normal;font-size:5px;letter-spacing:.02em;line-height:1.4;padding:0 2px;text-align:center}

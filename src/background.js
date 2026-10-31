@@ -1,5 +1,5 @@
 // Cached procedural sea, coast and cloud geography for Storm Atlas.
-import { coastWaterAt, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
+import { coastWaterAt, drawSkyforge, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
 import { lightningAt, bossWarningProgress, interludeProgress } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 // Sectors 1-3 share the painted-coast pipeline (render.js adds its own weather tile, light
@@ -167,6 +167,7 @@ function boat(c,x,y,stage){
   c.fillStyle=stage===2?'#c49675':'#bac6b4';c.fillRect(x-3,y-7,6,8);
 }
 export function drawAtlasScenery(c,stage){
+  if(stage===5){drawSkyforge(c,0);return;}
   if(worldPaintsStage(stage)){drawMonsoonSea(c,0);return;}
   const p=pal[stage-1];
   seaMaterial(c,stage);
@@ -311,15 +312,16 @@ function glowSprite(size,rgb,core=.55){
   });
 }
 // Interlude cloud palettes: 1 Shallows, 2 Storm Wall, 3 The Crown, 4 Iron Monsoon typhoon deck,
-// 5 dawn after the final flagship.
+// 5 Skyforge dusk climb, 6 dawn after the final flagship.
 const COVER={
   1:{fog:'#8fc3c0',lit:'226,246,236',body:'120,170,172',shade:'52,96,108'},
   2:{fog:'#5c6a7c',lit:'196,208,222',body:'98,112,130',shade:'40,48,62'},
   3:{fog:'#3e3058',lit:'200,168,236',body:'86,66,120',shade:'32,22,52'},
   4:{fog:'#141d1b',lit:'150,160,146',body:'46,58,54',shade:'8,13,13'},
-  5:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
+  5:{fog:'#51334e',lit:'255,196,133',body:'111,77,127',shade:'35,28,61'},
+  6:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
 };
-const DAWN=5;
+const DAWN=6;
 
 export class WorldAmbience {
   constructor(){
@@ -411,7 +413,7 @@ export class WorldAmbience {
       c.fillStyle='rgba(255,120,80,.32)';c.fillRect(-2,-2,2.5,1.6);
     }));
     this.coverPuffs={};
-    for(const key of [1,2,3,4,5]){
+    for(const key of [1,2,3,4,5,6]){
       const p=COVER[key];
       // Cumulus: a shaded base, firm lobes and sunlit crowns, so the deck reads as cloud, not haze.
       // A broken cumulus bank seen from above: irregular lobes, shade only along the lower rim,
@@ -457,6 +459,7 @@ export class WorldAmbience {
     if(stage===1){this.drawFoam(c,1);this.drawGlints(c);this.drawBoats(c,1);this.drawCloudShadows(c);}
     else if(stage===2){this.drawRipples(c);this.drawBoats(c,2);this.drawStacks(c);}
     else if(stage===3){this.drawPools(c);this.drawDebris(c);this.drawSpiral(c);}
+    else if(stage===5){}
     else this.drawMonsoonSurface(c);
     c.restore();
   }
@@ -466,6 +469,7 @@ export class WorldAmbience {
     if(stage===1)this.drawBirds(c);
     else if(stage===2){this.drawFog(c);this.drawScud(c);this.drawRain(c);}
     else if(stage===3)this.drawEmbers(c);
+    else if(stage===5)this.drawSkyforgeWisps(c);
     else this.drawMonsoonAir(c);
     if(this.strike)this.drawLightning(c,stage);
     c.restore();
@@ -713,7 +717,17 @@ export class WorldAmbience {
       c.globalAlpha=(.16+.12*g)*Math.sin(age/3.4*Math.PI);c.strokeStyle='#d0dcec';c.lineWidth=1.2;c.stroke();
     }
   }
+  drawSkyforgeWisps(c){
+    // Over-flight veil is below hostile fire in the render order, at only 5% alpha.
+    c.save();c.strokeStyle='rgba(255,190,112,.05)';c.lineWidth=3;c.setLineDash([70,12,36,22]);
+    for(let i=0;i<7;i++){
+      const y=(i*157+this.clock*32)%1100-100,x=-90+noise(i*4)*300;
+      c.beginPath();c.moveTo(x,y);c.bezierCurveTo(x+70,y-18,x+150,y+25,x+280,y+5);c.stroke();
+    }c.restore();
+  }
   drawLightning(c,stage){
+    if(stage===5){const l=this.strike;c.globalAlpha=l.flash*(this.reduced?.035:.09);c.drawImage(this.flashRed,l.x*400-90,390,400,350);return;}
+
     const l=this.strike,lx=40+l.x*460,ly=70+noise(l.id*.37)*460,red=stage===3,gold=stage>=4;
     c.globalCompositeOperation='lighter';
     c.globalAlpha=l.flash*(this.reduced?.25:gold?.75:.62);

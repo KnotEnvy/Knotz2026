@@ -46,3 +46,5 @@ For Crown, record whether players distinguish tracking from the locked lane and 
 The game has no feedback submission service; collect reports through your chosen channel.
 
 For local build and preview commands, see [README.md](README.md).
+
+SKYFORGE (sector 5) climbs above the typhoon into dusk. Watch for bombers from below, marked flak bands, sky aces and flying foundries. Break HALCYON’s bays, follow the laser gaps and roll through EMP pulses to protect escorts. HALCYON ends the current campaign; its drill unlocks on encounter. Act II continues.

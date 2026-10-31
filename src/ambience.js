@@ -14,6 +14,7 @@ const SECTORS = [null,
     weather: 'MAELSTROM / SHEAR 61 KT', sea: 'SEA STATE 9', hdg: 318, signal: 2, lat: 15.9, lon: 146.2 },
   { heading: 'Into the<br><em>typhoon.</em>', copy: 'The real fleet rides the storm. Strip hull turrets, kill scavengers before they steal your salvage, and dodge violet void rounds: the reflector cannot stop them.',
     weather: 'TYPHOON / WIND 70 KT', sea: 'SEA STATE 9 / PHENOMENAL', hdg: 331, signal: 2, lat: 33.2, lon: 171.08, jam: true },
+  {heading:'Above the<br><em>storm.</em>',copy:'Above the storm, the factories fly. Watch below for bomber boxes. Break foundry bays and follow the gaps through HALCYON’s lattice.',weather:'DUSK / HIGH ALTITUDE / WIND 26 KT',sea:'CLOUD FLOOR / TYPHOON BELOW',hdg:88,signal:3,lat:35+40/60,lon:176+20/60},
 ];
 const sectorOf = value => Math.min(CAMPAIGN_STAGES, Math.max(1, Math.floor(Number(value) || 1)));
 const SIGNAL_LABELS = ['NO CARRIER', 'LINK JAMMED', 'LINK WEAK', 'LINK FAIR', 'LINK SOLID'];
@@ -37,6 +38,7 @@ export class Ambience {
     this.teleClock = 1; this.radarClock = 1; this.gridClock = 1;
     this.lastStage = 0; this.lastPhase = 0; this.lastStrike = -1; this.warned = false; this.critical = false;
     this.signalDip = 0; this.jamClock = 0; this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;
+    this.skyLogs = Object.create(null);
     this.lite = false; this.perfTime = 0; this.perfFrames = 0;
     this.gutters = null;
     if (!this.ready) return;
@@ -171,6 +173,13 @@ export class Ambience {
         case 'actTwo':
           if (!this.actTwoLogged) { this.actTwoLogged = true; this._log(t, 'ACT II / THE CROWN WAS ONLY THE GATE', 'gold'); this._log(t, 'NEW CONTACT / ENEMY BATTLE LINE IN TYPHOON', 'warn'); }
           break;
+        case 'boxEnter': case 'flakMark': case 'foundryEnter': case 'foundryDown': case 'laserWarn': case 'empPulse': case 'wingBreak': {
+          const now=Number(game.time)||0;
+          if(now-(this.skyLogs[event.type]??-99)<4)break;
+          this.skyLogs[event.type]=now;
+          const copy={boxEnter:event.value==='climb'?'BOMBER BOX / CLIMBING FROM BELOW':'BOMBER BOX / DIVING',flakMark:'FLAK ALTITUDE MARKED / FIND THE GAP',foundryEnter:'FLYING FOUNDRY / BREAK THE BAYS',foundryDown:'FOUNDRY FALLING THROUGH CLOUD',laserWarn:'HALCYON / LATTICE CHARGING',empPulse:event.value?'EMP / ESCORTS OFFLINE':'EMP / ESCORTS PROTECTED',wingBreak:'HALCYON / WING BREAKING APART'};
+          this._log(t,copy[event.type],event.type==='wingBreak'||event.type==='foundryDown'?'gold':'warn');break;
+        }
         case 'hullEnter': this._log(t, 'ARMORED HULL / ' + String(event.value || 'warship').toUpperCase() + ' IN THE LINE', 'warn'); break;
         case 'hullDown': this._log(t, String(event.value || 'hull').toUpperCase() + ' HULL BROKEN', 'gold'); break;
         case 'scavengerSteal':
@@ -228,7 +237,7 @@ export class Ambience {
       this._style('consoleFlash', '--lx', x);
       this.signalDip = SECTORS[stage]?.jam ? 1.6 : 0.9;
     }
-    this._style('consoleFlash', 'opacity', strike ? (Math.round(strike.flash * 50) / 50).toString() : '0');
+    this._style('consoleFlash', 'opacity', strike ? (Math.round(strike.flash * (stage===5?.12:1) * 50) / 50).toString() : '0');
   }
 
   // One layout read per screen entry or resize, never per frame.
@@ -270,7 +279,7 @@ export class Ambience {
     const bank = Number(p.bank) || 0;
     const t = Number(game.time) || 0;
     const hdgTarget = base + bank * 14 + Math.sin(t * 0.31) * 1.4;
-    const altTarget = 5200 + (820 - (Number(p.y) || 750)) * 7 + Math.sin(t * 0.7) * 18;
+    const altTarget = (stage===5?14500:5200) + (820 - (Number(p.y) || 750)) * 7 + Math.sin(t * 0.7) * 18;
     let iasTarget = (112 + stage * 25) * 2.1;
     if (p.focus) iasTarget -= 62;
     if (Number(p.roll) > 0) iasTarget += 120;

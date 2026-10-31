@@ -465,7 +465,11 @@ function buildDefeat(stage) {
   c.fillStyle = rg; c.fillRect(-900, -760, 1800, 760); c.restore();
   // Horizon silhouettes: the Crown intact, LEVIATHAN riding the typhoon, or the storm fleet.
   c.fillStyle = '#05080c';
-  if (lev) {
+  if (stage === 5) {
+    // HALCYON hangs above the cloud horizon.
+    poly(c, [[500,hz-100],[840,hz-160],[1000,hz-180],[1160,hz-160],[1500,hz-100],[1140,hz-117],[1000,hz-130],[860,hz-117]]);c.fill();
+    for(let i=0;i<3;i++){c.fillStyle='#c99382';c.fillRect(910+i*80,hz-143,30,3);}
+  } else if (lev) {
     // Super-dreadnought broadside-on: long low hull, stepped superstructure, turrets and funnels.
     poly(c, [[560, hz + 2], [600, hz - 22], [1420, hz - 26], [1470, hz - 8], [1490, hz + 2]]); c.fill();
     poly(c, [[860, hz - 22], [880, hz - 58], [930, hz - 64], [940, hz - 120], [968, hz - 126], [980, hz - 70], [1080, hz - 64], [1100, hz - 22]]); c.fill();
