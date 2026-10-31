@@ -1,6 +1,6 @@
 // Page-level ambience around the playfield: masthead, side panels and site backdrop.
 // Everything here is presentation. It reads the game and writes the DOM only when a value changes.
-import { SECTOR_NAMES, FLAGSHIP_NAMES, actName, threatName, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
+import { SECTOR_NAMES, FLAGSHIP_NAMES, FLAGSHIP_CLASSES, actName, threatName, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const TAU = Math.PI * 2;
@@ -14,6 +14,7 @@ const SECTORS = [null,
     weather: 'MAELSTROM / SHEAR 61 KT', sea: 'SEA STATE 9', hdg: 318, signal: 2, lat: 15.9, lon: 146.2 },
   { heading: 'Into the<br><em>typhoon.</em>', copy: 'The real fleet rides the storm. Strip hull turrets, kill scavengers before they steal your salvage, and dodge violet void rounds: the reflector cannot stop them.',
     weather: 'TYPHOON / WIND 70 KT', sea: 'SEA STATE 9 / PHENOMENAL', hdg: 331, signal: 2, lat: 33.2, lon: 171.08, jam: true },
+  {heading:'Above the<br><em>storm.</em>',copy:'Above the storm, the factories fly. Watch below for bomber boxes. Break foundry bays and follow the gaps through HALCYON’s lattice.',weather:'DUSK / HIGH ALTITUDE / WIND 26 KT',sea:'CLOUD FLOOR / TYPHOON BELOW',hdg:88,signal:3,lat:35+40/60,lon:176+20/60},
 ];
 const sectorOf = value => Math.min(CAMPAIGN_STAGES, Math.max(1, Math.floor(Number(value) || 1)));
 const SIGNAL_LABELS = ['NO CARRIER', 'LINK JAMMED', 'LINK WEAK', 'LINK FAIR', 'LINK SOLID'];
@@ -37,6 +38,7 @@ export class Ambience {
     this.teleClock = 1; this.radarClock = 1; this.gridClock = 1;
     this.lastStage = 0; this.lastPhase = 0; this.lastStrike = -1; this.warned = false; this.critical = false;
     this.signalDip = 0; this.jamClock = 0; this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;
+    this.skyLogs = Object.create(null);
     this.lite = false; this.perfTime = 0; this.perfFrames = 0;
     this.gutters = null;
     if (!this.ready) return;
@@ -76,7 +78,7 @@ export class Ambience {
   reset(game) {
     if (!this.ready) return;
     this.lastStage = 0; this.lastPhase = 0; this.lastStrike = -1; this.warned = false; this.critical = false;
-    this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;
+    this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;this.skyLogs=Object.create(null);
     this.teleClock = this.radarClock = this.gridClock = 1;
     const log = this.el('consoleLog');
     if (log) log.textContent = '';
@@ -161,16 +163,25 @@ export class Ambience {
     this.critical = critical;
     for (const event of game.events || []) {
       switch (event?.type) {
-        case 'bossEnter': this.lastPhase = 1; this._log(t, stage >= ACT_TWO_STAGE ? name + ' SURFACING / ' + 'SUPER-DREADNOUGHT ENGAGED' : 'FLAGSHIP ' + name + ' ENGAGED', 'hot'); break;
+        case 'bossEnter': this.lastPhase = 1; this._log(t, stage >= ACT_TWO_STAGE ? name + ' / ' + FLAGSHIP_CLASSES[stage] + ' ENGAGED' : 'FLAGSHIP ' + name + ' ENGAGED', 'hot'); break;
         case 'bossPhase': {
           const phase = Number(event.value) || (boss?.phase ?? 2);
           if (phase !== this.lastPhase) { this.lastPhase = phase; this._log(t, name + ' / PHASE ' + phase + ' / PATTERN SHIFT', 'warn'); }
           break;
         }
-        case 'bossDown': this._log(t, stage >= ACT_TWO_STAGE ? name + ' SINKING / SECTOR ' + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
+        case 'empClear': if(event.value==='reset')this._clearEMPLog();break;
+        case 'bossDown': this._clearEMPLog();this._log(t, stage >= ACT_TWO_STAGE ? name + (stage===5?' BREAKING APART / SECTOR ':' SINKING / SECTOR ') + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
         case 'actTwo':
           if (!this.actTwoLogged) { this.actTwoLogged = true; this._log(t, 'ACT II / THE CROWN WAS ONLY THE GATE', 'gold'); this._log(t, 'NEW CONTACT / ENEMY BATTLE LINE IN TYPHOON', 'warn'); }
           break;
+        case 'skyAceDodge': case 'droneLaunch': case 'laserFire': case 'empCharge': case 'gunnerFire': case 'bayDown': case 'flakBurst': case 'boxEnter': case 'flakMark': case 'foundryEnter': case 'foundryDown': case 'laserWarn': case 'empPulse': case 'wingBreak': {
+          if(event.type==='empPulse'&&(!boss||(game.events||[]).some(e=>e.type==='empClear'&&e.value==='reset')))break;
+          const now=Number(game.time)||0;
+          if(now-(this.skyLogs[event.type]??-99)<4)break;
+          this.skyLogs[event.type]=now;
+          const copy={skyAceDodge:'SKY ACE / EVASIVE ROLL',droneLaunch:'FOUNDRY / DRONES AWAY',laserFire:'HALCYON / LATTICE FIRING',empCharge:'HALCYON / EMP CHARGING',gunnerFire:'GUNNER / TRACKING FIRE',bayDown:'BAY DESTROYED / DRONE LAUNCHES CUT',flakBurst:'FLAK BURST / HOLD THE GAP',boxEnter:event.value==='climb'?'BOMBER BOX / CLIMBING FROM BELOW':'BOMBER BOX / DIVING',flakMark:'FLAK ALTITUDE MARKED / FIND THE GAP',foundryEnter:'FLYING FOUNDRY / BREAK THE BAYS',foundryDown:'FOUNDRY FALLING THROUGH CLOUD',laserWarn:'HALCYON / LATTICE CHARGING',empPulse:event.value?'EMP / ESCORTS OFFLINE':'EMP / ESCORTS PROTECTED',wingBreak:'HALCYON / WING BREAKING APART'};
+          this._log(t,copy[event.type],event.type==='wingBreak'||event.type==='foundryDown'?'gold':'warn');break;
+        }
         case 'hullEnter': this._log(t, 'ARMORED HULL / ' + String(event.value || 'warship').toUpperCase() + ' IN THE LINE', 'warn'); break;
         case 'hullDown': this._log(t, String(event.value || 'hull').toUpperCase() + ' HULL BROKEN', 'gold'); break;
         case 'scavengerSteal':
@@ -202,6 +213,10 @@ export class Ambience {
     while (log.children.length > 5) log.lastElementChild.remove();
   }
 
+  _clearEMPLog(){
+    for(const row of [...(this.el('consoleLog')?.children||[])])if(row.textContent.includes('ESCORTS OFFLINE'))row.remove();
+  }
+
   _meter(game, stage, boss, interlude) {
     let label, value, mode;
     if (boss) { label = 'FLAGSHIP / ' + FLAGSHIP_NAMES[stage] + ' HULL'; value = Math.max(0, boss.hp / boss.maxHp); mode = 'boss'; }
@@ -228,7 +243,7 @@ export class Ambience {
       this._style('consoleFlash', '--lx', x);
       this.signalDip = SECTORS[stage]?.jam ? 1.6 : 0.9;
     }
-    this._style('consoleFlash', 'opacity', strike ? (Math.round(strike.flash * 50) / 50).toString() : '0');
+    this._style('consoleFlash', 'opacity', strike ? (Math.round(strike.flash * (stage===5?.12:1) * 50) / 50).toString() : '0');
   }
 
   // One layout read per screen entry or resize, never per frame.
@@ -270,7 +285,7 @@ export class Ambience {
     const bank = Number(p.bank) || 0;
     const t = Number(game.time) || 0;
     const hdgTarget = base + bank * 14 + Math.sin(t * 0.31) * 1.4;
-    const altTarget = 5200 + (820 - (Number(p.y) || 750)) * 7 + Math.sin(t * 0.7) * 18;
+    const altTarget = (stage===5?14500:5200) + (820 - (Number(p.y) || 750)) * 7 + Math.sin(t * 0.7) * 18;
     let iasTarget = (112 + stage * 25) * 2.1;
     if (p.focus) iasTarget -= 62;
     if (Number(p.roll) > 0) iasTarget += 120;

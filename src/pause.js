@@ -56,6 +56,9 @@ function intelFor(game) {
       else if (r && !r.broken) { head = 'RIGHT REACTOR'; tip = 'Break the right reactor to disable the spiral cannon for the rest of the fight, or keep pressing the main hull.'; }
       else if (r && r.phase === 3 && r.broken) { head = 'SPIRAL OFFLINE'; tip = 'The right spiral cannon is silenced for the rest of the fight. Press the main hull.'; }
       else { head = 'OPTIONAL REACTORS'; tip = 'In phases two and three a side reactor opens. The left buys 3.2 seconds of cover; the right silences the spiral cannon.'; }
+    } else if (stage === 5) {
+      head = ['THREE BAYS','LATTICE','ECLIPSE PROTOCOL'][phase-1];
+      tip = phase === 1 ? 'Break all three launch bays to open the armored core.' : phase === 2 ? 'Leave the marked laser lines before they fire. Roll through beams when trapped.' : 'Roll during the charged EMP pulse to protect escorts. Violet void lattices pass through reflectors and orbitals.';
     } else if (stage === 4) {
       head = phase === 1 ? 'BREAK THE DECK GUNS' : phase === 2 ? 'BROADSIDE BATTERIES' : 'MONSOON ENGINE';
       tip = phase === 1 ? 'Destroy the four deck turrets first. The armored core takes only a quarter of your damage while a gun survives.'
@@ -86,7 +89,8 @@ function intelFor(game) {
     ['CURRENT LANES', 'Formations open marked corridors. Follow the current, break each formation and collect power from fallen aircraft.'],
     ['STORM WALL', 'Pincers and relay strikes close from both flanks. Hold the centre, read the second lane opening and keep WAKE charged.'],
     ['THE ABYSS', 'Storm curtains sweep the maelstrom. Focus to thread the gaps and keep a special in reserve for the Crown.'],
-    ['IRON MONSOON', 'Break the battleship turrets to thin their fire. Shoot mines before their fuses burst, and reclaim stolen salvage from glowing scavengers.']];
+    ['IRON MONSOON', 'Break the battleship turrets to thin their fire. Shoot mines before their fuses burst, and reclaim stolen salvage from glowing scavengers.'],
+    ['SKYFORGE', 'Watch the bottom edge for climbing bomber boxes. Use homing weapons against sidestepping aces. Break foundry bays and roll during EMP pulses to protect escorts.']];
   return { kind: 'approach', kicker: 'NEXT CONTACT', right: 'ETA ' + clock(eta), name: FLAGSHIP_NAMES[stage], sub: 'SECTOR ' + pad(stage, 2) + ' FLAGSHIP',
     hull: null, head: tips[stage][0], tip: tips[stage][1] };
 }
@@ -311,6 +315,9 @@ export class PausePanel {
     this.reducedEffects = false;
     this.visible = false;
     this.root = $('pauseScreen');
+    const track=$('holdTrack'), nodes=this.root?.querySelector('.hold-nodes');
+    if(track){track.querySelectorAll('.hold-node').forEach(n=>n.remove());for(let k=1;k<=CAMPAIGN_STAGES;k++){const n=document.createElement('i');n.className='hold-node';n.dataset.node=k;n.style.left=((k-.5)/CAMPAIGN_STAGES*100)+'%';track.append(n);}}
+    if(nodes){nodes.style.gridTemplateColumns='repeat('+CAMPAIGN_STAGES+', minmax(0,1fr))';nodes.innerHTML=Array.from({length:CAMPAIGN_STAGES},(_,i)=>'<li data-sector="'+(i+1)+'"><b>'+pad(i+1,2)+'</b><strong>'+SECTOR_NAMES[i+1]+'</strong><span>'+FLAGSHIP_NAMES[i+1]+'</span><em>AHEAD</em></li>').join('');}
     this.scope = new Scope($('holdRadar'));
     this.craftCanvas = $('holdCraft');
     this.craftKey = '';

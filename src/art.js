@@ -119,6 +119,7 @@ export function coastWaterAt(stage,x,groundY){
   return map[cy*WATER_COLS+cx];
 }
 export function drawCoast(c,scroll,stage) {
+  if(stage===5){drawSkyforge(c,scroll);return true;}
   if(stage>PAINTED_STAGES){drawMonsoonSea(c,scroll);return true;}
   if(!coast)return false;
   const tile=coastTiles[stage-1],height=tile.height,travel=scroll*.29;
@@ -236,4 +237,104 @@ export function drawMonsoonLit(c,scroll,alpha){
   if(alpha<=.004)return;
   c.save();c.globalCompositeOperation='lighter';c.globalAlpha=Math.min(1,alpha);
   blitSea(c,monsoonSea().lit,scroll);c.restore();
+}
+
+// SKYFORGE: cached dusk sky, three seamless cumulus decks and aerial platforms.
+let skyforge;
+// One bounded bake/raster slice per call. A completed cache is a constant-time no-op.
+function skyforgeCache(){
+  if(skyforge)return skyforge;
+  const s=skyforge={clouds:[],lobes:[],jobs:[],next:0,warmed:false};
+  let raster,rc;
+  s.jobs.push(()=>{raster=seaCanvas(680,1100);rc=raster.getContext('2d',{willReadFrequently:true});});
+  const flush=tile=>{rc.clearRect(0,0,680,1100);rc.drawImage(tile,0,0);rc.getImageData(0,0,1,1);};
+  s.jobs.push(()=>{
+  const sky=seaCanvas(540,900),b=sky.getContext('2d');
+  const g=b.createLinearGradient(0,0,0,900);
+  g.addColorStop(0,'#10162c');g.addColorStop(.22,'#442849');g.addColorStop(.34,'#875062');g.addColorStop(.46,'#35283f');g.addColorStop(1,'#171d34');
+  s.sky=sky;s.skyGradient=g;
+  });
+  for(let band=0;band<3;band++)s.jobs.push(()=>{
+    const sky=s.sky,b=sky.getContext('2d');
+    b.fillStyle=s.skyGradient;b.fillRect(0,band*300,540,300);flush(sky);
+  });
+  s.jobs.push(()=>{
+    const sky=s.sky,b=sky.getContext('2d');
+  const halo=b.createRadialGradient(408,244,8,408,244,155);
+  halo.addColorStop(0,'#f7ba79');halo.addColorStop(.25,'#ce6c84');halo.addColorStop(1,'rgba(180,71,133,0)');
+  b.fillStyle=halo;b.fillRect(230,60,310,360);
+  b.fillStyle='#efbd85';b.beginPath();b.arc(408,244,36,0,Math.PI*2);b.fill();
+    s.sky=sky;flush(sky);
+  });
+  for(let layer=0;layer<3;layer++){
+    s.jobs.push(()=>{
+      s.clouds[layer]=seaCanvas(680,1100);
+      const lobe=s.lobes[layer]=seaCanvas(192,192),c=lobe.getContext('2d');
+      const g=c.createLinearGradient(96,0,96,192);
+      g.addColorStop(0,'#9d718e');g.addColorStop(.38,'#705477');g.addColorStop(1,'#3d2d55');
+      c.fillStyle=g;c.beginPath();c.ellipse(96,96,95,68.4,0,0,Math.PI*2);c.fill();
+      c.strokeStyle='rgba(241,164,160,.35)';c.lineWidth=2;c.beginPath();c.ellipse(96,96,94,67.4,0,Math.PI*1.1,Math.PI*1.88);c.stroke();flush(lobe);
+    });
+    for(let start=0;start<32;start+=4)s.jobs.push(()=>{
+      const d=s.clouds[layer].getContext('2d');
+      for(let i=start;i<start+4;i++){
+        const x=mh(i*3+layer*47)*760-40,y=mh(i*7+layer*31)*1100,r=32+mh(i*11+layer*19)*52;
+        for(const wrap of [-1100,0,1100]){
+          const cy=y+wrap;
+          d.fillStyle='#2a1d40';d.beginPath();d.ellipse(x+5,cy+20,r*1.65,r*.55,0,0,Math.PI*2);d.fill();
+          for(let j=0;j<5;j++){
+            const lx=x+(j-2)*r*.48,ly=cy-Math.sin(j/4*Math.PI)*r*.3,lr=r*(.48+mh(i*17+j*3)*.22);
+            d.drawImage(s.lobes[layer],lx-lr,ly-lr,lr*2,lr*2);
+          }
+        }
+      }flush(s.clouds[layer]);
+    });
+  }
+  s.jobs.push(()=>{
+  const glare=seaCanvas(540,615),d=glare.getContext('2d');
+  const gl=d.createRadialGradient(408,0,0,408,0,530);gl.addColorStop(0,'rgba(255,190,140,.12)');gl.addColorStop(1,'rgba(255,190,140,0)');
+  d.save();d.translate(286,0);d.scale(.3,1);d.fillStyle=gl;d.fillRect(-960,0,1800,615);d.restore();
+  const veil=seaCanvas(540,95),v=veil.getContext('2d'),vg=v.createLinearGradient(0,0,0,95);
+  vg.addColorStop(0,'#814c60');vg.addColorStop(1,'rgba(90,57,80,0)');v.fillStyle=vg;v.fillRect(0,0,540,95);
+    s.glare=glare;s.veil=veil;flush(glare);flush(veil);
+  });
+  s.jobs.push(()=>{
+    const platform=s.platform=seaCanvas(220,180),f=platform.getContext('2d');f.translate(110,80);
+    // A distant freight gantry: long, shallow hull and open trusses, no rotors or shadow.
+    f.fillStyle='#5a4a6e';f.strokeStyle='#8a7395';f.lineWidth=2;
+    f.beginPath();f.moveTo(-102,-7);f.lineTo(90,-17);f.lineTo(103,-6);f.lineTo(66,10);f.lineTo(-80,15);f.closePath();f.fill();f.stroke();
+    f.beginPath();f.moveTo(-81,-9);f.lineTo(-81,-26);f.lineTo(62,-33);f.lineTo(62,-16);
+    for(let j=0;j<6;j++){const x=-81+j*24;f.moveTo(x,-10);f.lineTo(x+24,-29);f.lineTo(x+24,-12);}f.stroke();
+    f.fillStyle='#776183';for(let j=0;j<7;j++)f.fillRect(-62+j*19,-2,8,2);
+    flush(platform);
+  });
+  return s;
+}
+export function warmSkyforge(){
+  const s=skyforgeCache();if(s.warmed)return true;
+  s.jobs[s.next++]();
+  if(s.next===s.jobs.length){s.warmed=true;s.jobs.length=0;s.lobes.length=0;}
+  return s.warmed;
+}
+export function drawSkyforge(c,scroll=0,platforms=true){
+  // A cold stage-5 start (drill 5, QA hooks) finishes the bake before its first
+  // frame instead of drawing half-baked tiles; the campaign warms it during the climb.
+  const s=skyforgeCache();while(!s.warmed)warmSkyforge();c.save();c.globalAlpha=1;if(s.sky)c.drawImage(s.sky,0,0);
+  c.save();c.beginPath();c.rect(0,285,540,615);c.clip();
+  for(let layer=0;layer<3;layer++){
+    const offset=(scroll*[.025,.055,.12][layer])%1100;
+    c.globalAlpha=[.65,.45,.32][layer];
+    if(s.clouds[layer])for(let j=-1;j<1;j++)c.drawImage(s.clouds[layer],-70+Math.sin(scroll*.0001+layer)*22,offset+j*1100);
+    if(layer===0&&platforms&&s.platform){
+      c.globalAlpha=.58;
+      for(let i=0;i<3;i++){
+        const x=platforms==='victory'?[30,500,515][i]:55+i*205,y=platforms==='victory'?340+i*26:320+(i*139+scroll*.018)%420,k=.24+i*.03;
+        c.drawImage(s.platform,x-110*k,y-80*k,220*k,180*k);
+      }
+    }
+  }
+  c.globalAlpha=1;if(s.glare)c.drawImage(s.glare,0,285);if(s.veil)c.drawImage(s.veil,0,285);c.restore();
+  c.save();c.strokeStyle='rgba(231,180,158,.16)';c.lineWidth=1;
+  for(let i=0;i<6;i++){const y=(i*173+scroll*.035)%1000-50;c.beginPath();c.moveTo(35+i*82,y);c.lineTo(100+i*82,y+125);c.stroke();}
+  c.restore();c.restore();
 }

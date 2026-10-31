@@ -21,11 +21,11 @@
 //   stageTime    seconds into the current sector
 //   bossWarning  0..1 progress through the pre-flagship warning, -1 when none
 //   boss         true while a flagship is alive
-//   bossName     'VESPER' | 'AURELIA' | 'THE CROWN' | 'LEVIATHAN' | null
+//   bossName     timeline FLAGSHIP_NAMES[stage] ('VESPER' … 'LEVIATHAN', 'HALCYON') | null
 //   bossPhase    1..3, 0 when no flagship
 //   bossHp       0..1 remaining flagship hull (0 when none)
 //   interlude    0..1 progress through the sector-clear interlude, -1 when none
-//   actTwo       true during the long Crown → Iron Monsoon hand-off
+//   actTwo       true during the long Crown → Iron Monsoon hand-off (other interludes are the normal length)
 //   interludeLength  actual transition length, seconds
 //   intensity    0..1 combat density (enemies, hostile bullets, flagship)
 //   critical     true when the player's hull is at 1 during play
@@ -46,6 +46,8 @@ const MASTER_LEVEL = 0.8;
 const FX_LEVEL = 0.9;
 const UI_LEVEL = 0.8;
 const COMBAT_CEILING = 0.78;
+// Repeated combat in HALCYON phase 3 (see _applyMix): -1.5 dB.
+const DENSE_COMBAT_TRIM = 0.84;
 const MAX_VOICES = 96;
 const MAX_COMBAT_VOICES = 40;
 const PRIORITY_LIMIT = 12;
@@ -406,6 +408,7 @@ export class AudioEngine {
   stopLongCues() {
     for (const cue of this.longCues) { try { cue.stop(); } catch (_) {} }
     this.longCues.clear();
+    if (this.sfx) this.sfx.empHum = null;
     this.cues.warning = false;
   }
 
@@ -493,7 +496,12 @@ export class AudioEngine {
   _applyMix(force, state) {
     if (!this.ctx || !this.master) return;
     const paused = state ? state.paused : this.screen === 'pause' || this._lastGame?.mode === 'paused';
-    const key = [this.musicLevel, this.effectsLevel, this.ambienceLevel, paused, this.muted].join('|');
+    // HALCYON's eclipse protocol (stage 5+, phase 3) is the densest live mix: void rows, lattices,
+    // EMP rings and a full kit's hits on the core. Repeated combat sits DENSE_COMBAT_TRIM lower there
+    // (about -1.5 dB), which keeps the limiter's input clear of its threshold.
+    const dense = state ? state.boss && state.stage >= 5 && state.bossPhase === 3 && state.mode === 'playing' : Boolean(this._dense);
+    this._dense = dense;
+    const key = [this.musicLevel, this.effectsLevel, this.ambienceLevel, paused, this.muted, dense].join('|');
     if (!force && key === this.mix) return;
     const changedPause = this.mix === null || this.mix.split('|')[3] !== String(paused);
     this.mix = key;
@@ -503,6 +511,7 @@ export class AudioEngine {
     set(this.ambienceBus?.gain, this.ambienceLevel, 0.08);
     set(this.fxBus?.gain, this.effectsLevel * FX_LEVEL, 0.03);
     set(this.uiBus?.gain, this.effectsLevel * UI_LEVEL, 0.03);
+    set(this.combatBus?.gain, COMBAT_CEILING * (dense ? DENSE_COMBAT_TRIM : 1), 0.4);
     // Pause: effects stop dead, the score and weather sink behind glass.
     set(this.fxGate?.gain, paused ? 0 : 1, paused ? 0.012 : 0.06);
     set(this.bedFilter?.frequency, paused ? 720 : 20000, paused ? 0.08 : 0.18);
@@ -532,6 +541,13 @@ export class AudioEngine {
         try { this.sfx.sectorClear(t + wait, state.stage, state.practice > 0); } catch (error) { this._warn('sectorClear', error); }
       }
     } else if (state.interlude < 0) this.cues.interlude = false;
+
+    // The EMP's dead hum is a long cue that pause and mute cut; if play resumes while the wing
+    // is still down (player.empTime > 0), it comes back for the time left.
+    const empTime = Number(game?.player?.empTime) || 0;
+    if (live && empTime > 0 && !this.sfx.empHum) {
+      try { this.sfx.resumeEmpHum(t, empTime); } catch (error) { this._warn('empHum', error); }
+    }
 
     if (live && state.critical && this.canPlay('criticalPulse', 1.3)) {
       try { this.sfx.criticalPulse(t); } catch (error) { this._warn('critical', error); }

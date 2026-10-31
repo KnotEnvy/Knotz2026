@@ -19,6 +19,7 @@ import { CAMPAIGN_STAGES } from './game.js';
 import { BOSS_WARNING_LEAD } from './timeline.js';
 
 const LOOKAHEAD = 0.3;
+const MUSIC_TRIM = 0.55, DENSE_TRIM = 0.89;
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const norm = r => { const x = ((r % 12) + 12) % 12; return x > 6 ? x - 12 : x; };
@@ -37,6 +38,8 @@ const CHANNELS = {
   brass: { level: 0.5, verb: 0.28 },
   lead: { level: 0.5, verb: 0.22, echo: 0.2 },
   keys: { level: 0.46, verb: 0.3, echo: 0.16 },
+  strings: { level: 0.5, verb: 0.32 },
+  arp: { level: 0.4, verb: 0.24, echo: 0.3 },
   fx: { level: 0.42, verb: 0.45 }
 };
 const VEL = { X: 1.15, x: 1, o: 0.7, '-': 0.38 };
@@ -62,6 +65,15 @@ function minorize(bar) {
     if (o == null) return [o, l];
     const pc = ((o % 12) + 12) % 12;
     return [o - (pc === 4 || pc === 9 || pc === 11 ? 1 : 0), l];
+  });
+}
+// Re-spells a bar into another mode on the same root: `shift` maps a pitch class to a semitone
+// offset (e.g. Lydian -> Dorian lowers the 3rd, #4 and 7th).
+function modal(bar, shift) {
+  return bar.map(([o, l]) => {
+    if (o == null) return [o, l];
+    const pc = ((o % 12) + 12) % 12;
+    return [o + (shift[pc] || 0), l];
   });
 }
 
@@ -294,6 +306,25 @@ const CUES = {
     bpm: 126, key: 62, intro: 0, loop: false, length: 2, level: 1,
     bar(m, I, b, t, S, s) {
       const K = 62;
+      if (I.variant === 'climb') {
+        // LEVIATHAN -> SKYFORGE: the camera climbs out of the typhoon. D minor strings rise
+        // through Bb to a C major arrival, the dominant of sector 5's F Lydian.
+        if (b === 0) {
+          m.taiko(I, t, 0.7, true); m.boom(I, t, 0.45);
+          m.pad(I, 'strings', t, S * 16, [50, 57, 62, 65], 0.15, { attack: 0.2, rel: 0.4, trem: 1 / S, cutoff: 2000 });
+          for (let k = 0; k < 16; k++) m.spicc(I, 'strings', t + k * S, 50 + [0, 7, 12, 7][k % 4] + Math.floor(k / 4) * 2, 0.12 + k * 0.008);
+          m.riser(I, t, S * 16, 0.16);
+          m.bass(I, t, S * 15, 38, 0.36, { type: 'synth' });
+        } else {
+          m.crash(I, t, 0.42);
+          m.chord(I, 'strings', t, S * 8, K, [8, 'add9'], 64, 0.17, { attack: 0.06 });
+          m.chord(I, 'strings', t + S * 8, S * 8, K, [10, 'maj'], 67, 0.18, { attack: 0.08 });
+          m.chord(I, 'brass', t + S * 8, S * 7.5, K, [10, 'maj'], 60, 0.26, { timbre: 'brass', attack: 0.06, bright: 0.7 });
+          m.bass(I, t, S * 7.6, 34, 0.38, { type: 'synth' }); m.bass(I, t + S * 8, S * 7.6, 36, 0.4, { type: 'synth' });
+          [79, 84, 86, 88, 91].forEach((n, k) => m.bell(I, 'keys', t + S * (2 + k * 2.5), n, 0.05, 1.8));
+        }
+        return;
+      }
       if (b === 0) {
         m.taiko(I, t, 0.8, true);
         m.chord(I, 'brass', t, S * 5, K, [8, 'maj'], 62, 0.36, { timbre: 'brass', attack: 0.015 });
@@ -393,8 +424,11 @@ const CUES = {
 };
 
 // Warnings take the key and tempo of the flagship that is coming.
-const BOSS_KEYS = [null, { key: 57, bass: 33, bpm: 156 }, { key: 55, bass: 43, bpm: 160 }, { key: 62, bass: 38, bpm: 144 }, { key: 62, bass: 38, bpm: 168 }];
-for (let stage = 1; stage <= CAMPAIGN_STAGES; stage++) {
+// Indexed by sector, 1..6 (sector 6 is planned; its entry keeps warning6 valid until it is scored).
+// `light` swaps the taiko pulse for toms (sector 5 sits above the storm, so its drums stay light).
+const BOSS_KEYS = [null, { key: 57, bass: 33, bpm: 156 }, { key: 55, bass: 43, bpm: 160 }, { key: 62, bass: 38, bpm: 144 },
+  { key: 62, bass: 38, bpm: 168 }, { key: 65, bass: 41, bpm: 156, light: true }, { key: 62, bass: 38, bpm: 160 }];
+for (let stage = 1; stage < BOSS_KEYS.length; stage++) {
   const k = BOSS_KEYS[stage];
   CUES['warning' + stage] = {
     bpm: k.bpm, key: k.key, intro: 0, loop: true, level: 1,
@@ -403,17 +437,29 @@ for (let stage = 1; stage <= CAMPAIGN_STAGES; stage++) {
       if (b === 0) {
         m.riser(I, t, Math.max(0.4, (1 - p0) * BOSS_WARNING_LEAD), 0.2);
         if (stage === 4) { m.boom(I, t, 0.7); m.chord(I, 'brass', t, S * 14, k.key, [0, 'five'], 50, 0.28, { timbre: 'brass', attack: 0.18, bright: 0.4 }); }
+        if (stage === 5) {
+          // The Lydian sky curdles: a high string cluster bends from F major toward F minor.
+          const left = Math.max(0.5, (1 - p0) * BOSS_WARNING_LEAD);
+          m.pad(I, 'strings', t, left, [77, 81, 84], 0.13, { attack: 0.08, rel: 0.3, trem: 1 / S, cutoff: 3600 });
+          m.pad(I, 'strings', t + left * 0.45, left * 0.55, [77, 80, 83], 0.15, { attack: left * 0.3, rel: 0.25, trem: 1 / S, cutoff: 3200 });
+          m.boom(I, t, 0.45);
+        }
       }
       for (let n = 0; n < 16; n++) {
         const tk = t + n * S, p = clamp((tk - start) / BOSS_WARNING_LEAD, 0, 1);
         if (p >= 1) break;
-        if (n % 2 === 0) m.bass(I, tk, S * 1.6, k.bass, 0.2 + 0.32 * p, { type: 'growl' });
+        if (n % 2 === 0) m.bass(I, tk, S * 1.6, k.bass, (0.2 + 0.32 * p) * (k.light ? 0.75 : 1), { type: k.light ? 'pulse' : 'growl' });
+        if (k.light) {
+          // Spiccato strings climb the warning instead of a drum swell.
+          m.spicc(I, 'strings', tk, k.key - 12 + [0, 7, 12, 7][n % 4] + Math.floor(p * 6), 0.12 + 0.2 * p);
+          if (n % 4 === 0) m.tom(I, tk, 0.3 + 0.4 * p, 45 + Math.floor(p * 6));
+        }
         if (n % 4 === 0) {
-          m.taiko(I, tk, 0.28 + 0.5 * p, p > 0.5);
+          if (!k.light) m.taiko(I, tk, 0.28 + 0.5 * p, p > 0.5);
           const r = k.key + 12 + Math.floor(p * 7);
           m.pad(I, 'pad', tk, S * 3.6, [r, r + 1, r + 6], 0.05 + 0.14 * p, { attack: 0.03, rel: 0.15, trem: 1 / S, cutoff: 3200 });
         }
-        if (p > 0.72 && n % 4 === 2) m.taiko(I, tk, 0.3 + 0.4 * p, false);
+        if (p > 0.72 && n % 4 === 2) { if (k.light) m.tom(I, tk, 0.3 + 0.35 * p, 50); else m.taiko(I, tk, 0.3 + 0.4 * p, false); }
         if (p > 0.55) { const v = 0.06 + 0.42 * (p - 0.55) / 0.45; m.snare(I, tk, v, { decay: 0.08 }); m.snare(I, tk + S / 2, v * 0.8, { decay: 0.07 }); }
       }
     }
@@ -568,6 +614,132 @@ CUES.actTwo = {
   }
 };
 
+// Act II, sector 5 — "Skyforge" (F Lydian, 150 bpm). Above the typhoon the score lifts into a
+// bright mode: spiccato string ostinatos, a glassy synth arpeggio and a soaring lead, over light
+// kit drums instead of sector 4's taiko. The B section quotes "Long Meridian" with its fourth
+// raised, and lets a borrowed Ab chord cast the first shadow of HALCYON.
+const SKY_A = [[0, 'maj'], [2, 'maj'], [4, 'min'], [2, 'maj'], [0, 'maj7'], [2, 'maj'], [11, 'min'], [2, 'sus4']];
+const SKY_B = [[9, 'min'], [7, 'maj'], [0, 'maj'], [2, 'maj'], [9, 'min'], [7, 'maj'], [3, 'maj'], [7, 'sus4']];
+const SKY_LEAD = [
+  [[7, 4], [12, 4], [14, 6], [16, 2]],
+  [[18, 8], [14, 4], [11, 4]],
+  [[16, 6], [12, 2], [19, 8]],
+  [[18, 4], [19, 2], [18, 2], [14, 8]],
+  [[19, 4], [24, 4], [23, 6], [21, 2]],
+  [[23, 8], [18, 4], [19, 4]],
+  [[16, 6], [14, 2], [11, 8]],
+  [[14, 4], [19, 4], [18, 8]]
+];
+const LYDIAN = { 5: 1 };
+const SKY_THEME = THEME.map(bar => modal(bar, LYDIAN));
+// String ostinato (offsets from the chord root) and its 3+3+2 accent.
+const SKY_OST = [0, 7, 12, 7, 0, 7, 14, 7, 0, 7, 12, 7, 0, 7, 14, 12];
+const SKY_ACC = 'x..x..x.x..x..x.';
+function skyStrings(m, I, t, S, root, vel, pattern = SKY_OST) {
+  for (let k = 0; k < 16; k++) m.spicc(I, 'strings', t + k * S, root + pattern[k], vel * (SKY_ACC[k] === 'x' ? 1 : 0.62));
+}
+// The glassy arpeggio rides chord tones plus the ninth, so the Lydian colour shimmers on top.
+function skyArp(m, I, t, S, key, chord, center, vel, step = 1) {
+  const v = m.voicing(key, chord, center, 3), pool = [v[0], v[1], v[2], v[0] + 14, v[0] + 12, v[1] + 12];
+  const seq = [0, 1, 2, 4, 3, 4, 2, 1, 0, 2, 4, 5, 3, 5, 4, 2];
+  for (let k = 0; k < 16; k += step) {
+    m.pluck(I, 'arp', t + k * S, pool[seq[k] % pool.length], vel * (k % 4 === 0 ? 1 : 0.76), { wave: 'square', decay: 0.13, bright: 0.7 });
+  }
+}
+CUES.sector5 = {
+  bpm: 150, key: 65, intro: 2, loop: true, level: 1,
+  bar(m, I, b, t, S, s) {
+    const K = 65, B = 41, inten = clamp(s.intensity ?? 0.5, 0, 1);
+    if (b === 0) {
+      // Breaking through the cloud deck: a tremolo F pedal, rising harmonics and a long swell.
+      m.pad(I, 'strings', t, S * 16, [53, 60, 65, 72], 0.15, { attack: S * 6, rel: 0.4, trem: 1 / S, cutoff: 2400 });
+      [79, 84, 86, 91].forEach((n, k) => m.bell(I, 'keys', t + S * (4 + k * 3), n, 0.045, 2));
+      m.riser(I, t, S * 16, 0.13);
+      m.bass(I, t, S * 15, B, 0.3, { type: 'synth' });
+      return;
+    }
+    if (b === 1) {
+      m.chord(I, 'strings', t, S * 16, K, [2, 'maj'], 67, 0.12, { attack: 0.3, cutoff: 2800 });
+      skyStrings(m, I, t, S, 53 + 2, 0.16);
+      skyArp(m, I, t + S * 8, S, K, [2, 'maj'], 79, 0.04, 1);
+      m.drums(I, 'm', '............xxxx', t, S, 0.5, { tom: 50 });
+      m.drums(I, 'k', 'x.......x.......', t, S, 0.5);
+      m.revCymbal(I, t + S * 4, S * 12, 0.26);
+      return;
+    }
+    const L = (b - 2) % 16, A = L < 8, i = L % 8, ch = A ? SKY_A[i] : SKY_B[i], r = norm(ch[0]);
+    if (i === 0) { m.crash(I, t, 0.34); m.taiko(I, t, 0.42, true); }
+    skyStrings(m, I, t, S, 53 + r, 0.15 + 0.05 * inten);
+    m.chord(I, 'strings', t, S * 16, K, ch, 69, 0.085, { attack: 0.35, rel: 0.6, cutoff: 2600 });
+    m.bassPat(I, inten > 0.5 ? 'R---R-O-R---R-F-' : 'R-------R-----F-', t, S, B, ch, 0.34, { type: inten > 0.5 ? 'pulse' : 'synth' });
+    if (A) {
+      m.mel(I, 'lead', SKY_LEAD[i], t, S, K, { vel: 0.34, bright: 0.85 });
+      if (inten > 0.7) m.mel(I, 'brass', SKY_LEAD[i], t, S, K - 12, { vel: 0.14, bright: 0.45, vib: 0 });
+    } else {
+      // "Long Meridian" in Lydian: the theme seen from above the storm.
+      m.mel(I, 'lead', SKY_THEME[i], t, S, K + 12, { vel: 0.3, bright: 0.7, attack: 0.06, vib: 10 });
+      m.mel(I, 'strings', SKY_THEME[i], t, S, K, { vel: 0.16, bright: 0.5, attack: 0.08, vib: 6 });
+    }
+    if (!A || inten > 0.3) skyArp(m, I, t, S, K, ch, 81, A ? 0.034 : 0.042, 1);
+    // Light kit: kick and rim carry the pulse; density adds hats, shaker and toms. The only taiko
+    // is the phrase-opening hit with the crash (above).
+    m.drums(I, 'k', 'x.......x.x.....', t, S, 0.56);
+    m.drums(I, inten > 0.55 ? 's' : 'r', i === 7 ? '....x.......x.xx' : '....x.......x...', t, S, inten > 0.55 ? 0.4 : 0.34);
+    m.drums(I, 'h', inten > 0.4 ? '-.x--.x--.x--.x-' : '..x...x...x...x.', t, S, 0.15);
+    if (inten > 0.55) m.drums(I, 'z', 'x-x-x-x-x-x-x-x-', t, S, 0.13);
+    if (inten > 0.7) m.drums(I, 'm', '..x.....x..x....', t, S, 0.36, { tom: 52 });
+    if (i === 7) m.drums(I, 'm', '............xxxx', t, S, 0.46, { tom: A ? 50 : 47 });
+    if (!A && i === 6) m.chord(I, 'brass', t, S * 14, K, ch, 60, 0.18, { timbre: 'brass', attack: 0.2, bright: 0.45 });
+    if (!A && i === 7) m.riser(I, t + S * 4, S * 12, 0.12);
+  }
+};
+
+// HALCYON (F, 156 bpm). The flagship takes the Skyforge melody and darkens it one mode per
+// phase: Dorian for the bays, Aeolian for the lattice, Phrygian for the eclipse.
+const HAL_MODES = [null, { 4: -1, 6: -1, 11: -1 }, { 4: -1, 6: -1, 9: -1, 11: -1 }, { 2: -1, 4: -1, 6: -1, 9: -1, 11: -1 }];
+const HAL_LEAD = HAL_MODES.map(shift => shift && SKY_LEAD.map(bar => modal(bar, shift)));
+const HAL_CH = [null,
+  [[0, 'min'], [5, 'maj'], [3, 'maj'], [5, 'maj'], [0, 'min'], [5, 'maj'], [10, 'maj'], [7, 'sus4']],
+  [[0, 'min'], [10, 'maj'], [3, 'maj'], [10, 'maj'], [8, 'maj'], [10, 'maj'], [7, 'min'], [7, 'dom7']],
+  [[0, 'min'], [10, 'min'], [0, 'min'], [1, 'maj'], [8, 'maj'], [10, 'min'], [3, 'dom7'], [7, 'maj']]
+];
+const HAL_OST = [null, SKY_OST.map(n => n === 14 ? 15 : n), [0, 7, 12, 7, 0, 8, 12, 8, 0, 7, 12, 7, 0, 8, 13, 12], [0, 1, 7, 1, 0, 1, 8, 7, 0, 1, 7, 1, 12, 13, 8, 7]];
+CUES.boss5 = {
+  bpm: 156, key: 65, intro: 0, loop: true, level: 0.92,
+  bar(m, I, b, t, S, s) {
+    const K = 65, B = 41, ph = clamp(s.bossPhase || 1, 1, 3), low = (s.bossHp ?? 1) < 0.22, drill = I.variant === 'drill';
+    const i = b % 8;
+    // A phase change restarts the 8-bar phrase so the new mode lands on its own downbeat.
+    if (I.phase !== ph) { I.phase = ph; I.phaseBar = b; }
+    const j = (b - I.phaseBar) % 8, chj = HAL_CH[ph][j], rj = norm(chj[0]);
+    if (b === 0) impact(m, I, t, K, chj, 60, 0.5);
+    else if (j === 0) { m.crash(I, t, 0.36); if (ph >= 3) m.boom(I, t, 0.5); }
+    skyStrings(m, I, t, S, 53 + rj, ph === 1 ? 0.18 : 0.21, HAL_OST[ph]);
+    m.bassPat(I, ph === 1 ? 'R-R-R-R-R-R-R-O-' : 'RRR-RRO-RRR-RRF-', t, S, B, chj, 0.34, { type: ph === 1 ? 'pulse' : 'growl', accent: SKY_ACC });
+    m.chord(I, ph >= 2 && !drill ? 'choir' : 'strings', t, S * 16, K, chj, 65, ph === 3 ? 0.17 : 0.11,
+      { timbre: ph >= 2 && !drill ? 'choir' : 'strings', attack: 0.25, cutoff: 2600 });
+    m.mel(I, 'lead', HAL_LEAD[ph][j], t, S, K, { vel: 0.35, bright: 0.95, timbre: drill ? 'sim' : undefined });
+    if (ph === 2) m.mel(I, 'brass', HAL_LEAD[ph][j], t, S, K - 12, { vel: 0.16, bright: 0.5, vib: 0 });
+    // Light kit, pushed harder than the sector: four-on-the-floor kick, snare backbeat.
+    m.drums(I, 'k', ph === 1 ? 'x...x...x...x...' : 'x...x...x..xx...', t, S, 0.58);
+    m.drums(I, 's', j === 7 ? '....x.......xxxx' : '....x.......x...', t, S, 0.48);
+    m.drums(I, 'h', ph >= 2 ? '-x-x-x-x-x-x-x-x' : '..x...x...x...x.', t, S, 0.17);
+    if (ph === 1 || ph === 3) skyArp(m, I, t, S, K, chj, 81, 0.036, ph === 3 ? 2 : 1);
+    if (ph === 2) {
+      // The lattice: a gated square pulse ticks like a laser grid sweeping into place.
+      for (let k = 0; k < 16; k++) if ('x.xx.x.xx.xx.x.x'[k] === 'x') m.pluck(I, 'arp', t + k * S, K + 12 + rj + (k % 4 === 3 ? 7 : 0), 0.05, { wave: 'square', decay: 0.07, bright: 1 });
+      m.drums(I, 'm', '..x.....x..x....', t, S, 0.34, { tom: 50 });
+    }
+    if (ph === 3) {
+      if (!drill) m.mel(I, 'brass', THEME_MINOR[j], t, S, K - 12, { vel: 0.2, bright: 0.5, vib: 0, sub: true });
+      m.drums(I, 'm', '..x..x....x..x..', t, S, 0.4, { tom: 45 });
+    }
+    if (low && i % 2 === 1) m.roll(I, 'snare', t + S * 12, S * 4, 0, 0.12, 0.42, S / 2);
+    if (low && i % 4 === 3) m.riser(I, t, S * 16, 0.1);
+    if (drill && i % 2 === 0) m.bell(I, 'keys', t, K + 24, 0.05, 0.7);
+  }
+};
+
 for (const [id, def] of Object.entries(CUES)) { def.id = id; def.minor = /^(sector2|sector3|sector4|actTwo|boss|warning|gameover|drillFail)/.test(id); }
 
 function impulse(ctx, seconds = 2.3, decay = 3.2) {
@@ -603,7 +775,7 @@ export class MusicDirector {
     this.glue = c.createDynamicsCompressor();
     this.glue.threshold.value = -16; this.glue.knee.value = 10; this.glue.ratio.value = 3.2;
     this.glue.attack.value = 0.008; this.glue.release.value = 0.22;
-    this.trim = c.createGain(); this.trim.gain.value = 0.55;
+    this.trim = c.createGain(); this.trim.gain.value = MUSIC_TRIM; this.trimDense = false;
     this.mix.connect(hp); hp.connect(this.glue); this.glue.connect(this.trim); this.trim.connect(out);
     this._fixed = [this.mix, this.cueBus, hp, this.glue, this.trim];
     // Shared hall reverb and a tempo-synced echo.
@@ -636,6 +808,14 @@ export class MusicDirector {
     now = Number.isFinite(now) ? now : this.ctx.currentTime;
     this.state = state;
     this._prune(now);
+    // HALCYON's eclipse protocol (stage 5+, phase 3) is the densest mix in the game: the score
+    // sits DENSE_TRIM lower there (after its glue compressor, about -1 dB), so with every level
+    // at full the limiter's input keeps its headroom.
+    const dense = Boolean(state.boss && state.stage >= 5 && state.bossPhase === 3 && state.mode === 'playing');
+    if (dense !== this.trimDense) {
+      this.trimDense = dense;
+      try { this.trim.gain.setTargetAtTime(MUSIC_TRIM * (dense ? DENSE_TRIM : 1), now, 0.6); } catch (_) {}
+    }
     const events = Array.isArray(state.events) ? state.events : [];
     for (const e of events) this._event(e, state, now);
     const want = this._pick(state);
@@ -681,8 +861,13 @@ export class MusicDirector {
     if (screen === 'pause' || s.paused || s.mode === 'paused') return { id: 'pause', key: 'pause' };
     if (screen !== 'play') return null;
     if (s.actTwo || (s.stage === 3 && (Number(s.time) || 0) < (this.actTwoUntil ?? -1))) return { id: 'actTwo', key: 'actTwo' };
-    if (Number(s.interlude) >= 0) return { id: 'interlude', key: 'interlude' };
-    const stage = clamp(Math.floor(Number(s.stage) || 1), 1, CAMPAIGN_STAGES);
+    if (Number(s.interlude) >= 0) {
+      const climb = !drill && Number(s.stage) === 4 && CAMPAIGN_STAGES >= 5;
+      return climb ? { id: 'interlude', key: 'interludeClimb', variant: 'climb' } : { id: 'interlude', key: 'interlude' };
+    }
+    // A sector without its own score yet borrows the latest one written (never a missing cue).
+    let stage = clamp(Math.floor(Number(s.stage) || 1), 1, CAMPAIGN_STAGES);
+    while (stage > 1 && !CUES['sector' + stage]) stage--;
     if (s.boss) { const variant = drill ? 'drill' : ''; return { id: 'boss' + stage, key: 'boss' + stage + variant, variant }; }
     if (Number(s.bossWarning) >= 0) return { id: 'warning' + stage, key: 'warning' + stage };
     return { id: 'sector' + stage, key: 'sector' + stage };
@@ -868,6 +1053,14 @@ export class MusicDirector {
 
   _phaseFill(I, at) {
     const beat = I.step * 4;
+    if (I.def.id === 'boss5') {
+      // HALCYON shifts mode: a string run tears upward into a tom triplet and a low hit.
+      for (let k = 0; k < 8; k++) this.spicc(I, 'strings', at - beat + k * beat / 8, I.def.key - 12 + [0, 2, 3, 5, 7, 8, 10, 12][k], 0.14 + k * 0.025);
+      this.crash(I, at, 0.42); this.boom(I, at, 0.55);
+      [0, 1, 2].forEach(k => this.tom(I, at + k * beat / 3, 0.7 - k * 0.1, 50 - k * 4));
+      this.chord(I, 'brass', at, 0.4, I.def.key, [0, 'five'], I.def.key - 5, 0.32, { timbre: 'brass', attack: 0.01 });
+      return;
+    }
     this.crash(I, at, 0.42);
     this.taiko(I, at, 0.85, true); this.taiko(I, at + beat / 3, 0.6, false); this.taiko(I, at + beat * 2 / 3, 0.7, false);
     this.chord(I, 'brass', at, 0.32, I.def.key, [0, 'five'], I.def.key, 0.34, { timbre: 'brass', attack: 0.01 });
@@ -1085,6 +1278,21 @@ export class MusicDirector {
     perc(g.gain, at, vel * 0.6, dec, 0.003);
     x.connect(lp); lp.connect(g); g.connect(this._ch(I, ch));
     this._track(I, [x], [x, lp, g], at, end);
+  }
+
+  // Spiccato string: two detuned saws, a bowed bite that closes fast, and a short body.
+  spicc(I, ch, at, midi, vel, dur = 0.13) {
+    const c = this.ctx, f = mtof(midi), end = at + dur + 0.08, nyq = c.sampleRate * 0.45;
+    const lp = c.createBiquadFilter(), g = c.createGain();
+    lp.type = 'lowpass'; lp.Q.value = 0.9;
+    lp.frequency.setValueAtTime(Math.min(nyq, f * 7 + 900), at);
+    lp.frequency.exponentialRampToValueAtTime(Math.min(nyq, f * 2.2 + 300), at + dur);
+    const a = this._osc('sawtooth', f, at, end), b = this._osc('sawtooth', f, at, end);
+    a.detune.setValueAtTime(-9, at); b.detune.setValueAtTime(8, at);
+    a.connect(lp); b.connect(lp); lp.connect(g);
+    perc(g.gain, at, vel * 0.42, dur, 0.006);
+    g.connect(this._ch(I, ch));
+    this._track(I, [a, b], [a, b, lp, g], at, end);
   }
 
   // Electric-piano style chord: sine + soft triangle octave per note, one shared envelope.

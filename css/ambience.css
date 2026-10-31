@@ -120,9 +120,9 @@ body[data-sector="3"] #consoleWeather{color:#ffb5a5}
 
 /* Operation route */
 .console-route{display:flex;align-items:center;gap:6px}
-.console-route span{display:flex;flex-direction:column;align-items:center;gap:5px;color:#5d7f84}
+.console-route span{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;color:#5d7f84}
 .console-route span b{display:grid;place-items:center;width:24px;height:24px;border:1px solid rgba(176,220,211,.3);font-size:9px;letter-spacing:.08em;font-weight:800;color:#7c9da0;background:rgba(6,22,28,.6)}
-.console-route span small{font-size:6.5px;font-weight:800;letter-spacing:.16em;white-space:nowrap}
+.console-route span small{font-size:6.5px;font-weight:800;letter-spacing:.12em;max-width:48px;white-space:normal;text-align:center;line-height:1.3}
 .console-route>i{flex:1;height:1px;margin-top:-11px;background:repeating-linear-gradient(90deg,rgba(176,220,211,.35) 0 3px,transparent 3px 6px)}
 .console-route span[data-state="clear"] b{border-color:rgba(243,187,112,.6);color:var(--ink);background:var(--gold)}
 .console-route span[data-state="clear"] small{color:#c69a62}
@@ -260,3 +260,23 @@ body[data-threat="calm"][data-rank="high"] .threat-bars b:nth-child(-n+2){backgr
 body[data-threat="calm"][data-rank="extreme"] .threat-bars b:nth-child(-n+3){background:var(--hot)}
 body[data-threat="calm"][data-rank="high"] #threatReadout{color:#ffcf8c}
 body[data-threat="calm"][data-rank="extreme"] #threatReadout{color:#ff9a82}
+
+body[data-sector="5"] .atmo-s5{opacity:1;visibility:visible}
+.atmo-dusk{position:absolute;inset:0;background:radial-gradient(circle at 78% 29%,#edb77a 0 3%,rgba(190,77,132,.35) 8%,transparent 28%),linear-gradient(#151c35,#64405e 35%,#28263f 55%,#111c30)}
+body[data-sector="5"] #consoleWeather{color:#edb77a}
+body[data-sector="5"] .atmo-flash{background:radial-gradient(ellipse at 50% 80%,rgba(165,104,240,.35),transparent 65%)}
+.console-route span{flex:1;min-width:0}.console-route small{overflow-wrap:anywhere}
+.mission-route{flex-wrap:wrap}
+.hold-nodes{grid-template-columns:repeat(var(--campaign-stages,5),minmax(0,1fr))}
+.drill-buttons{flex-wrap:wrap}
+.console-route small{display:block;white-space:normal;font-size:5px;letter-spacing:.02em;line-height:1.4;padding:0 2px;text-align:center}
+/* Reserve equal node columns as the campaign grows. Only the current place name
+   needs ink on the compact console map; its full name is repeated above. */
+.console-route{gap:4px}
+.console-route>i{display:none}
+.console-route span small{width:100%;visibility:hidden;overflow-wrap:anywhere}
+.console-route span[data-state="active"] small{visibility:visible}
+
+/* Keep node tops aligned and complete route names on one line. */
+.console-route span{align-items:flex-start;overflow:visible}
+.console-route span small{white-space:nowrap;overflow:visible;overflow-wrap:normal;max-width:none;width:auto;text-align:left;padding:0}

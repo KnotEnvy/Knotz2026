@@ -65,13 +65,16 @@ try {
   });
   await page.waitForTimeout(100);await capture('squadron-points');
   assert.ok(await page.evaluate(()=>__qaAct.renderer.impacts.some(f=>f.type==='squadronBonus'&&f.points===750&&f.drops===0)));
-  for (const [stage,outcome,name,record] of [[2,'gameover','act-1','ACT I · SECTOR 02'],[4,'gameover','act-2','REACHED ACT II'],[4,'victory','victory','BOTH ACTS CLEARED']]) {
+  // Victory copy follows src/cinema.js: a campaign that clears sector N (4 or 5) reads
+  // "SECTOR 0N CLEARED / ACT II CONTINUES"; only sector 6 would close Act II.
+  for (const [stage,outcome,name,record] of [[2,'gameover','act-1','ACT I · SECTOR 02'],[4,'gameover','act-2','REACHED ACT II'],
+    [4,'victory','victory','SECTOR 04 CLEARED / ACT II CONTINUES'],[5,'victory','victory-s5','SECTOR 05 CLEARED / ACT II CONTINUES']]) {
     await page.evaluate(({stage,outcome}) => __qaAct.endSortie({outcome,shipId:'kestrel',score:86120,grade:'C',stage,grazes:41,rolls:4,livesRemaining:outcome==='victory'?3:0},true),{stage,outcome});
     assert.match(await page.locator('#endIntroLine').textContent(),new RegExp(record));
     await page.waitForTimeout(700); await capture('debrief-'+name);
     await page.locator('#skipCinemaButton').click();
     assert.match(await page.locator('#endEyebrow').textContent(),new RegExp(record+'$'));
-    assert.equal((await page.locator('#endEyebrow').textContent()).split(' / ').length,3,'record must replace the previous sortie suffix');
+    assert.equal((await page.locator('#endEyebrow').textContent()).split(' / ').length,2+record.split(' / ').length,'record must replace the previous sortie suffix');
     await page.waitForTimeout(1900);await capture('flight-record-'+name);
   }
   assert.deepEqual(report.errors, []);
