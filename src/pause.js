@@ -82,7 +82,7 @@ function intelFor(game) {
   }
   if (interludeProgress(game) >= 0) {
     if (drill) return { kind: 'clear', kicker: 'FLAGSHIP DOWN', right: 'DRILL COMPLETE', name: FLAGSHIP_NAMES[stage], sub: 'UNRANKED / CAMPAIGN RECORDS PRESERVED', hull: null, head: 'DEBRIEF', tip: 'The flight record is next. Take the pattern into your next sortie.' };
-    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: stage === 6 ? 'ACT II COMPLETE' : 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
+    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: stage === CAMPAIGN_STAGES ? 'ACT II COMPLETE' : 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
     return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'NEXT / SECTOR ' + pad(stage + 1, 2), name: SECTOR_NAMES[stage + 1],
       sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: 'One hull point and one special are restored as you cross into the next front.' };
   }
