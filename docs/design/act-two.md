@@ -1154,14 +1154,135 @@ Audio builder, round 1. These are the names and fields audio reads, plus one req
 
 - **Lead decision (round 2): hull repair after LEVIATHAN.** Entering sector 5 now repairs the hull to full (it added one point before). Entering sector 4 still adds one point, so sector 4 opens as tuned. The round-2 bot showed average pilots carrying over from LEVIATHAN on one or two lives cleared nothing; an extra life was not added.
 
-### Sector 6: ZERO MERIDIAN (planned; build after sector 5 passes)
+### Sector 6: ZERO MERIDIAN (build now; the Act II finale)
+
+Status: approved direction (2026-11-01). Sector 5 passed after three rounds: feel 8.5, correctness 9.0, visuals ≥ 8.5 after the lead's fix, performance 9.4, audio 9.0. Sector 6 is the last sector of Act II and follows the same process: build, judge, iterate until all four judges score ≥ 8.5 with no open P0 or P1, at most three rounds.
 
 - **Tagline:** "Where the long meridian ends."
-- **Setting:** the stratosphere at eclipse, on the 180th meridian. The sea is a distant curve, the sky is black-blue, and auroras pulse with the music.
-- **Final Act II flagship, THE SOVEREIGN:** a mirror-ship that copies the player's current arsenal in its patterns (spread, missiles or rails).
-  - In phase 2 it steals the player's salvage on any hit.
-  - Its final form is a full-screen bullet ballet with void and destructible bullet layers.
-- **Act III hook:** its defeat ends Act II, not the whole game. The true ending moves to Act III (the final act, not yet planned). Until Act III exists, victory after THE SOVEREIGN shows the Act II ending plus an "ACT III" tease.
+- **Coordinates:** N 37°00′ 180°00′, on the antimeridian, where Operation Long Meridian ends.
+- **Flagship:** THE SOVEREIGN, class MIRROR CAPITAL SHIP.
+- **Setting:** the stratosphere at eclipse.
+  - The Earth is a distant curve near the bottom of the field, with the typhoon a pale swirl on it.
+  - The sky is black-blue with sharp stars.
+  - An eclipsed sun with a corona sits low on the horizon.
+  - Auroras sweep in curtains and pulse on the score's bar clock: `music.js` exposes the bar phase through the shared audio state, or `timeline.js` holds a tempo constant both sides use.
+  - There are no clouds over the player. The one over-player layer is a faint, slow aurora shimmer, drawn under the bullets.
+  - It must read as the edge of space at a glance, not as sector 5 at night. `worldPaintsStage(6)` is already true.
+- **Transition from sector 5:** after HALCYON breaks, the normal 3.5 s interlude continues the climb. The cumulus floor falls away, the sky darkens to black-blue and the stars come out. There is no act card. Clearing HALCYON repairs the hull, as clearing LEVIATHAN does.
+- **Length:** about 105 s before the flagship (`stageGoal[6] ≈ 105`).
+- **Ending:** THE SOVEREIGN's defeat ends Act II, and victory comes after sector 6 (`CAMPAIGN_STAGES = 6`). The victory and debrief read "ACT II COMPLETE", followed by a short **ACT III** tease card: one line, pointing past the meridian. Act III is the final act and is not planned yet; the tease promises nothing specific.
+
+**What's new in sector 6** (the mirror theme: the enemy learns your arsenal)
+- **Echoes.** Ghost fighters that replay the player's own recent flight path (the last 2.5 s, mirrored left-right and offset up-field), firing a weak copy of the player's main-gun style. They teach the SOVEREIGN's language early. They're fragile and die to a volley.
+- **Satellite lances.** Slow-orbit satellites cross the field and sweep a laser (sector 5's `laser` hazard, rotating instead of fixed). Each has a 0.9 s warning and always leaves a gap.
+- **Shard rounds.** A new destructible bullet kind (`kind:"shard"`, fragile, shootable by any player shot). Shards come in curtains mixed with void rounds, so firepower clears your own path through. This is the Act II shared "destructible bullets" system.
+- **The Meridian Gate.** A mid-sector peak: an armored orbital station (the `hull` and `hullTurret` mechanics, in the air) whose turrets fire shard and void mixes. It is sector 6's set piece.
+- **Remix gauntlet.** Each earlier Act II threat returns once at Act II's finale pressure: an interceptor loop, a sky-ace pair, a climbing bomber box and a flak band.
+
+**Sector beats** (suggestions; the Act I rule applies: each item is collected about 2 s or more before the attack it answers)
+1. **2.5–12 s:** interceptor squadrons over the curve of the Earth, a power trip.
+2. **About 14 s:** the first echo pair after a drop. "That's my flight path."
+3. **About 24 s:** satellite lance sweeps with drifting popcorn.
+4. **About 34 s:** the first shard curtain. Shoot your lane open.
+5. **About 48 s:** an echo wing plus sky aces.
+6. **About 60 s:** the Meridian Gate peak.
+7. **About 82 s:** a breather, then the remix gauntlet, before THE SOVEREIGN.
+
+**Flagship THE SOVEREIGN** (a mirror-hulled capital ship; `boss.w × boss.h` ≈ 200×80)
+- **Phase 1, "Reflection":** it copies the player's ship and kit.
+  - It fires a readable enemy version of the player's main-weapon family: Kestrel spread fans, Manta homing missiles (destructible), or Wraith rails (telegraphed lines).
+  - Its density is tiered by the player's power band.
+  - It launches mirror escorts that match the player's escort count, up to 6. They are destructible children, and the core takes 25% damage while any of them lives.
+- **Phase 2, "Theft":** each hit on the player sends that hit's salvage up a visible tether into the SOVEREIGN, instead of letting it float.
+  - Each tether is a destructible node. Breaking it within about 2.5 s drops the salvage back.
+  - A tether that reaches the hull is gone for good, and the SOVEREIGN visibly grows a weapon from it.
+  - It is telegraphed and fair: tethers are slow, bright and shootable by homing weapons.
+- **Phase 3, "Ballet":** a full-screen bullet ballet in layers: void rounds, shard curtains that firepower can carve, and the mirrored main-gun pattern. It ends in a desperation curtain on its guard floor.
+- **Kill time:** about 80–95 s with the sector-6 reference kit, the longest flagship in Act II, and about 3× that bare. It has its own learn windows and `BOSS_GUARD_PAR`.
+- **Mid kits:** use the sector-5 lessons from the start: the pace ease for a mid kit (as `_halcyonPace`), HP mercy for a short campaign kit (never in drills), and rank-aware heavies.
+- **Death:** the mirror hull shatters into reflective shards that tumble toward the Earth, ahead of FLAGSHIP DOWN, the clear card and the ACT II COMPLETE ending. `bossDown` carries the last pose.
+
+**Music and ambience**
+- **Cues:** new `sector6`, `warning6` and `boss6`.
+  - The sector: sparse and cosmic, around 140 bpm. Choir-like pads, a pulse and glassy bells. It builds to the full ensemble at the Gate.
+  - The boss: quotes each earlier flagship motif, mirrored or inverted, phase by phase.
+  - The ACT II COMPLETE sting.
+- **Bed:** near-silence. Thin solar-wind hiss, faint radio static and a slow aurora shimmer tone on the bar clock.
+
+### Sector 6 build contract (shared by the four sector-6 builders)
+
+Same structure as the sector 5 contract. The simulation owns state, and any contract change is written here.
+
+**Campaign**
+- `CAMPAIGN_STAGES = 6`.
+- Victory comes after THE SOVEREIGN, with `summary.act === 2` and the Act II ending.
+- HALCYON → sector 6 is the normal interlude, with a full hull repair.
+- `startDrill(6)` uses the sector-6 reference kit. The simulation measures that kit as the sector-5 ledger collector's arrival.
+- Drill 6 unlocks after the SOVEREIGN has been encountered.
+- Routes, drills and badges are already generated from `CAMPAIGN_STAGES`.
+
+**Sector 6 enemy types**
+
+| Type | What it is | Key fields | Notes |
+| --- | --- | --- | --- |
+| `echo` | A ghost that replays the player's last 2.5 s of path. | `e.trail` (index into a recorded ring buffer), `e.mirror` (±1), `e.style` (the player's weapon family) | Fragile. Contact hurts. It fires a weak copy of the player's main gun. The simulation records the player path at a fixed tick, so the replay stays deterministic. |
+| `satellite` | An orbital satellite that crosses slowly and owns a sweeping laser. | `e.laserId`, `e.sweep` (rad/s) | Destroying it ends its laser. |
+| `station` | The Meridian Gate hull. | `e.w`, `e.h`, `e.turrets` | Same rules as a sector-4 hull, but in the air. Body contact does NOT hurt, because it flies above the player layer, like the foundry. |
+| `stationTurret` | A gun on the station. | `e.parentId`, `e.ox`, `e.oy`, `e.gun` (`"shard"`, `"void"` or `"mix"`) | Dies with its parent. |
+| `mirrorEscort` | One of the SOVEREIGN's phase-1 escorts. | `e.parentId`, `e.slot` | Destructible. It armors the core. |
+| `tether` | A phase-2 salvage tether node. | `e.carrying` (the salvage record), `e.progress` (0..1) | Shooting it drops the salvage back with `salvage:true`. At progress 1 the salvage is lost (`stats.salvageLost`). |
+
+**Bullets**
+- `kind:"shard"` is a destructible enemy bullet. Any player shot that touches it removes it; the shot is spent unless it pierces. The reflector and Kestrel flak treat it like an ordinary bullet.
+- `kind:"mirror"` marks a bullet from the copied player weapon, so presentation can tint it with the player's colour family.
+
+**Hazards:** the `laser` hazard gains `rotating` (bool), `angle`, `pivotX`/`pivotY` and `sweep`.
+
+**New events**
+
+| Event | Payload or note |
+| --- | --- |
+| `echoSpawn` | `{value: style}` |
+| `satelliteEnter`, `satelliteDown` | |
+| `shardBreak` | Throttled, `{value: count}` |
+| `stationEnter`, `stationDown`, `stationTurretDown` | |
+| `mirrorCopy` | `{value: style}`, at the start of phase 1 |
+| `tetherLaunch` | `{value: pickupType}` |
+| `tetherCut` | |
+| `tetherLost` | `{value: pickupType}` |
+| `sovereignGrow` | |
+| `mirrorShatter` | Death; `bossDown` also carries `w, h, angle` |
+| `actTwoComplete` | Emitted with victory after sector 6 |
+
+**Presentation and world**
+- **Names:** `SECTOR_NAMES[6] = "ZERO MERIDIAN"`, `FLAGSHIP_NAMES[6] = "THE SOVEREIGN"`, `FLAGSHIP_CLASSES[6] = "MIRROR CAPITAL SHIP"`, plus the coordinates and tagline. The kicker reads `ACT II · SECTOR 06`.
+- **Lightning:** `lightningAt(time, 6)` returns no strikes. The aurora pulse replaces lightning as the sector's rhythm.
+- **Cover palette:** gains the stratosphere climb. The final dawn palette stays last.
+- **Victory and debrief:** read ACT II COMPLETE, then the ACT III tease card. The flight record handles 6 sectors.
+- **Readability rules** (sector-5 judge lessons; get them right in round 1):
+  - Every aircraft's nose points along its travel (sim angle 0 is nose-down). Verify both climbing and diving cases.
+  - Bake detailed sprites from the start, at sector 4 and 5 quality, never flat vector shapes.
+  - Hazards and over-player layers draw under the bullets. Labels near the player are text-only or translucent strips in the HUD band.
+  - Background props must never read as targets: small, haze-tinted, low contrast, behind the gameplay layer.
+  - The player stays visible under any opaque air platform.
+  - Death art keeps the baked hull and stays clear of FLAGSHIP DOWN. The clear card must finish its count-ups inside the 3.5 s interlude.
+  - New backgrounds are baked in slices during the climb (`warmZeroMeridian()`, the same contract as `warmSkyforge()`). A cold start finishes the bake before its first frame.
+  - Check every new piece at 1440×1000, 390×844, 900×500 and with reduced effects.
+
+**Builder file ownership (sector 6):** the same split as sector 5.
+- **Simulation:** `game.js`, `progress.js`, `test/*`, `qa/*` and "Simulation notes (sector 6)".
+- **Combat rendering:** `render.js`, `ui.js`, `pause.js`.
+- **World and story:** `background`, `art`, `timeline`, `ambience`, `sequences`, `cinema`, `frontend`, `main`, `index.html`, CSS, README and PLAYTEST.
+- **Audio:** `music`, `soundscape`, `sfx`, `audio`, and "Audio notes (sector 6)".
+- **Integration first:** the simulation builder lands the enemy, hazard and event skeletons, with their fields, in `game.js` early and writes them into the notes, so presentation builders render real state as soon as possible instead of fixtures.
+
+### Simulation notes (sector 6)
+
+(Simulation builder: record the sector-6 reference kit, drops → attacks, the HP curve, the echo, shard and tether numbers, the SOVEREIGN's numbers and the bot tables, including good, average and hesitant pilots on reference, P25, mid and real-arrival kits.)
+
+### Audio notes (sector 6)
+
+(Audio builder: record cues, event hooks and peak/voice numbers here.)
 
 ## Part 3: Act I retune (sectors 1–3)
 
