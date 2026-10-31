@@ -1144,7 +1144,7 @@ Audio builder, round 1. These are the names and fields audio reads, plus one req
     - **`laserFire`** ducks combat to 0.7 for 0.55 s. The beam's 49 Hz weight drops from 0.07 to 0.055, and the void growl from 0.03 to 0.025.
     - **`empPulse`**: the 72 Hz thoom drops from 0.12 to 0.1.
   - **Measured after:**
-    - The probe's worst glue peak is 0.655 over 6 × 72 s (per-run peaks 0.626–0.655, against 0.65–0.68 before). That is about 1.2 dB under the 0.75 threshold.
+    - The probe's worst glue peak is 0.655 over 6 × 72 s (per-run peaks 0.626–0.655, against 0.65–0.68 before). That is about 1.2 dB under the 0.75 threshold. The round-3 performance judge measured 0.59–0.69 over 11 × 72 s on its own bot (worst about 0.8 dB under). The `laserFire` combat duck was then removed: it pumped the guns without lowering the peak (worst 0.656 with it off). Expect 0.8–1.2 dB of headroom.
     - The `qa/audio.mjs` HALCYON leg (now 30 s, keyboard strafing, gate unchanged at 0.75) meters 0.677 at the glue and 0.638 at the master.
   - **The hum after pause, mute or effects at 0:**
     - `stopLongCues()` now also clears `sfx.empHum`.

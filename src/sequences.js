@@ -575,7 +575,9 @@ export class Sequences {
       ctx.restore();
     }
     // Beat 2: tally card.
-    const tallyStart=d.stage===5?2.25:1.05;
+    // HALCYON gets a beat longer to break apart; the card must still finish its
+    // count-ups and footer inside the 3.5 s interlude (last value settles ~1.55 s in).
+    const tallyStart=d.stage===5?1.6:1.05;
     const tt = te - tallyStart;
     const tallyEnd = d.actTwo ? ACT_TWO_TALLY_END : INTERLUDE_LENGTH;
     const ta = envelope(tt, tallyEnd - tallyStart, .32, d.final ? 0 : .34) * fade;

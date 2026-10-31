@@ -1047,9 +1047,9 @@ const HANDLERS = {
     // The bar fires: a beating, driven beam hum with a sizzle on top and weight below.
     if (!this.rate('laserFire', 0.15)) return;
     const pan = ev.orient === 'v' ? this.pan(ev.pos) : 0;
-    // Round 3: repeated fire and hits sit back under a live frame, and the beam's low end is
-    // lighter, so a frame landing on a flurry of core hits stays clear of the limiter.
-    this.engine.duck('combat', 0.7, 0.55, 0.3);
+    // Round 3: the beam's low end is lighter so a frame landing on a flurry of core hits
+    // stays clear of the limiter. (A combat duck here pumped the player's guns every ~3 s
+    // without buying headroom, so it was removed; the dense-mix trims do that work.)
     if (ev.value === true) this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 73.4, vol: 0.025, attack: 0.012, hold: 0.55, filter: { freq: 500 }, drive: 'hot' });
     this.noise({ at: t, dur: 0.025, vol: 0.05, filter: { type: 'highpass', freq: 3000 }, pan });
     this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 98, vol: 0.04, attack: 0.012, hold: 0.55, filter: { freq: 1600 }, drive: 'soft', pan: pan - 0.12 });

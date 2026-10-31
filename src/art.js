@@ -317,14 +317,16 @@ export function warmSkyforge(){
   return s.warmed;
 }
 export function drawSkyforge(c,scroll=0,platforms=true){
-  const s=skyforgeCache();if(!s.warmed)warmSkyforge();c.save();c.globalAlpha=1;if(s.sky)c.drawImage(s.sky,0,0);
+  // A cold stage-5 start (drill 5, QA hooks) finishes the bake before its first
+  // frame instead of drawing half-baked tiles; the campaign warms it during the climb.
+  const s=skyforgeCache();while(!s.warmed)warmSkyforge();c.save();c.globalAlpha=1;if(s.sky)c.drawImage(s.sky,0,0);
   c.save();c.beginPath();c.rect(0,285,540,615);c.clip();
   for(let layer=0;layer<3;layer++){
     const offset=(scroll*[.025,.055,.12][layer])%1100;
     c.globalAlpha=[.65,.45,.32][layer];
     if(s.clouds[layer])for(let j=-1;j<1;j++)c.drawImage(s.clouds[layer],-70+Math.sin(scroll*.0001+layer)*22,offset+j*1100);
     if(layer===0&&platforms&&s.platform){
-      c.globalAlpha=.42;
+      c.globalAlpha=.58;
       for(let i=0;i<3;i++){
         const x=platforms==='victory'?[30,500,515][i]:55+i*205,y=platforms==='victory'?340+i*26:320+(i*139+scroll*.018)%420,k=.24+i*.03;
         c.drawImage(s.platform,x-110*k,y-80*k,220*k,180*k);
