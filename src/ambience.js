@@ -15,6 +15,7 @@ const SECTORS = [null,
   { heading: 'Into the<br><em>typhoon.</em>', copy: 'The real fleet rides the storm. Strip hull turrets, kill scavengers before they steal your salvage, and dodge violet void rounds: the reflector cannot stop them.',
     weather: 'TYPHOON / WIND 70 KT', sea: 'SEA STATE 9 / PHENOMENAL', hdg: 331, signal: 2, lat: 33.2, lon: 171.08, jam: true },
   {heading:'Above the<br><em>storm.</em>',copy:'Above the storm, the factories fly. Watch below for bomber boxes. Break foundry bays and follow the gaps through HALCYON’s lattice.',weather:'DUSK / HIGH ALTITUDE / WIND 26 KT',sea:'CLOUD FLOOR / TYPHOON BELOW',hdg:88,signal:3,lat:35+40/60,lon:176+20/60},
+  {heading:'At the edge<br><em>of space.</em>',copy:'Where the long meridian ends. Break mirror escorts, shoot shards, and cut salvage tethers. THE SOVEREIGN guards the eclipse.',weather:'STRATOSPHERE / ECLIPSE',sea:'EARTH LIMB / TYPHOON BELOW',hdg:0,signal:3,lat:37,lon:180},
 ];
 const sectorOf = value => Math.min(CAMPAIGN_STAGES, Math.max(1, Math.floor(Number(value) || 1)));
 const SIGNAL_LABELS = ['NO CARRIER', 'LINK JAMMED', 'LINK WEAK', 'LINK FAIR', 'LINK SOLID'];
@@ -170,7 +171,7 @@ export class Ambience {
           break;
         }
         case 'empClear': if(event.value==='reset')this._clearEMPLog();break;
-        case 'bossDown': this._clearEMPLog();this._log(t, stage >= ACT_TWO_STAGE ? name + (stage===5?' BREAKING APART / SECTOR ':' SINKING / SECTOR ') + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
+        case 'bossDown': this._clearEMPLog();this._log(t, stage >= ACT_TWO_STAGE ? name + (stage===6?' SHATTERED / SECTOR ':stage===5?' BREAKING APART / SECTOR ':' SINKING / SECTOR ') + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
         case 'actTwo':
           if (!this.actTwoLogged) { this.actTwoLogged = true; this._log(t, 'ACT II / THE CROWN WAS ONLY THE GATE', 'gold'); this._log(t, 'NEW CONTACT / ENEMY BATTLE LINE IN TYPHOON', 'warn'); }
           break;
@@ -195,6 +196,11 @@ export class Ambience {
         case 'bomb': this._log(t, (SPECIALS[game.shipId] || 'SPECIAL') + ' DEPLOYED', 'gold'); break;
         case 'reactorBreak': this._log(t, Number(event.value) < 0 ? 'LEFT REACTOR / COVER OPEN' : 'RIGHT REACTOR / SPIRAL OFFLINE', 'gold'); break;
         case 'lanceCancel': this._log(t, 'LANCE VENTED', 'cool'); break;
+        case 'shardBreak': case 'stationTurretDown': case 'echoSpawn': case 'satelliteEnter': case 'satelliteDown': case 'stationEnter': case 'stationDown': case 'mirrorCopy': case 'tetherLaunch': case 'tetherCut': case 'tetherLost': case 'sovereignGrow': case 'mirrorShatter': case 'actTwoComplete': {
+          const eventTime=Number(game.time)||0;if(eventTime-(this.skyLogs[event.type]??-99)<4)break;this.skyLogs[event.type]=eventTime;
+          const copy={shardBreak:'MIRROR SHARDS CLEARED',stationTurretDown:'GATE GUN DISABLED',echoSpawn:'MIRROR ECHO / YOUR PATH REPLAYED',satelliteEnter:'ORBITAL LASER / CONTACT',satelliteDown:'ORBITAL LASER DISABLED',stationEnter:'MERIDIAN GATE / STRIP GUNS',stationDown:'MERIDIAN GATE CLEARED',mirrorCopy:'MIRROR CAPITAL SHIP / ARSENAL COPIED',tetherLaunch:'SALVAGE TETHER / CUT NODE',tetherCut:'TETHER CUT / SALVAGE RELEASED',tetherLost:'SALVAGE LOST',sovereignGrow:'THE SOVEREIGN / CORE EXPANDING',mirrorShatter:'THE SOVEREIGN SHATTERED',actTwoComplete:'ACT II COMPLETE'};
+          this._log(t,copy[event.type],'gold');break;
+        }
         case 'victory': this._log(t, 'OPERATION COMPLETE / FLEET DISABLED', 'gold'); break;
         case 'gameover': this._log(t, 'MAYDAY / SIGNAL LOST', 'hot'); break;
       }

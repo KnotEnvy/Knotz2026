@@ -21,7 +21,7 @@ const flagshipName = n => FLAGSHIP_NAMES[n] || 'FLAGSHIP';
 const actClass = n => n>=ACT_TWO_STAGE?'act-two':'';
 document.querySelector('.mastery-badges').innerHTML=campaign.map(n=>`<span data-mastery="${n}" class="${actClass(n)}">${flagshipName(n)}</span>`).join('');
 document.querySelector('.drill-buttons').innerHTML=campaign.map(n=>`<button type="button" class="drill-button ${actClass(n)}" data-drill="${n}" ${n>1?'disabled':''}><span>${stageLabel(n)} / ${flagshipName(n)} <em>${actName(n)}</em></span><small>${n===1?'UNRANKED / ARRIVAL KIT':'ENCOUNTER TO UNLOCK'}</small></button>`).join('');
-document.querySelector('.console-route').innerHTML=campaign.map(n=>`<span data-node="${n}"><b>${stageLabel(n)}</b><small>${({1:"SHALLOWS",2:"STORM WALL",3:"CROWN",4:"MONSOON",5:"SKYFORGE"})[n]||sectorName(n)}</small></span>`).join('<i></i>');
+document.querySelector('.console-route').innerHTML=campaign.map(n=>`<span data-node="${n}"><b>${stageLabel(n)}</b><small>${({1:"SHALLOWS",2:"STORM WALL",3:"CROWN",4:"MONSOON",5:"SKYFORGE",6:"MERIDIAN"})[n]||sectorName(n)}</small></span>`).join('<i></i>');
 document.querySelector('.mission-route').innerHTML='<span>MISSION ROUTE</span>'+campaign.map(n=>`<b class="${actClass(n)}">${stageLabel(n)} / ${sectorName(n)}</b>`).join('<i>↗</i>');
 document.querySelector('#holdTrack').innerHTML='<i class="hold-track-fill"></i>'+campaign.map(n=>`<i class="hold-node" data-node="${n}" style="left:${(n-.5)/CAMPAIGN_STAGES*100}%"></i>`).join('')+'<i class="hold-track-marker"></i>';
 document.querySelector('.hold-nodes').innerHTML=campaign.map(n=>`<li data-sector="${n}"><b>${stageLabel(n)}</b><strong>${sectorName(n)}</strong><span>${flagshipName(n)}</span><em>AHEAD</em></li>`).join('');
@@ -517,7 +517,7 @@ function endSortie(summary, fixture=false){
   const score=number(data.score??game.score);
   const gradeLine='GRADE '+grade+' / '+String(score).padStart(8,'0')+' POINTS';
   setText('endIntroKicker',won?'FINAL SIGNAL / '+flagshipName(stage)+(stage===5?' BROKEN':' DOWN'):'MAYDAY / SECTOR '+String(stage).padStart(2,'0'));
-  setText('endIntroHeading',won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
+  setText('endIntroHeading',won&&stage===6?'ACT II COMPLETE':won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
   setText('endIntroLine',won?gradeLine:'FLIGHT RECORD RECOVERED / '+gradeLine);
   if(drill){
     const tier=drillClearTier(data);
@@ -617,6 +617,8 @@ function frame(now){
     hud.draw(game,dt,ctx);
     sequences.draw(ctx,game,dt);
     audio.update(game,dt);
+    // The sector-6 aurora pulses on the score's bar clock (timeline.auroraBarPhase).
+    game.audioState=audio.state;
     ambience.update(game,dt);
     consumeOneShots();
     readoutsFromGame(dt);

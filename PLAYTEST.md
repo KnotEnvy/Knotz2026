@@ -98,3 +98,7 @@ concurrent iterator/QA processes were active). Repeated warming averaged
 10,000 repeated calls averaged 0.00045 ms (`verification.json`). Cold work now
 happens before sector 5 rather than on its first gameplay frame. No new visual
 judge score is claimed. Own QA server: port 4391, PID 2028892; stopped after verification.
+
+### Sector 6: ZERO MERIDIAN
+
+Six sectors now end with THE SOVEREIGN, a mirror capital ship at the edge of space. Break its escorts, shoot shards and cut salvage tethers. Clearing it completes Act II; Act III remains unplanned. Check the eclipse, Earth limb, aurora, climb from SKYFORGE, clear tally and ACT III tease on desktop, phone, compact and reduced effects.

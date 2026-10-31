@@ -1,11 +1,11 @@
 // Shared presentation timing and naming, so visuals and audio agree on the same moments.
 // Read-only helpers: never change game state from here.
 
-export const SECTOR_NAMES = Object.freeze(['', 'THE SHALLOWS', 'STORM WALL', 'THE CROWN', 'IRON MONSOON', 'SKYFORGE']);
-export const FLAGSHIP_NAMES = Object.freeze(['', 'VESPER', 'AURELIA', 'THE CROWN', 'LEVIATHAN', 'HALCYON']);
-export const FLAGSHIP_CLASSES = Object.freeze(['', 'STRIKE CARRIER', 'REACTOR DREADNOUGHT', 'LANCE CITADEL', 'SUPER-DREADNOUGHT', 'FLYING-WING CARRIER']);
-export const SECTOR_COORDS = Object.freeze(['', 'N 07°21′  E 134°28′', 'N 21°44′  E 148°02′', 'N 29°58′  E 162°40′', 'N 33°12′  E 171°05′', 'N 35°40′  E 176°20′']);
-export const SECTOR_TAGLINES = Object.freeze(['', 'Reef lanes at first light.', 'Into the teeth of the storm.', 'Where the sea folds into fire.', 'The real fleet rides the typhoon.', 'Above the storm, the factories fly.']);
+export const SECTOR_NAMES = Object.freeze(['', 'THE SHALLOWS', 'STORM WALL', 'THE CROWN', 'IRON MONSOON', 'SKYFORGE', 'ZERO MERIDIAN']);
+export const FLAGSHIP_NAMES = Object.freeze(['', 'VESPER', 'AURELIA', 'THE CROWN', 'LEVIATHAN', 'HALCYON', 'THE SOVEREIGN']);
+export const FLAGSHIP_CLASSES = Object.freeze(['', 'STRIKE CARRIER', 'REACTOR DREADNOUGHT', 'LANCE CITADEL', 'SUPER-DREADNOUGHT', 'FLYING-WING CARRIER', 'MIRROR CAPITAL SHIP']);
+export const SECTOR_COORDS = Object.freeze(['', 'N 07°21′  E 134°28′', 'N 21°44′  E 148°02′', 'N 29°58′  E 162°40′', 'N 33°12′  E 171°05′', 'N 35°40′  E 176°20′', 'N 37°00′  180°00′']);
+export const SECTOR_TAGLINES = Object.freeze(['', 'Reef lanes at first light.', 'Into the teeth of the storm.', 'Where the sea folds into fire.', 'The real fleet rides the typhoon.', 'Above the storm, the factories fly.', 'Where the long meridian ends.']);
 // First sector of Act II. Act I builds the arsenal through the Crown.
 import { ACT_TWO_STAGE, actOf } from './game.js';
 export { ACT_TWO_STAGE, actOf } from './game.js';
@@ -76,4 +76,11 @@ export function lightningAt(time, stage) {
     return { id: stage * 100000 + s, age, flash: flicker * (1 - distance * 0.55), x: hash(s * 7.73 + stage), distance };
   }
   return null;
+}
+
+// Four beats per bar; deterministic fallback when the audio clock is unavailable.
+export const ZERO_MERIDIAN_BPM = 140;
+export function auroraBarPhase(game) {
+  const phase = Number(game?.audioState?.barPhase);
+  return Number.isFinite(phase) ? phase % 1 : ((Number(game?.time)||0) * ZERO_MERIDIAN_BPM / 240) % 1;
 }
