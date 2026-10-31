@@ -680,7 +680,8 @@ CUES.sector5 = {
       m.mel(I, 'strings', SKY_THEME[i], t, S, K, { vel: 0.16, bright: 0.5, attack: 0.08, vib: 6 });
     }
     if (!A || inten > 0.3) skyArp(m, I, t, S, K, ch, 81, A ? 0.034 : 0.042, 1);
-    // Light kit: kick and rim carry the pulse; density adds hats, shaker and toms, never taiko.
+    // Light kit: kick and rim carry the pulse; density adds hats, shaker and toms. The only taiko
+    // is the phrase-opening hit with the crash (above).
     m.drums(I, 'k', 'x.......x.x.....', t, S, 0.56);
     m.drums(I, inten > 0.55 ? 's' : 'r', i === 7 ? '....x.......x.xx' : '....x.......x...', t, S, inten > 0.55 ? 0.4 : 0.34);
     m.drums(I, 'h', inten > 0.4 ? '-.x--.x--.x--.x-' : '..x...x...x...x.', t, S, 0.15);

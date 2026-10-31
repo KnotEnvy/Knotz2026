@@ -393,12 +393,24 @@ test('every gameplay event and interface cue plays without errors', async () => 
       const types = ['shoot', 'missileLaunch', 'missileHit', 'hit', 'railHit', 'bossArmorHit', 'bossCoreHit', 'explode',
         'reactorBreak', 'pickup', 'drop', 'powerUp', 'graze', 'wakeReady', 'roll', 'wakeRoll', 'wakeConvert', 'rollStrike', 'shieldHit',
         'shieldBreak', 'shieldRestore', 'playerHit', 'lifeLost', 'bomb', 'bossEnter', 'bossPhase', 'bossGuard', 'bossGuardEnd', 'bossShot',
-        'reactorOpen', 'lanceLock', 'lanceFire', 'lanceCancel', 'flank', 'wave', 'lane', 'extend', 'stage', 'bossDown', 'gameover', 'victory'];
-      const values = { explode: ['scout', 'ace', 'carrier'], pickup: ['power', 'shield', 'bomb', 'life', 'score'], bomb: ['nova', 'barrier', 'storm'], bossPhase: [2, 3], powerUp: [3] };
+        'reactorOpen', 'lanceLock', 'lanceFire', 'lanceCancel', 'flank', 'wave', 'lane', 'extend', 'stage', 'bossDown', 'gameover', 'victory',
+        // Sector 5, SKYFORGE (all 15 events).
+        'boxEnter', 'gunnerFire', 'skyAceDodge', 'flakMark', 'flakBurst', 'foundryEnter', 'foundryDown', 'bayDown', 'droneLaunch',
+        'laserWarn', 'laserFire', 'empCharge', 'empPulse', 'empClear', 'wingBreak'];
+      const values = { explode: ['scout', 'ace', 'carrier'], pickup: ['power', 'shield', 'bomb', 'life', 'score'], bomb: ['nova', 'barrier', 'storm'], bossPhase: [2, 3], powerUp: [3],
+        boxEnter: ['climb', 'dive'], gunnerFire: [2, 3], skyAceDodge: [-1, 1], flakMark: [2], flakBurst: [0], foundryEnter: ['small', 'large'], foundryDown: ['small', 'large'],
+        bayDown: ['foundry', 'boss'], droneLaunch: [0], laserWarn: [false, true], laserFire: [false, true], empCharge: [0], empPulse: [true, false], empClear: [undefined], wingBreak: [5] };
+      // Representative fields the sector-5 handlers read (docs/design/act-two.md, "Events and fields").
+      const fields = { boxEnter: { xs: [196, 270, 344], lead: 1.2, count: 3 }, flakMark: { gaps: [150, 390], gapW: 80, warn: 1 }, flakBurst: { count: 30 },
+        droneLaunch: { count: 2 }, laserWarn: { orient: 'v', pos: 140, count: 4, bars: [{ orient: 'v', pos: 140, from: 200, to: 900 }, { orient: 'v', pos: 268, from: 200, to: 900 }] },
+        laserFire: { count: 4 }, empCharge: { r: 120 }, wingBreak: { w: 220, h: 70, angle: 0 }, bossDown: {} };
+      // The escorts' reboot chirp needs a wing to reboot.
+      const games = { empClear: playingGame({ stage: 5, player: { ...playingGame().player, escorts: 6, empTime: 0 } }),
+        empPulse: playingGame({ stage: 5, player: { ...playingGame().player, escorts: 6, empTime: 2 } }) };
       for (const type of types) {
         for (const value of values[type] || [1]) {
-          ctx.currentTime += 1;
-          const created = sourcesDuring(ctx, () => engine.playEvent({ type, x: 300, y: 400, value }, playingGame()));
+          ctx.currentTime += 3.5;   // past every cue's throttle (wingBreak's is 3 s)
+          const created = sourcesDuring(ctx, () => engine.playEvent({ type, x: 300, y: 400, value, ...fields[type] }, games[type] || playingGame()));
           assert.ok(created.length > 0, type + ' (' + value + ') makes a sound');
           endVoices(ctx);
         }
@@ -414,6 +426,35 @@ test('every gameplay event and interface cue plays without errors', async () => 
     assert.deepEqual(warnings, []);
     assert.equal(engine.activeVoices, 0, 'every voice releases its budget when it ends');
     assert.equal(engine.combatVoices, 0);
+  });
+});
+
+test('the EMP hum runs from empPulse until the wing reboots; a lost life, the run\'s end, HALCYON\'s fall, a sector change and pause cut it', async () => {
+  await unlocked((engine, ctx) => {
+    engine.setScreen('play');
+    const wing = (escorts = 6, empTime = 2) => playingGame({ stage: 5, player: { ...playingGame().player, escorts, empTime } });
+    const pulse = () => { ctx.currentTime += 1; engine.playEvent({ type: 'empPulse', x: 270, y: 600, value: true }, wing()); return engine.sfx.empHum; };
+    for (const cutter of ['lifeLost', 'gameover', 'bossDown', 'wingBreak', 'stage']) {
+      const hum = pulse();
+      assert.ok(hum && !hum.stopped, 'empPulse starts the dead hum');
+      ctx.currentTime += 0.5;
+      engine.playEvent({ type: cutter, x: 270, y: 600, value: cutter === 'bossDown' ? 5 : 1 }, wing(0, 0));
+      assert.equal(hum.stopped, true, cutter + ' cuts the hum'); assert.equal(engine.sfx.empHum, null);
+      endVoices(ctx);
+    }
+    // Pause cuts it (the hum is a long cue).
+    const hum = pulse();
+    engine.setScreen('pause'); engine.update({ ...wing(), mode: 'paused', events: [] }, 0);
+    assert.equal(hum.stopped, true, 'pause cuts the hum');
+    engine.setScreen('play'); endVoices(ctx);
+    // empClear: the natural reboot chirps; a reset, or a wing that is gone, only stops the hum.
+    for (const [value, escorts, chirps] of [[undefined, 6, true], ['reset', 6, false], [undefined, 0, false]]) {
+      const h = pulse(); ctx.currentTime += 2;
+      const created = sourcesDuring(ctx, () => engine.playEvent({ type: 'empClear', x: 270, y: 600, value }, wing(escorts, 0)));
+      assert.equal(h.stopped, true);
+      assert.equal(created.length > 0, chirps, `empClear ${value ?? 'reboot'} with ${escorts} escorts ${chirps ? 'chirps' : 'is silent'}`);
+      endVoices(ctx);
+    }
   });
 });
 

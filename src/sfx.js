@@ -64,6 +64,9 @@ export class SfxLibrary {
   vary(amount) { return 1 + this.rnd() * amount; }
   pan(x) { return clamp(((Number(x) || 270) - 270) / 270, -1, 1) * 0.45; }
   rate(name, interval) { return this.engine.canPlay(name, interval); }
+  // The EMP's dead hum ends with the escorts' state: a lost life, the run's end, HALCYON's fall
+  // and a sector change all cut it (the simulation also sends empClear "reset" for these).
+  _cutEmp() { this.empHum?.stop(0.05); this.empHum = null; }
   get combat() { return this.engine.combatBus; }
   get fx() { return this.engine.fxBus; }
   get alert() { return this.engine.alertBus; }
@@ -710,6 +713,7 @@ const HANDLERS = {
     this.osc({ at: t + 0.12, dur: 0.1, type: 'square', freq: hz(77), vol: 0.026, filter: { type: 'bandpass', freq: 1500, q: 1.5 }, bus: this.alert });
   },
   lifeLost(ev, game, t) {
+    this._cutEmp();
     const pan = this.pan(ev.x);
     this.engine.duck('beds', 0.45, 0.3, 0.8);
     this.engine.duck('combat', 0.25, 0.25, 0.6);
@@ -876,12 +880,14 @@ const HANDLERS = {
   },
   stage(ev, game, t) {
     // Comms open: a static burst, two beeps and the air of the next sector.
+    this._cutEmp();
     this.noise({ at: t, dur: 0.12, vol: 0.028, filter: { type: 'bandpass', freq: 1800, q: 1.5 } });
     this.osc({ at: t + 0.12, dur: 0.06, type: 'sine', freq: hz(81), vol: 0.03 });
     this.osc({ at: t + 0.2, dur: 0.08, type: 'sine', freq: hz(88), vol: 0.03, send: 0.2 });
     this.noise({ at: t, dur: 1.2, color: 'pink', vol: 0.04, attack: 0.5, filter: { type: 'bandpass', freq: 200, end: 900, q: 0.9 } });
   },
   bossDown(ev, game, t) {
+    this._cutEmp();
     this.engine.duck('beds', 0.35, 1.6, 1.6);
     this.engine.duck('combat', 0.2, 1.6, 1);
     // HALCYON's fall is voiced by wingBreak; bossDown keeps only the opening blasts for it.
@@ -905,6 +911,7 @@ const HANDLERS = {
     this.fm({ at: t + 0.2, dur: 2.5, freq: hz(28), ratio: 1.41, index: 2, indexEnd: 0.2, vol: 0.04, send: 0.4 });
   },
   gameover(ev, game, t) {
+    this._cutEmp();
     // Signal lost: two falling carriers through static, then a distant boom.
     this.osc({ at: t, dur: 1.8, type: 'sine', freq: 880, end: 110, vol: 0.045, send: 0.3 });
     this.osc({ at: t + 0.1, dur: 2.0, type: 'sine', freq: 442, end: 55, vol: 0.045, send: 0.3 });
@@ -1046,7 +1053,7 @@ const HANDLERS = {
     this.osc({ at: t, dur: 0.9, type: 'sine', freq: 72, end: 28, vol: 0.12, bus: this.alert });
     this.noise({ at: t, dur: 0.4, color: 'crackle', vol: 0.06, filter: { type: 'bandpass', freq: 2200, q: 0.8 }, bus: this.alert, send: 0.2 });
     this.osc({ at: t, dur: 0.24, type: 'square', freq: 1900, end: 180, vol: 0.02, filter: { freq: 3000 }, bus: this.alert });
-    this.empHum?.stop(0.05); this.empHum = null;
+    this._cutEmp();
     if (!hit) {
       [88, 95].forEach((n, i) => this.osc({ at: t + 0.12 + i * 0.07, dur: 0.3, type: 'glass', freq: hz(n), vol: 0.026, send: 0.2, bus: this.alert }));
       return;
@@ -1059,8 +1066,10 @@ const HANDLERS = {
     this.empHum = cue;
   },
   empClear(ev, game, t) {
-    // Escorts reboot: the dead hum lifts and three chirps climb into a short power swell.
+    // Escorts reboot: the dead hum lifts and three chirps climb into a short power swell. A reset
+    // (scatter, lost life, HALCYON's fall, sector change) or a wing that is gone only cuts the hum.
     this.empHum?.stop(0.06); this.empHum = null;
+    if (ev.value === 'reset' || !(Number(game?.player?.escorts) > 0)) return;
     if (!this.rate('empClear', 0.4)) return;
     [72, 79, 84].forEach((n, i) => this.osc({ at: t + i * 0.07, dur: 0.055, type: 'square', freq: hz(n), vol: 0.022, filter: { type: 'bandpass', freq: 1800, q: 1.2 }, bus: this.alert }));
     this.osc({ at: t, dur: 0.4, type: 'sawtooth', freq: 80, end: 165, vol: 0.016, attack: 0.15, filter: { freq: 500, end: 1600, time: 0.35 }, bus: this.alert });
@@ -1068,6 +1077,7 @@ const HANDLERS = {
   wingBreak(ev, game, t) {
     // HALCYON breaks apart: the spar shears, blasts roll along the wing from tip to tip, then the
     // hulk falls away with a long whistling drop and a muffled impact deep in the cloud floor.
+    this._cutEmp();
     if (!this.rate('wingBreak', 3)) return;
     this.engine.duck('beds', 0.4, 2.4, 2);
     this.engine.duck('combat', 0.2, 2, 1);

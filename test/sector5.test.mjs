@@ -78,7 +78,7 @@ test('LEVIATHAN hands over to sector 5 on an ordinary interlude; victory follows
   const climb = step(game, 3.7);
   assert.equal(game.stage, 5); assert.equal(game.mode, 'playing');
   assert.ok(climb.some(e => e.type === 'stage' && e.value === 5));
-  assert.equal(game.player.hp, hp + 1, 'sector 5 entry adds one hull point'); assert.equal(game.player.bombs, bombs + 1);
+  assert.ok(hp < game.player.maxHp); assert.equal(game.player.hp, game.player.maxHp, 'clearing LEVIATHAN repairs the hull'); assert.equal(game.player.bombs, bombs + 1);
   assert.equal(game.stageGoal[5], 100); assert.equal(game.threat, 0, 'the sector opens on a power trip');
   game._spawnBoss();
   assert.equal(game.boss.name, 'HALCYON'); assert.ok(game.boss.halcyon);
@@ -352,6 +352,73 @@ test('an EMP ring charges 1.2 s, then disables the escorts for 2 s unless the sh
   }
 });
 
+test('an EMP ring leads the ship 0.6 s: a steady drift is caught, a turn escapes', () => {
+  const fly = turnAt => {
+    const g = quietSector5(); const p = g.player; p.x = 150; p.y = 600;
+    step(g, 1 / 60, { right: true, focus: true });
+    g.boss = { id: -1 }; g._halcyonEmp({}); g.boss = null;
+    const emp = g.hazards[0];
+    const out = step(g, 1.25, gm => gm.stageTime < turnAt ? { right: true, focus: true } : { left: true, focus: true });
+    return { emp, vx: 190, x0: 150 + 190 / 60, hit: out.find(e => e.type === 'empPulse').value };
+  };
+  const straight = fly(99);
+  assert.ok(Math.abs(straight.emp.x - (straight.x0 + 190 * .6)) < 1, 'the ring is centred 0.6 s ahead: ' + straight.emp.x);
+  assert.equal(straight.hit, true, 'flying straight is caught');
+  assert.equal(fly(.3).hit, false, 'turning back escapes');
+  // A still ship gets the ring on itself, as before.
+  const still = quietSector5(); still.player.x = 200; still.player.y = 600; step(still, 1 / 60, {});
+  still.boss = { id: -1 }; still._halcyonEmp({}); still.boss = null;
+  assert.deepEqual([still.hazards[0].x, still.hazards[0].y], [200, 600]);
+});
+
+test('a scatter, a lost life, HALCYON\'s death and a sector change reset a disabled wing (empClear "reset")', () => {
+  const resets = events => events.filter(e => e.type === 'empClear' && e.value === 'reset').length;
+  // Scatter: the escorts are gone, and so is the EMP.
+  const g = quietSector5(); const p = g.player; p.invuln = 0; p.shield = 0; p.empTime = 1.5; g.events = [];
+  g._hurtPlayer(p.x, p.y);
+  assert.equal(p.empTime, 0); assert.equal(resets(g.events), 1);
+  // A lost life (its first scatter resets the wing before lifeLost).
+  const d = quietSector5(); d.player.invuln = 0; d.player.shield = 0; d.player.hp = 1; d.player.empTime = 1.5; d.events = [];
+  d._hurtPlayer(d.player.x, d.player.y);
+  const types = d.events.map(e => e.type);
+  assert.equal(d.player.empTime, 0); assert.equal(resets(d.events), 1);
+  assert.ok(types.indexOf('empClear') < types.indexOf('lifeLost'));
+  // HALCYON's death.
+  const h = new Game(); h.selectShip('kestrel'); h.startDrill(5); h.player.empTime = 1.2; h.events = [];
+  h._killEnemy(h.boss);
+  assert.equal(h.player.empTime, 0); assert.equal(resets(h.events), 1);
+  // A sector change.
+  const s = quietSector5(); s.stage = 4; s.player.empTime = .8; s.events = [];
+  s._advanceStage();
+  assert.equal(s.stage, 5); assert.equal(s.player.empTime, 0); assert.equal(resets(s.events), 1);
+  // Nothing to reset: no event (sectors 1-4 never see one).
+  const q = quietSector5(); q.player.invuln = 0; q.player.shield = 0; q.events = [];
+  q._hurtPlayer(q.player.x, q.player.y); assert.equal(count(q.events, 'empClear'), 0);
+  // The natural reboot carries no reset flag.
+  const n = quietSector5(); n.player.empTime = .1; const out = step(n, .2);
+  assert.equal(count(out, 'empClear'), 1); assert.notEqual(out.find(e => e.type === 'empClear').value, 'reset');
+});
+
+test('a tail gunner emits one gunnerFire per burst, with value = the rounds it fires', () => {
+  const game = quietSector5(); game.player.x = 270; game.player.y = 800;
+  let cur = null;
+  const upd = game._updateSectorFiveEnemy.bind(game), spread = game._spread.bind(game), ev = game._event.bind(game);
+  game._updateSectorFiveEnemy = (e, h, p) => { cur = e; upd(e, h, p); cur = null; };
+  const bursts = new Map();
+  game._event = (type, x, y, value) => { if (type === 'gunnerFire') (bursts.get(cur.id) || bursts.set(cur.id, []).get(cur.id)).push({ value, rounds: 0 }); return ev(type, x, y, value); };
+  game._spread = (...a) => { if (cur?.type === 'tailGunner') bursts.get(cur.id).at(-1).rounds++; return spread(...a); };
+  game._spawnBox(true, 270, 3);
+  const events = step(game, 9, {});
+  const all = [...bursts.values()].flat();
+  assert.ok(all.length >= 4, 'gunners fired bursts: ' + all.length);
+  assert.equal(count(events, 'gunnerFire'), all.length, 'one event per burst');
+  const live = new Set(game.enemies.filter(e => e.type === 'tailGunner' && !e.dead && e.burstLeft > 0).map(e => e.id));
+  for (const [id, list] of bursts) list.forEach((b, i) => {
+    assert.ok(b.value >= 2 && b.value <= 3);
+    if (!(live.has(id) && i === list.length - 1)) assert.equal(b.rounds, b.value, 'a burst fires exactly its announced rounds');
+  });
+});
+
 test('a bomb clears flak bands and lasers, but EMP rings stay', () => {
   const game = quietSector5(); game.player.bombs = 1;
   game._spawnFlakBand(500, 2); game._laserBar(1, 'v', 100, 0, 900);
@@ -372,7 +439,7 @@ test('HALCYON: three bays armor the core x0.25 and launch squadrons, then the la
   assert.ok(count(launched, 'squadronEnter') >= 3 && launched.filter(e => e.type === 'squadronEnter').every(e => e.value === 3));
   assert.ok(quiet.enemies.filter(e => e.type === 'interceptor').every(e => !e.squad), 'bay squadrons pay no wipe bonus');
   const events = [], phases = [], kinds = new Set();
-  let drops = 0, empPhase = 0, voidLasers = 0, plainLasers = 0, guardCurtain = false;
+  let drops = 0, empPhase = 0, voidLasers = 0, plainLasers = 0, guardCurtain = false, lastBay = 0;
   for (let f = 0; f < 60 * 120 && game.mode === 'playing'; f++) {
     game.player.invuln = 99;
     game.update(1 / 60, tracker(game));
@@ -380,6 +447,7 @@ test('HALCYON: three bays armor the core x0.25 and launch squadrons, then the la
       events.push(e);
       if (e.type === 'drop' && boss.phase === 1) drops++;
       if (e.type === 'bossPhase') phases.push(e.value);
+      if (e.type === 'bayDown') lastBay = boss.age;
       if (e.type === 'empCharge') empPhase = Math.max(empPhase, boss.phase);
       if (e.type === 'laserWarn') { if (e.value) voidLasers++; else plainLasers++; e.bars.forEach(b => kinds.add(b.orient)); }
     }
@@ -395,11 +463,45 @@ test('HALCYON: three bays armor the core x0.25 and launch squadrons, then the la
   assert.ok(guardCurtain, 'the desperation curtain plays on the final guard floor');
   assert.equal(game.mode, 'victory');
   assert.ok(boss.age >= 65 && boss.age <= 85, 'the reference kit takes 65-85 s: ' + boss.age.toFixed(1));
+  assert.ok(lastBay >= 11 && lastBay <= 19, 'the three bays hold about 12-18 s against the reference kit: ' + lastBay.toFixed(1));
+});
+
+test('HALCYON meets a short campaign kit with less HP (never in drills); its bays read the rank', () => {
+  const at = loadout => {
+    const g = sortie('kestrel'); g.stage = 5; kit(g, loadout); g.threat = g._threatTarget(); g._spawnBoss();
+    return { hp: g.boss.maxHp, bay: g.enemies.find(e => e.type === 'foundryBay').maxHp };
+  };
+  const full = at({ level: 60, escorts: 6, sidewinder: 20, signature: 20, shield: 3 }), ref = at(REFERENCE5);
+  const p25 = at(REFERENCE4), bare = at({ level: 2 });
+  assert.equal(full.hp, 240000, 'a full arrival kit meets full HP');
+  assert.ok(ref.hp < 240000 && ref.hp > 210000, 'the reference kit (arsenal 87) is near full: ' + ref.hp);
+  assert.ok(p25.hp < ref.hp && p25.hp > .6 * 240000, 'a P25 kit meets less: ' + p25.hp);
+  assert.equal(bare.hp, .55 * 240000, 'the floor');
+  const drill = new Game(); drill.selectShip('kestrel'); drill.startDrill(5);
+  assert.equal(drill.boss.maxHp, 240000, 'drills have no mercy');
+  // Bays: x2.6 more HP from threat .7 to .84 (the reference kit), none for a sector-4 kit.
+  assert.ok(Math.abs(ref.bay - 1800 * 2.2 * 2.6) < 1e-6, 'reference bays ' + ref.bay);
+  assert.ok(bare.bay === 1800 * 1.35 && p25.bay < 1800 * 2.2, 'weak-kit bays ' + p25.bay);
+});
+
+test('sector 5 pays rescue power below threat 0.6 (sector 4 keeps 0.5), and the 48 s ace wing has a rescue lead', () => {
+  const pays = stage => {
+    const g = sortie('kestrel'); g.stage = stage; g.threat = .55;
+    const e = g._enemy('interceptor', 270, 300, { rescue: true }); g.pickups.length = 0;
+    g._killEnemy(e); return g.pickups.filter(i => i.type === 'power').length;
+  };
+  assert.equal(pays(5), 1); assert.equal(pays(4), 0);
+  const wing = STAGE_BEATS[5].find(b => b[1] === 'aceWing');
+  assert.equal(wing[0], 48); assert.ok(wing[2]?.rescue);
+  const g = quietSector5(); g._spawnSectorFiveBeat('aceWing', wing[2]);
+  const aces = g.enemies.filter(e => e.type === 'skyAce');
+  assert.deepEqual(aces.map(e => !!e.rescue), [true, false, false, false, false]);
 });
 
 test('HALCYON holds a bare ship roughly three times longer than the reference kit', () => {
   const game = new Game(); game.selectShip('kestrel'); game.startDrill(5);
   kit(game, { level: 2, escorts: 0, sidewinder: 0, signature: 0, shield: 0 }); game.threat = 0;
+  game._spawnBoss();   // respawn at the bare kit's rank (bays read it at spawn); a drill has no mercy
   for (let f = 0; f < 60 * 400 && game.mode === 'playing'; f++) { game.player.invuln = 99; game.update(1 / 60, tracker(game)); }
   assert.equal(game.mode, 'victory');
   assert.ok(game.time >= 190 && game.time <= 290, 'bare kill time ' + game.time.toFixed(1));
@@ -473,7 +575,7 @@ test('key drops are collected 2 s or more before the attack they answer (engaged
     }
     assert.ok(got['2.5:sidewinder'] <= 11.1 - 2, `${ship} sidewinder ${got['2.5:sidewinder']} before the first aces fire`);
     assert.ok(got['15.5:shield'] <= flak[0] - 2, `${ship} shield ${got['15.5:shield']} before the first flak burst ${flak[0]}`);
-    assert.ok(got['44.5:reflector'] === undefined || got['44.5:reflector'] <= 49.1 - 2, `${ship} reflector ${got['44.5:reflector']} before the ace wing`);
+    assert.ok(got['43.5:reflector'] <= 49.1 - 2, `${ship} reflector ${got['43.5:reflector']} collected before the ace wing`);
     assert.ok(got['34.0:signature'] <= 48.1 - 2, `${ship} foundry signature ${got['34.0:signature']} before the 45.5 s box gunners`);
   }
 });

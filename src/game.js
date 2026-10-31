@@ -95,7 +95,10 @@ const FORMATION_TYPES = new Set(["scout","wing","interceptor"]);
 // reference kit and a stripped ship can still wipe squadrons and catch rescue drops.
 const ACT_TWO_HP_SCALE = [1,1,1,1,1,2.2];
 const POPCORN_HP_SCALE = [1,1,1,1,1,1.35];
-const HEAVY_FULL_THREAT = .75;
+// Heavies reach the full scale at HEAVY_FULL_THREAT (the reference kit, ~0.84+)
+// on an eased ramp from LOW_THREAT (x^HEAVY_EASE), so a P25 kit (~0.68) meets
+// x1.84 rather than round 1's x2.09.
+const HEAVY_FULL_THREAT = .84, HEAVY_EASE = 1.6;
 const POPCORN_TYPES = new Set(["interceptor","scavenger","mine","torpedoEnemy","drone"]);
 const BOX_BOMBER_HP = 1600, TAIL_GUNNER_HP = 420, SKY_ACE_HP = 1000, DRONE_HP = 30;
 const FOUNDRY_CLASSES = {
@@ -113,8 +116,17 @@ const FLAK_WARN = 1, FLAK_GAP = 80, FLAK_STEP = 26, FLAK_SPEED = 120, FLAK_TTL =
 // Sector 5's own fire is a notch faster and denser than sector 4's (HALCYON keeps the shared rank).
 const SECTOR_FIVE_SPEED = 1.12, SECTOR_FIVE_PACE = .88;
 const LASER_WARN = .9, LASER_ON = .8, LASER_WIDTH = 9, LASER_GAP = 56;   // half-gap of a row
-const EMP_CHARGE = 1.2, EMP_TIME = 2, EMP_RADIUS = 120, EMP_SHOW = .35;
+const EMP_CHARGE = 1.2, EMP_TIME = 2, EMP_RADIUS = 120, EMP_SHOW = .35, EMP_LEAD = .6;
 const HALCYON_HP = 240000, HALCYON_BAY_HP = 1800, HALCYON_SWAY = 24;
+// HALCYON's bays hold longer against a full kit, so phase 1 ("Three bays")
+// reads: up to x HALCYON_BAY_RANK more HP from threat .7 (a sector-4 kit) to
+// .84 (the sector-5 reference kit) and above.
+const HALCYON_BAY_RANK = 2.6, HALCYON_BAY_RANK_FROM = .7, HALCYON_BAY_RANK_FULL = .84;
+// Campaign mercy (never in drills, like Act I's): HALCYON meets a short kit
+// with less HP. Full HP from the reference arsenal (87) up; it falls linearly
+// to HALCYON_MERCY_FLOOR at arsenal HALCYON_MERCY_LOW and below. The
+// reference kill is held by the learn windows, so only weak kits feel it.
+const HALCYON_MERCY_FLOOR = .55, HALCYON_MERCY_LOW = 30, HALCYON_MERCY_FULL = 100;
 const HALCYON_LAUNCH = 6;          // s between one bay's squadron launches (x _bossPace)
 const HALCYON_LATTICE_CYCLE = 2.9; // s between lattice frames (x _bossPace)
 const HALCYON_HANGAR = 4.2;         // s between core-hangar drone pairs, phases 2-3 (x _bossPace)
@@ -164,6 +176,9 @@ const VOLLEY_FULL = .75;
 // a power level only while threat is below this (a stripped or bare ship),
 // so a weak pilot can rebuild without feeding a full kit's snowball.
 const RESCUE_THREAT = .5;
+// Sector 5 pays rescue power a notch higher (a kit LEVIATHAN has stripped to
+// P10-20 sits near 0.5-0.6), so an under-kitted arrival can rebuild.
+const RESCUE_THREAT_S5 = .6;
 const BURST_CUE_COOLDOWN = .085;  // per target: missile/torpedo burst cues (not damage)
 const SMALL_SHOTS = new Set(["shot","lance","escort","flak","orbital","reflect"]);
 // ---- Act I (sectors 1-3): docs/design/act-two.md, Part 3 -----------------
@@ -343,9 +358,9 @@ const SECTOR_FIVE_BEATS = [
   [37,"loopL"],
   [40.5,"riseL"],
   [41,"flakPair"],
-  [44.5,"riseR",{lead:"reflector"}],               // reflector (~46 s, 6 s) -> the ace wing's streams and shrapnel
+  [43.5,"riseR",{lead:"reflector"}],               // reflector (~45 s, 6 s) -> the ace wing's streams and shrapnel
   [45.5,"boxClimb"],
-  [48,"aceWing"],
+  [48,"aceWing",{rescue:1}],                       // the wing lead carries rescue power
   [54.5,"sweepL",{lead:"signature"}],              // signature (~57 s) -> the peak's aimed streams
   [56,"riseR"],
   [60,"foundry2",{heavy:["power","power"],bays:["power","shield","power","sidewinder"]}],
@@ -1087,7 +1102,8 @@ export class Game {
     this.enemies=[];this.bullets.length=0;this._scavengerCall=0;this._clearHazards();
     const names=["","VESPER","AURELIA","THE CROWN","LEVIATHAN","HALCYON"];
     // Act I mercy: a flagship meets a short kit with less HP (never in drills).
-    const hp=(BOSS_HP[this.stage]??LEVIATHAN_HP)*(this.stage<ACT_TWO_STAGE&&!this.practiceStage?this._actOneMercy(true):1);
+    const hp=(BOSS_HP[this.stage]??LEVIATHAN_HP)*(this.stage<ACT_TWO_STAGE&&!this.practiceStage?this._actOneMercy(true):
+      this.stage===5&&!this.practiceStage?this._halcyonMercy():1);
     const leviathan=this.stage===4,halcyon=this.stage===5;
     // w/h are the collision half-extents (an ellipse); LEVIATHAN and HALCYON are far wider.
     this.boss={id:++this._id,type:"boss",name:names[this.stage],
@@ -1119,7 +1135,7 @@ export class Game {
   // HALCYON keeps the shared rank.
   _sectorFive(full) {
     if(this.stage!==5||this.boss)return 1;
-    return 1+(full-1)*this._clamp((this.threat-LOW_THREAT*.5)/(LOW_THREAT*1.5),0,1);
+    return 1+(full-1)*this._clamp((this.threat-LOW_THREAT*.5)/(LOW_THREAT*2),0,1);
   }
   // 0..1 share of the full Act II volley size at the current threat.
   _volley() { return Math.min(1,this.threat/VOLLEY_FULL); }
@@ -1144,7 +1160,7 @@ export class Game {
     const pop=POPCORN_HP_SCALE[this.stage],full=ACT_TWO_HP_SCALE[this.stage];
     if(pop===undefined||full===undefined)return 1+Math.max(0,this.stage-ACT_TWO_STAGE)*.35;
     if(POPCORN_TYPES.has(type))return pop;
-    return pop+(full-pop)*this._clamp((this.threat-LOW_THREAT)/(HEAVY_FULL_THREAT-LOW_THREAT),0,1);
+    return pop+(full-pop)*this._clamp((this.threat-LOW_THREAT)/(HEAVY_FULL_THREAT-LOW_THREAT),0,1)**HEAVY_EASE;
   }
   _actTwoEnemy(type,x,y,o={}) {
     let hp,r,vy,value;
@@ -1580,7 +1596,7 @@ export class Game {
       return true;
     }
     if(pattern==="acePair")this._spawnAces([150,390],lead);
-    else if(pattern==="aceWing"){this._spawnAces([80,175,270,365,460],lead,.3);this._queueFlak([[1.6,0,2]]);}
+    else if(pattern==="aceWing"){this._spawnAces([80,175,270,365,460],lead,.3,!!drops?.rescue);this._queueFlak([[1.6,0,2]]);}
     else if(pattern==="boxClimb")this._spawnBox(true,p.x,3,lead);
     else if(pattern==="boxClimb4")this._spawnBox(true,p.x,4,lead);
     else if(pattern==="boxDive")this._spawnBox(false,p.x,3,lead);
@@ -1610,11 +1626,11 @@ export class Game {
     });
     this.events.push({type:"boxEnter",x:cx,y:climb?900:0,value:climb?"climb":"dive",count:slots.length,xs,lead:BOX_LEAD});
   }
-  _spawnAces(lanes,lead,stagger=.25) {
+  _spawnAces(lanes,lead,stagger=.25,rescue=false) {
     const squad=this._newSquad();
     lanes.forEach((x,i)=>{
       const e=this._enemy("skyAce",x,-30,{squad,delay:i*stagger,hoverY:285+(i%2)*50,leaveAt:7.5,
-        amp:34,freq:1.3,phase:i*1.7,fireAt:1.1+i*.15,fireRate:1.5});
+        amp:34,freq:1.3,phase:i*1.7,fireAt:1.1+i*.15,fireRate:1.5,rescue:rescue&&i===0});
       if(i===0)this._tagDrop(e,lead);
     });
   }
@@ -1749,7 +1765,13 @@ export class Game {
     }
   }
   // ---- Hazards (game.hazards) ----
-  _clearHazards() { this.hazards.length=0;this._flakQueue.length=0; }
+  _clearHazards() { this.hazards.length=0;this._flakQueue.length=0;this._resetEmp(); }
+  // A disabled wing comes back at once when the field is wiped (HALCYON's
+  // death, a sector change) or the escorts are gone (scatter, a lost life).
+  _resetEmp() {
+    const p=this.player;if(!(p.empTime>0))return;
+    p.empTime=0;this._event("empClear",p.x,p.y,"reset");
+  }
   // Flak bands are queued so each marks at the ship's altitude when its turn
   // comes: [delay s, altitude offset px, gap count].
   _queueFlak(list) {
@@ -1836,11 +1858,16 @@ export class Game {
     this.hazards.length=write;
   }
   // ---- HALCYON (stage 5): three bays, the lattice, the eclipse protocol ----
+  _halcyonMercy() {
+    const f=(this.player.arsenal-HALCYON_MERCY_LOW)/(HALCYON_MERCY_FULL-HALCYON_MERCY_LOW);
+    return HALCYON_MERCY_FLOOR+(1-HALCYON_MERCY_FLOOR)*this._clamp(Number.isFinite(f)?f:0,0,1);
+  }
   _rigHalcyon(boss) {
+    const rank=1+(HALCYON_BAY_RANK-1)*this._clamp((this.threat-HALCYON_BAY_RANK_FROM)/(HALCYON_BAY_RANK_FULL-HALCYON_BAY_RANK_FROM),0,1);
     Object.assign(boss,{halcyon:true,bays:[],baysAlive:0,lattice:0,eclipse:0,latticeAt:0,latticeKind:0,
       aimAt:0,rowAt:0,empAt:0,hangarAt:0,curtainAt:0,curtainGap:150,frame:0,launches:0});
     [[-150,24],[0,42],[150,24]].forEach(([ox,oy],i)=>this._enemy("foundryBay",boss.x+ox,boss.y+oy,
-      {parent:boss,ox,oy,hp:HALCYON_BAY_HP,launch:1.2+i*1.8,drop:"power",bonusDrops:1,value:3000}));
+      {parent:boss,ox,oy,hp:HALCYON_BAY_HP*rank,launch:1.2+i*1.8,drop:"power",bonusDrops:1,value:3000}));
   }
   // A bay launches a three-craft interceptor squadron (no squadron bonus; the
   // lead carries rescue power for a stripped ship).
@@ -1941,7 +1968,10 @@ export class Game {
   }
   _halcyonEmp(e) {
     const p=this.player;
-    const emp={id:++this._hazardId,kind:"emp",x:this._clamp(p.x,70,470),y:this._clamp(p.y,300,780),r:EMP_RADIUS,
+    // The ring leads the ship (where it will be in EMP_LEAD s): flying straight
+    // is caught, a turn or a roll escapes.
+    const emp={id:++this._hazardId,kind:"emp",x:this._clamp(p.x+(p.vx||0)*EMP_LEAD,70,470),
+      y:this._clamp(p.y+(p.vy||0)*EMP_LEAD,300,780),r:EMP_RADIUS,
       charge:0,chargeTime:EMP_CHARGE,age:0,state:"charge"};
     this.hazards.push(emp);
     this.events.push({type:"empCharge",x:emp.x,y:emp.y,r:emp.r});
@@ -2736,6 +2766,7 @@ export class Game {
     });
     const dropped=tokens.reduce((sum,token)=>sum+token.value,0);
     p.level=p.power=1;p.escorts=0;p.escortSlots.length=0;p.sidewinder=0;p.signature=0;p.drones=0;
+    this._resetEmp();
     this._syncOrbitals();this._syncArsenal();
     this.stats.scatters++;
     // Act II: scavengers are called in after the salvage (sector only; the
@@ -2819,7 +2850,7 @@ export class Game {
       // of the random table; heavies and loners still roll it. Act I rolls a
       // smaller flavour table at lower rates: the ledger is authored.
       const formation=e.squad&&FORMATION_TYPES.has(e.type);
-      const rescued=e.rescue&&this.threat<RESCUE_THREAT;
+      const rescued=e.rescue&&this.threat<(this.stage===5?RESCUE_THREAT_S5:RESCUE_THREAT);
       if(e.drop)drops.push(...[].concat(e.drop));
       // Act I: a rescue lead pays its power on top of an authored drop.
       if(rescued&&(actOne||!e.drop))drops.push("power");
@@ -2916,10 +2947,12 @@ export class Game {
     // equipment cycle (the starter rungs belonged to the old sector 1).
     if(this.stage===ACT_TWO_STAGE)this._bonusIndex=Math.max(this._bonusIndex,BONUS_LADDER.length);
     this._awardScore(0);
-    this.enemies.length=0;this.bullets.length=0;this._clearHazards();this.player.empTime=0;
+    this.enemies.length=0;this.bullets.length=0;this._clearHazards();
     // Act I sector clears repair the hull (round 2: the campaign has to be
-    // winnable for an average pilot); entering Act II still adds one point.
-    this.player.hp=this.stage<ACT_TWO_STAGE?this.player.maxHp:Math.min(this.player.maxHp,this.player.hp+1);
+    // winnable for an average pilot). Entering Act II still adds one point,
+    // so sector 4 opens as tuned. Clearing an Act II flagship repairs the
+    // hull again: LEVIATHAN leaves average pilots on their last points.
+    this.player.hp=this.stage===ACT_TWO_STAGE?Math.min(this.player.maxHp,this.player.hp+1):this.player.maxHp;
     this.player.bombs=Math.min(MAX_BOMBS,this.player.bombs+1);
     this.player.invuln=3;this.flash=.7;
     this._event("stage",270,170,this.stage);

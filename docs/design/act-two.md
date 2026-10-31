@@ -704,7 +704,58 @@ Existing boss events carry `stage === 5`.
 
 ### Simulation notes (sector 5)
 
-Status: round 1 built (2026-10-31, simulation builder). **The events and fields come first**, so presentation builders can build against them. Tuning numbers, the drop schedule and the bot tables follow. Every name in the build contract keeps its meaning; the items below are additions or precise definitions.
+Status: round 2 (2026-10-31, simulation and audio iterator), after the round-1 judging (feel 8.0, correctness 9.0, visuals 6.5, performance 9.3, audio 8.0). **The events and fields come first**, so presentation builders can build against them. Tuning numbers, the drop schedule and the bot tables follow. Every name in the build contract keeps its meaning; the items below are additions or precise definitions.
+
+#### Round 2 summary
+
+**The under-kitted wall (feel P1).** Round 1 eased off too early: a P25 kit (threat 0.65–0.75 in the sector) already met the full sector-5 notch and about ×2.0 heavies, and HALCYON held it for 96–114 s. Measured first, then fixed:
+- **Real arrival kits.** A new campaign runner (`campaign45`) flies sector 4 and LEVIATHAN with the dodging pilot from the P25 sector-4 kit, then records what it carries into sector 5. Median arrival kits (seeds 0–18, 16 per ship):
+
+| Pilot | Reaches sector 5 | Power (q25 / median / q75) | Escorts | Sidewinder | Signature | Shield | Lives | Hull |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Good | 48/48 | K 34/35/42, M 19/24/36, W 20/28/34 | 4–6 | 8–10 | 4–10 | 1–2 | 3.7–4.0 | 3.4–3.8 |
+| Average | 41/48 | K 10/15/25, M 10/18/19, W 6/10/18 | 0–6 | 3–9 | 4–10 | 1–2 | 2.6–3.4 | 2.9–3.6 |
+| Hesitant | 40/48 | K 14/19/26, M 8/9/14, W 8/11/14 | 0–6 | 5–11 | 2–10 | 1–2 | 2.5–3.4 | 3.5–3.6 |
+| Mortal | 4/48 | P4–14 | 0–6 | 0–7 | 0–7 | 1–2 | 2–3 | 2.5–4 |
+
+  - An average pilot arrives well below the P25 kit in power (about P15) but with most of its equipment. A mortal pilot rarely reaches sector 5 at all (4/48), so sector 5 is not tuned for it.
+- **Changes** (all sector 5 only; sector 4 stays bit-identical):
+  - `RESCUE_THREAT_S5 = 0.6` (sector 4 keeps `RESCUE_THREAT` 0.5): leads pay rescue power up to threat 0.6. The 48 s ace wing now has a rescue lead.
+  - The sector-5 notch (`_sectorFive`) fades in from threat 0.15 and is full at 0.75 (was 0.6).
+  - Heavies: `HEAVY_FULL_THREAT = 0.84` on an eased ramp (`HEAVY_EASE` 1.6). The reference kit still meets ×2.2; a P25 kit at threat 0.68 meets ×1.84 (round 1: ×2.09).
+  - **HALCYON campaign mercy** (`_halcyonMercy`, never in drills, as Act I's flagship mercy): HP ×0.55 at arsenal 30 or less, rising linearly to full at arsenal 100. A reference pilot arrives at arsenal about 117, so it meets full HP; the reference kill is held by the learn windows anyway.
+- **HALCYON's bays (visual P2).** Bays get up to ×2.6 HP from threat 0.7 to 0.84 (`HALCYON_BAY_RANK`), read at spawn. With the reference kit, the last bay now falls at 12.5–17.8 s (round 1: 6.7–8.8 s). Weaker kits are unchanged.
+- **Reflector (feel P2).** The reflector beat moved from 44.5 s to 43.5 s. The engaged collector now picks it up at 44.9–45.3 s in 22 of 24 runs (round 1: 45.9–46.4 s, 19 of 24), 3.8 s before the ace wing fires. The test now requires the pickup on every ship.
+- **EMP (feel P2).** The ring leads the ship: it is centred where the ship will be in 0.6 s (`EMP_LEAD`). Holding a straight line is caught; a turn or a roll escapes. Damage and duration are unchanged.
+- **EMP resets (correctness P2-3, perf P1-A).** A scatter, a lost life, HALCYON's death and a sector change clear `player.empTime` and send `empClear {value: "reset"}`.
+- **Hesitant pilot (feel P2).** A new bot profile: latency 0.3 s, and hazard telegraphs (flak marks, laser warnings, EMP rings) noticed 0.25 s late.
+
+**Bots, before and after** (clears; seeds 0, 5–9, 99, 1234, 11–18; values are Kestrel, Manta, Wraith, then the total):
+
+| Pilot | Kit | Round 1 | Round 2 |
+| --- | --- | --- | --- |
+| Good | Reference | 16, 16, 16 (48/48) | 16, 16, 16 (48/48) |
+| Good | P25 | 15, 16, 16 (47/48) | 16, 16, 16 (48/48) |
+| Good | Mid (P12) | 11, 15, 13 (39/48) | 16, 16, 15 (47/48) |
+| Good | Bare | 0, 0, 0 (0/48) | 1, 6, 0 (7/48) |
+| Good | Real arrival | 16/16, 16/16, 13/16 (45/48) | 16/16, 16/16, 16/16 (48/48) |
+| Average | Reference | 12, 16, 11 (39/48) | 12, 11, 13 (36/48) |
+| Average | P25 | 2, 5, 4 (11/48) | 11, 9, 13 (33/48) |
+| Average | Mid | 1, 0, 1 (2/48) | 7, 10, 6 (23/48) |
+| Average | Bare | 0, 0, 0 (0/48) | 0, 0, 0 (0/48) |
+| Average | Real arrival | 4/14, 2/13, 2/14 (8/41) | 10/14, 8/13, 9/14 (27/41) |
+| Hesitant | Reference | 3, 7, 8 (18/48) | 8, 11, 10 (29/48) |
+| Hesitant | P25 | 2, 4, 2 (8/48) | 4, 7, 9 (20/48) |
+| Hesitant | Mid | 0, 0, 1 (1/48) | 2, 1, 9 (12/48) |
+| Hesitant | Bare | 0, 0, 0 (0/48) | 0, 0, 0 (0/48) |
+| Hesitant | Real arrival | — | 2/13, 6/13, 7/14 (15/40) |
+| Mortal | Real arrival | 0/4 | 0/4 |
+
+- "Real arrival" flies sector 5 from each pilot's own measured arrival kit, at threat 0 with a full hull and three lives (the same start as the other rows).
+- **Flown straight on from LEVIATHAN** (the lives, hull and bombs it has left): average 3/41 → 13/41, hesitant 10/40, good 48/48. Lives decide it: of the average pilots, the 12 who arrive with one or two lives clear none, those with three clear 4/16, and those with four clear 9/13.
+- **Sector 4 with the same bot and the P25 kit** (unchanged code): good 48/48, average 41/48, hesitant 40/48, mortal 4/48.
+- **Hits** (sector / HALCYON, K/M/W), average pilot: reference 6.9/7.8/8.9 and 9.4/14.7/10.3; P25 8.3/8.8/10.8 and 11.4/17.0/10.3 (round 1: 8.8/10.0/11.4 and 13.6/17.7/12.8). Good pilot, reference: 4.9/4.6/6.4 and 3.4/6.8/4.2.
+- **The gradient now runs like sector 4's.** For the average pilot: reference 75%, P25 69%, real arrival 66%, mid 48%, bare 0%. Round 1 had reference 81%, P25 23%, mid 4%.
 
 #### Events and fields for presentation
 
@@ -732,15 +783,15 @@ Status: round 1 built (2026-10-31, simulation builder). **The events and fields 
 | --- | --- | --- |
 | `flakBand` | `y`, `gaps` (gap centre x values), `gapW` (gap width, px), `warn` (mark seconds), `state` (`"mark"`, then `"burst"`), `spread` (shrapnel reach above and below `y`, px) | Marks its altitude for `warn` s, then bursts: shrapnel bullets (`kind: "amber"`, r 4.4, with `ttl`) spawn along the row except inside the gaps and fly a short way up and down. The hazard then stays in `"burst"` for 0.5 s (for the flash) and is removed. Shrapnel is ordinary bullets: reflector, orbitals and Kestrel flak can stop it. |
 | `laser` | `orient` (`"h"` or `"v"`), `pos` (y for `"h"`, x for `"v"`), `from`, `to` (span along the other axis), `width` (half-thickness, px), `warn`, `on`, `state` (`"warn"`, `"fire"`, `"off"`), `void` (bool), `frame` (id shared by the bars of one lattice) | A telegraph line for `warn` s, then a beam for `on` s, then `"off"` for one frame before removal. It hurts on contact (a hit, through shields as usual) unless the player is rolling or invulnerable. Reflector and orbitals never stop a laser. `void: true` lasers are phase 3's violet look; behaviour is the same. |
-| `emp` | `x`, `y`, `r`, `charge` (0..1), `chargeTime` (s), `state` (`"charge"`, then `"pulse"`) | A ring that charges for `chargeTime` (1.2 s), then pulses once. If the player is inside `r` and not rolling, the escorts are disabled for `EMP_TIME` (2.0 s). The `"pulse"` state lasts 0.35 s for drawing, then the hazard is removed. |
+| `emp` | `x`, `y`, `r`, `charge` (0..1), `chargeTime` (s), `state` (`"charge"`, then `"pulse"`) | A ring that charges for `chargeTime` (1.2 s), then pulses once. It is placed where the ship will be in 0.6 s (round 2), so holding a straight line is caught. If the player is inside `r` and not rolling, the escorts are disabled for `EMP_TIME` (2.0 s). The `"pulse"` state lasts 0.35 s for drawing, then the hazard is removed. |
 
-**Player**: `player.empTime` (seconds, > 0 while the escorts are disabled; the full disable is 2.0 s, so `empTime / 2` is a ready fraction). Disabled escorts keep flying in formation but do not fire. `player.vx`, `player.vy` (px/s, every sector) are the ship's velocity; the sky aces lead with it.
+**Player**: `player.empTime` (seconds, > 0 while the escorts are disabled; the full disable is 2.0 s, so `empTime / 2` is a ready fraction). It is reset to 0 on a scatter, a lost life, HALCYON's death and a sector change. Disabled escorts keep flying in formation but do not fire. `player.vx`, `player.vy` (px/s, every sector) are the ship's velocity; the sky aces lead with it.
 
 **Pickups**: sector-5 authored drops carry `tag` (`"<beat time>:<type>"`), and their `pickup` event carries the same `tag`. It exists so the drop schedule can be measured at collection; presentation may ignore it.
 
 **HALCYON** (`this.boss`, `stage === 5`)
 - `boss.name = "HALCYON"`, `boss.halcyon = true`, `boss.w = 220`, `boss.h = 70` (collision ellipse), `boss.r = 70`.
-- `boss.bays` (three `foundryBay` ids, dead ones kept) and `boss.baysAlive`. While any bay lives, core damage is ×0.25, in every phase (as LEVIATHAN's turrets).
+- `boss.bays` (three `foundryBay` ids, dead ones kept) and `boss.baysAlive`. In the campaign, `boss.maxHp` is below 240,000 for a short kit (the mercy, under "HALCYON" below); drills always have 240,000. While any bay lives, core damage is ×0.25, in every phase (as LEVIATHAN's turrets).
 - `boss.lattice` (0..1): how far the lattice emitters have deployed (phase 2 on). `boss.eclipse` (0..1): the phase-3 eclipse glow.
 - Phase 1, "Three bays": the bays launch interceptor squadrons; the wingtips fire fans. Phase 2, "Lattice": laser frames (`laser` hazards). Phase 3, "Eclipse protocol": void lasers, void bullet rows and `emp` hazards, then the desperation curtain on the guard floor.
 
@@ -752,7 +803,7 @@ Status: round 1 built (2026-10-31, simulation builder). **The events and fields 
 - `bayDown {x, y, value: "foundry" | "boss"}`: a bay shot down (bays lost with their parent are silent).
 - `droneLaunch {x, y, count}`: coalesced, at most one per 0.25 s.
 - `laserWarn {x, y, orient, pos, value: void, count, bars: [{orient, pos, from, to}]}`: one per lattice frame, when its telegraph starts. `laserFire {x, y, count, value: void}`: one per frame, when the beams go live.
-- `empCharge {x, y, r}`, `empPulse {x, y, value: hitEscorts}` (true when the pulse disabled a live wing), `empClear` (the wing is back).
+- `empCharge {x, y, r}`, `empPulse {x, y, value: hitEscorts}` (true when the pulse disabled a live wing), `empClear` (the wing is back). **Round 2:** `empClear {value: "reset"}` is sent when the disable is cut short: by a scatter or a lost life (the escorts are gone), by HALCYON's death, or by a sector change. The natural reboot has no `value`. Audio plays the reboot chirp only for a natural clear with escorts flying.
 - `gunnerFire {x, y, value: rounds}`: a tail gunner starts a burst (audio's request; one per burst).
 - `wingBreak {x, y, value: 5, w, h, angle}`: HALCYON's death, in the same frame as `bossDown`. HALCYON's `bossDown {x, y, value: 5}` also carries `w, h, angle` and `bays: [{ox, oy}]`, the bays still alive at the end.
 - Existing events gain `stage === 5` where they carry the stage (`bossEnter`, `bossPhase`, `bossDown`, `stage`). Interceptors, scavengers, mines and their events are reused unchanged.
@@ -774,11 +825,14 @@ The no-hit engaged collector (the arsenal-r3 regression bot: invulnerable, fire 
 
 #### HP curve and rank knobs
 
-- **Heavies** (bombers, gunners, aces, foundries, bays, foundry batteries) use `ACT_TWO_HP_SCALE[5] = 2.2` (it was ×1.35 on the old +35% rule) **at threat 0.75 or more**. Below that the scale falls linearly to ×1.35 at `LOW_THREAT` (0.3), read when the craft spawns. The reference kit (about 0.84) always meets the full scale. A stripped or P12 ship meets softer heavies, which is its path back.
+- **Heavies** (bombers, gunners, aces, foundries, bays, foundry batteries) use `ACT_TWO_HP_SCALE[5] = 2.2` (it was ×1.35 on the old +35% rule) **at threat 0.84 or more** (`HEAVY_FULL_THREAT`; round 1 used 0.75). Below that the scale falls on an eased ramp, `f^1.6` with `f = (threat − 0.3) / 0.54`, to ×1.35 at `LOW_THREAT` (0.3). It is read when the craft spawns.
+  - The reference kit (about 0.84–0.86) meets ×2.2. A P25 kit (about 0.68) meets ×1.84 (round 1: ×2.09); threat 0.6 meets ×1.68.
+  - A stripped or P12 ship meets softer heavies, which is its path back.
 - **Popcorn** (interceptor, scavenger, mine, enemy torpedo, drone) stays on ×1.35 (`POPCORN_HP_SCALE`): an interceptor has 74 HP, a drone 41 HP. A P43 Kestrel volley deals about 195, so popcorn still melts, and a weak ship can still wipe squadrons and reach its rescue leads.
 - **Base HP** (before the scale): bomber 1,600, tail gunner 420, sky ace 1,000, drone 30. Foundry 1 (small): 9,000, with 1,100 bays. Foundry 2 (large): 11,000, with 1,300 bays and 1,600 void batteries. At ×2.2, foundry 1 is 19,800 and an ace is 2,200.
 - **Weak-kit damage**: the ×1.5 bonus that hull turrets get below threat 0.3 now also covers the bays, gunners, bombers, aces and foundries (`WEAK_KIT_TYPES`). Sector 4's hull turrets are unchanged.
-- **Sector notch**: sector 5's own fire runs ×1.12 faster (`SECTOR_FIVE_SPEED`) on ×0.88 cooldowns (`SECTOR_FIVE_PACE`) on top of the shared rank. Both fade out below threat 0.15–0.6, so a stripped ship meets sector 4's curve. HALCYON keeps the shared `_bossPace`.
+- **Sector notch**: sector 5's own fire runs ×1.12 faster (`SECTOR_FIVE_SPEED`) on ×0.88 cooldowns (`SECTOR_FIVE_PACE`) on top of the shared rank. Both fade in linearly from threat 0.15 and are full at 0.75 (round 1: 0.6), so a stripped ship meets sector 4's curve and a P25 kit meets about 88% of the notch. HALCYON keeps the shared `_bossPace`.
+- **Rescue power**: sector 5 pays rescue power below threat 0.6 (`RESCUE_THREAT_S5`; sector 4 keeps 0.5). Every interceptor, box and HALCYON-bay squadron lead without an authored drop carries it, and so does the 48 s ace wing's lead.
 - **Time on screen** (good dodger, invulnerable, reference kit; median / 90th percentile):
   - interceptor 0.30 / 0.78 s; drone 0.38 / 1.53 s;
   - sky ace 2.48 / 7.23 s; tail gunner 2.42 / 5.73 s; bomber 5.95 / 6.27 s;
@@ -790,7 +844,7 @@ The no-hit engaged collector (the arsenal-r3 regression bot: invulnerable, fire 
 - **Bomber boxes**: three bombers in a wedge (four for the 62 s climb), aimed at the ship's lane when the box is called. `boxEnter` fires 1.2 s before entry.
   - A climbing box rises at 170 px/s and a diving box falls at 120 px/s. Body contact hurts.
   - Each bomber has one tail gun, and the lead has two. They fire 2–3-round aimed bursts (2-way above threat 0.55) on a 1.15 s cooldown, and only once their bomber is above the ship (y < ship − 90).
-  - The box lead carries rescue power below threat 0.5.
+  - The box lead carries rescue power below threat 0.6.
 - **Sky aces** enter from the top, hover at y 285–335 and weave ±34 px on their lane. They leave after 7.5 s.
   - Each burst is 2–4 rounds (3-way above threat 0.6) at 310 px/s ×rank, on a 1.5 s cooldown. The aim leads by the full flight time. A ship flying orbitals or a reflector meets a void last round.
   - The sidestep fires when a main-gun shot (`shot`, `lance` or `pierce`) is below the ace and within 40 px of its column. It lasts 0.42 s at 360 px/s (about 150 px), then a 1.2 s cooldown follows. Homing, escort and flak fire are never dodged.
@@ -805,11 +859,15 @@ The no-hit engaged collector (the arsenal-r3 regression bot: invulnerable, fire 
   - **Two rows**: each row has a 112 px gap; the second row warns 0.35 s later, and its gap moves 70–120 px.
   - **Cross**: a row at the ship's altitude, plus two columns 175 px either side of its gap.
   - A test pins every frame's gap at 96 px or more.
-- **EMP** (HALCYON phase 3): a 120 px ring centred on the ship's position, charging 1.2 s. The pulse disables the wing for 2.0 s unless the ship rolls or is outside the ring.
+- **EMP** (HALCYON phase 3): a 120 px ring charging 1.2 s, centred where the ship will be in 0.6 s (`EMP_LEAD`: position + velocity × 0.6, clamped to x 70–470 and y 300–780). The pulse disables the wing for 2.0 s unless the ship rolls or is outside the ring.
+  - A ship drifting in a straight line at under about 210 px/s ends inside the ring. A turn, a roll, or a full-speed dash out escapes. A still ship gets the ring on itself, as in round 1.
+  - The good bot loses the wing 0.1–0.6 times per fight (round 1: 0.8–1.1). It changes direction constantly, so the ring is usually ahead of where it ends up.
 
 #### HALCYON
 
-- **HP 240,000**. Three bays of 1,800 base HP (3,960 for the reference kit). Each drops power plus a ladder item and scores 3,000. Core ×0.25 while any bay lives.
+- **HP 240,000**. Three bays of 1,800 base HP. Each drops power plus a ladder item and scores 3,000. Core ×0.25 while any bay lives.
+- **Bays hold against a full kit** (round 2): on top of the heavy scale, a bay gets up to ×2.6 HP from threat 0.7 to 0.84 (`HALCYON_BAY_RANK`), read at spawn. The reference kit's bays have 10,296 HP (round 1: 3,960); a P25 kit's are unchanged. "Three bays" now reads: with the reference kit the last bay falls at 12.5–17.8 s.
+- **Campaign mercy** (round 2; never in drills): `HP × (0.55 + 0.45 × clamp((arsenal − 30) / 70))`, read at spawn. That is ×0.55 at arsenal 30 or less, ×0.68 at 50 (a typical P25 arrival after a sector of scatters), ×0.92 at 87 (the reference kit) and full at 100 or more (a reference pilot arrives at about 117). It follows Act I's flagship mercy: an under-kitted arrival meets a shorter fight, and a drill always meets the authored flagship.
 - **Learn windows 24 / 48 / 74 s**. `BOSS_GUARD_PAR[5] = 0.017` (the reference kit's share per second). Guard K is 20, as LEVIATHAN's.
 - **Phase 1, "Three bays"**: each bay launches a three-craft interceptor squadron (a loop out of the bay, no wipe bonus, rescue lead) every 6 s × `_bossPace`. The wingtips fire 5–7-bullet fans every 1.7 s × pace (1.3 s once the bays fall). The core fires a 3-way aimed spread on alternate salvos, and every salvo once the bays fall.
 - **Phase 2, "Lattice"**: a laser frame every 2.9 s × pace, cycling columns, rows and cross. A 3-way aimed spread comes every 2.3 s; every third is void for a void-aware kit. Slow 5-bullet wingtip fans come every 2.4 s. The core hangar drops a drone pair every 4.2 s; one drone carries rescue power, like LEVIATHAN's torpedoes.
@@ -820,19 +878,21 @@ The no-hit engaged collector (the arsenal-r3 regression bot: invulnerable, fire 
   - a 3-way void spread every 3.2 s;
   - hangar drones as in phase 2.
 - **The desperation curtain**: on the final guard floor the lattice stops. Rose rows with two drifting gaps come every 0.85 s, and void rows and EMPs slow down.
-- **Kill times** (invulnerable tracker, shooting bays first, collecting drops). Each cell is the kill time, then the times of phases 2 and 3 in brackets:
+- **Kill times** (round 2; invulnerable tracker, shooting bays first, collecting drops; HALCYON is spawned at each kit's own rank). Each cell is the kill time, then the times of phases 2 and 3 in brackets, then when each bay fell:
 
 | Kit | Kestrel | Manta | Wraith |
 | --- | --- | --- | --- |
-| Reference (P43) | 74.0 s [27.6 / 48.0] | 73.1 s [23.9 / 47.4] | 73.6 s [24.0 / 47.7] |
-| Arrival (P56, M22, ★19) | 72.4 s | 69.1 s | 69.8 s |
-| P25 (sector-4 kit) | 113.8 s | 96.1 s | 103.5 s |
-| Mid (P12) | 174.6 s | 161.0 s | 167.1 s |
-| Bare (P2) | 246.2 s (3.3×) | 214.9 s (2.9×) | 240.2 s (3.3×) |
+| Reference (P43), drill | 76.8 s [35.9 / 55.0], bays 7.8 / 11.8 / 17.8 | 73.4 s [27.7 / 47.7], bays 5.8 / 7.4 / 12.5 | 73.9 s [29.5 / 48.0], bays 5.1 / 9.2 / 14.3 |
+| Arrival (P56, M22, ★19), drill | 72.9 s | 69.8 s | 70.4 s |
+| P25, drill (no mercy) | 112.0 s | 95.2 s | 102.3 s |
+| P25, campaign (mercy) | 76.2 s [32.7 / 52.7] | 73.9 s [27.0 / 47.9] | 74.1 s [28.5 / 48.0] |
+| Mid (P12), drill / campaign | 161.7 / 96.6 s | 151.2 / 89.7 s | 152.9 / 90.3 s |
+| Bare (P2), drill / campaign | 249.0 s (3.2×) / 159.0 s | 209.3 s (2.9×) / 134.0 s | 235.9 s (3.2×) / 148.4 s |
 
-  - Targets: 65–85 s for the reference kit, about 3× for a bare ship.
+  - Round 1, for comparison: reference 73.1–74.0 s with the bays down at 6.7–8.8 s; P25 96–114 s.
+  - Targets: 65–85 s for the reference kit, about 3× for a bare ship (the drill, with no mercy). In the campaign, the mercy brings a P25 kit to the learn windows (74–76 s, as LEVIATHAN for its kit), and a bare ship to about 2×.
   - The arrival kit is what the no-hit collector holds when HALCYON arrives, after a sector of squadron bonuses.
-  - Tests pin the reference kill at 65–85 s and the bare kill at 190–290 s.
+  - Tests pin the reference kill at 65–85 s with the last bay down at 11–19 s, and the bare drill kill at 190–290 s.
 
 #### Drop schedule
 
@@ -850,20 +910,21 @@ Sector 5's beats are on `STAGE_BEATS[5]`, which is `SECTOR_FIVE_BEATS`. Act II b
 | 15.5 sweep R | lead: shield | 17.4–18.1 | The 24 s flak corridor (first sustained hazard) | 25.0 | 6.9 s |
 | 29.5 sweep R | lead: power | 31.5–32.8 | Foundry 1 (armor, heavy plus popcorn) | 36.7 | 3.9 s |
 | 34 foundry 1 | bays: power, signature, power; heavy: power ×2 | signature 39.8–42.0 | The 45.5 s box's gunners, then the ace wing | 48.1 / 49.1 | 6.1 s |
-| 44.5 rise R | lead: reflector (6 s) | 45.9–46.4 | The ace wing's streams and shrapnel (and the box's gunners) | 48.1 / 49.1 | 1.7 s (box), 2.7 s (wing) |
+| 43.5 rise R | lead: reflector (6 s) | 44.9–45.3 (22 of 24 runs) | The ace wing's streams and shrapnel (and the box's gunners) | 48.7 / 49.1 | 3.4 s (box), 3.8 s (wing) |
 | 54.5 sweep L | lead: signature | 55.8–59.7 | The peak: foundry 2's void batteries and the boxes' gunners | 63.7 | 4.0 s |
 | 60 foundry 2 | bays: power, shield, power, sidewinder; heavy: power ×2 | shield 66.3–67.8; sidewinder 67.8–76.2 | Shield: the 72.5 s flak pair. Sidewinder: the 87.5 s ace pair | 73.5 / 88.6 | 5.7 s / 12.4 s |
 | 75 rise both | lead: shield | 76.3–77.7 | The 83.5 s flak gauntlet | 84.5 | 6.8 s |
 | 92.5 rise both | lead: power | 93.5–94.2 | HALCYON (100 s) | — | — |
 
 - Rescue power rides every interceptor and box lead without an authored drop, as in sector 4.
-- The reflector's 1.7 s against the 45.5 s box is the one gap under 2 s. Its gunners open late in their pass, and the reflector is 2.7 s ahead of the wing it is meant for.
+- The reflector moved to 43.5 s in round 2. It is now collected 3.4 s before the 45.5 s box's gunners and 3.8 s before the ace wing. The engaged collector misses it in 2 of 24 runs (Manta seed 1234, Wraith seed 5): the rise lead dies at about y 760 on the right edge while the collector is at x 100–120, and the collector ignores pickups more than 300 px away. Round 1 missed it in 5 of 24.
+- Rise leads near the bottom edge cost the collector other drops too: the 92.5 s power is collected in 15 of 24 runs. A slower sink for low authored drops was tried and did not help this collector, so it was not kept.
 - **Full beat list** (s):
   - 2.5 loop L, 4.9 loop R, 7.2 sweep L;
   - 10 ace pair, 14 box climb, 15.5 sweep R, 18.5 rise R, 21 ace pair;
   - 24 flak corridor plus six drifting drones;
-  - 29.5 sweep R, 31 ace pair, 34 foundry 1, 37 loop L, 40.5 rise L, 41 flak pair, 44.5 rise R, 45.5 box climb;
-  - 48 ace wing (five aces) plus a flak band;
+  - 29.5 sweep R, 31 ace pair, 34 foundry 1, 37 loop L, 40.5 rise L, 41 flak pair, 43.5 rise R, 45.5 box climb;
+  - 48 ace wing (five aces, rescue lead) plus a flak band;
   - 54.5 sweep L, 56 rise R;
   - **The peak:** 60 foundry 2, 62 box climb ×4, 65.5 box dive;
   - 72 sweep R, 72.5 flak pair, 75 rise both;
@@ -872,13 +933,18 @@ Sector 5's beats are on `STAGE_BEATS[5]`, which is `SECTOR_FIVE_BEATS`. Act II b
 
 #### Balance bots
 
+- **Round 2 additions** (scripts in `~/knotz2026-dev-archive/s5-sim/r2/`: `table.mjs`, `arrive.mjs`, `arrival5.mjs`, `diag-cont.mjs`; `lib.mjs` gains `campaign45`; snapshots `r1-game.js` and `r2-game.js`):
+  - **Hesitant profile**: average's attention, noise and horizon, latency 0.3 s (average: 0.22), and hazard telegraphs noticed 0.25 s after they appear. Bullets and craft are seen as before.
+  - **`campaign45`**: sector 4 and LEVIATHAN from the P25 kit with the dodging pilot. It records the kit, lives, hull and bombs at sector-5 entry, and can fly on into sector 5.
+  - **Kill-time harness**: it now respawns HALCYON after swapping the kit, so the bays read that kit's rank. The round-1 harness kept the reference kit's bays for every kit. It also flies HALCYON as a campaign flagship (mercy on).
+  - The round-2 tables are in "Round 2 summary" above. The tables below are round 1's.
 - **Bot.** The scratch scripts are in `~/knotz2026-dev-archive/s5-sim/` (`lib.mjs`, `bots5.mjs`, `kt5.mjs`, `drops5.mjs`). The bot is the Act I dodger (good and average profiles unchanged) with two additions and one fix:
   - **Hazards:** it reads flak marks, laser warnings and EMP rings as a human reads a telegraph, always seen. Bomber boxes waiting below the edge show as their shadows.
   - **Lasers:** it never crosses a warned or live laser line.
   - **Planning fix:** it plans from its newest queued decision, not from the one executing. With 0.14 s latency and a 0.06 s replan, three plans are in flight at once. The old bot alternated between them and walked back and forth through a warned laser every 0.2 s. Against moving bullets this two-cycle mostly cancels out, but against a static telegraphed line it is fatal.
 - **Runs** start at sector 5 from each kit, at threat 0, with full hull and three lives. Hits include shield hits. Seeds are 0, 5, 6, 7, 8, 9, 99, 1234 and 11–18 (16 seeds).
 
-**Sector 5 plus HALCYON** (values are Kestrel / Manta / Wraith):
+**Sector 5 plus HALCYON, round 1** (values are Kestrel / Manta / Wraith):
 
 | Pilot | Kit | Clears | Sector hits | HALCYON hits | Scatters (sector) | Steals / returns | Peak bullets (sector / boss) | Threat, sector (mean / max) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -914,8 +980,11 @@ Sector 5 runs about one sector hit above sector 4 for the good pilot and about t
 
 - **Good pilot, reference kit: sector hits 5–7.** Met on average (5.3); Manta is 5.1 and Wraith 6.6. **Kestrel is at 4.2**: its flak screen eats ordinary rounds, and it was also the lowest in sector 4 (3.3).
 - **Good pilot, reference kit: about 7/8 clears.** Measured 48/48, so it is easier than the target. With this bot, sector 4's good pilot also clears 48/48, so the target cannot be met while staying a notch above sector 4. With the archived planning, the good pilot clears 31/48. Lowering it further would mean making sector 5 far harder than sector 4 for every pilot.
-- **Average pilot, reference kit: 5/8 or better.** Met: 39/48 (81%; sector 4 is 41/48 with the same bot).
-- **Weaker kits.** A good pilot has a path: P25 47/48, mid 39/48. An average pilot has little: P25 11/48, mid 2/48 (sector 4 with a mid kit: 11/24 on the round-2 bot).
+- **Average pilot, reference kit: 5/8 or better.** Met: 36/48 in round 2 (75%; round 1: 39/48; sector 4 is 41/48 with the same bot). The difference is within the bot's spread (about ±4 of 48).
+- **Round 2: average pilot with a P25 kit or the real arrival kit, about 50% or more.** Met: P25 33/48 (69%), real arrival 27/41 (66%), mid 23/48 (48%).
+  - **Flown straight on from LEVIATHAN, it is 13/41 (32%).** The miss is the run's life budget, not the kit: 12 of 41 average pilots reach sector 5 with one or two lives, and none of them clear. A full-hull repair or an extra life at sector-5 entry would address it; that changes the campaign's reward economy, so it is left to the lead and owner.
+- **Hesitant pilot.** Reference 29/48, P25 20/48, real arrival 15/40; sector 4 with a P25 kit is 40/48. Sector 5's static telegraphs punish a late read much harder than sector 4's bullets do, so it is still a cliff for this pilot.
+- **Weaker kits, round 1.** A good pilot had a path (P25 47/48, mid 39/48); an average pilot had little (P25 11/48, mid 2/48).
   - **A bare ship has no path in sector 5** (0/96). It scatters every 10–15 s and never rebuilds past P5 before HALCYON.
   - A bare entry into sector 5 is rare in play: the LEVIATHAN interlude collects every floating salvage token. The in-sector case, a kitted ship scattering, is covered by scavenger returns and the rank-scaled heavies, as the reference rows show.
 - **Peak bullets 130–170.** Met for the reference kit (141–174). Weaker kits reach 170–190, because they kill sources more slowly. The peaks fall at 52 s (the ace wing's flak), 70 s (foundry 2 with both boxes) and 84.5 s (the gauntlet).
@@ -944,7 +1013,14 @@ Sector 5 runs about one sector hit above sector 4 for the good pilot and about t
     - every lattice gap is 96 px or more.
   - **Determinism and drops:** seeded sector-5 runs are identical. Four key drops are collected at least 2 s before their attacks on every ship.
 - **Updated: `test/sector4.test.mjs`.** The campaign test now ends with LEVIATHAN handing over to sector 5. The career test clamps at `CAMPAIGN_STAGES`.
-- **Status:** 191 tests pass, and `scripts/build.mjs` passes.
+- **Round 2 tests** (`test/sector5.test.mjs`, now 27 tests):
+  - New: the EMP ring leads the ship 0.6 s (a straight drift is caught, a turn escapes, a still ship gets the ring on itself).
+  - New: a scatter, a lost life, HALCYON's death and a sector change each reset the wing, with `empClear "reset"`; there is no event when nothing is disabled, and a natural reboot has no reset flag.
+  - New: a tail gunner sends one `gunnerFire` per burst, with `value` equal to the rounds it fires.
+  - New: HALCYON's campaign mercy (full, reference, P25 and floor; drills have none) and the rank-scaled bays.
+  - New: sector 5 pays rescue below threat 0.6 while sector 4 keeps 0.5; the 48 s ace wing has a rescue lead.
+  - Changed: the reference kill also pins the last bay at 11–19 s. The bare kill respawns HALCYON at the bare kit's rank. The reflector (now 43.5 s) must be collected on every ship; the "missing is fine" escape hatch is gone.
+- **Status:** 197 tests pass, and `scripts/build.mjs` passes.
 
 ### Audio notes (sector 5)
 
@@ -965,7 +1041,15 @@ Audio builder, round 1. These are the names and fields audio reads, plus one req
   - LEVIATHAN → sector 5 plays a "climb" variant of the interlude cue. It needs no `actTwo`.
 - **Ambience:** the `sector5` bed. Thunder follows `lightningAt(time, 5)`. It is muffled, has no crack and arrives late, as if it comes from below.
 - **Tables:** `BOSS_KEYS`, `FLAGSHIP_ROOT` and the sector-clear roots run to 6. A sector without its own score or bed borrows the latest one.
+- **Round 2 (EMP hum leaks, harness coverage):**
+  - `sfx._cutEmp()` stops the dead hum (`empHum.stop(0.05)`). `lifeLost`, `gameover`, `bossDown`, `wingBreak` and `stage` call it, as does `empPulse` before starting a new hum. Pause and mute already cut it, because it is a tracked long cue.
+  - `empClear` always stops the hum. It plays the reboot chirp only when `game.player.escorts > 0` and `value` is not `"reset"`.
+  - `test/audio.test.mjs`: the "every gameplay event" list covers all 15 sector-5 events with representative values and fields. A new test checks that the hum stops on each of the five cutting events and on pause, and that empClear chirps only on a natural reboot with a wing.
+  - `qa/audio.mjs` adds a HALCYON phase-3 leg: the reference kit, all levels at full, 12 s. It meters the glue stage, which feeds the limiter; the peak must stay under 0.75, and measured 0.61 (the master peaked at 0.58). Then an EMP catches the wing, and a pause must cut the hum.
+  - The `sector5` cue's comment now says the only taiko is the phrase-opening hit.
 
+
+- **Lead decision (round 2): hull repair after LEVIATHAN.** Entering sector 5 now repairs the hull to full (it added one point before). Entering sector 4 still adds one point, so sector 4 opens as tuned. The round-2 bot showed average pilots carrying over from LEVIATHAN on one or two lives cleared nothing; an extra life was not added.
 
 ### Sector 6: ZERO MERIDIAN (planned; build after sector 5 passes)
 
