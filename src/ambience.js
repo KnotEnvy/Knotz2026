@@ -174,12 +174,12 @@ export class Ambience {
         case 'actTwo':
           if (!this.actTwoLogged) { this.actTwoLogged = true; this._log(t, 'ACT II / THE CROWN WAS ONLY THE GATE', 'gold'); this._log(t, 'NEW CONTACT / ENEMY BATTLE LINE IN TYPHOON', 'warn'); }
           break;
-        case 'bayDown': case 'flakBurst': case 'boxEnter': case 'flakMark': case 'foundryEnter': case 'foundryDown': case 'laserWarn': case 'empPulse': case 'wingBreak': {
+        case 'skyAceDodge': case 'droneLaunch': case 'laserFire': case 'empCharge': case 'gunnerFire': case 'bayDown': case 'flakBurst': case 'boxEnter': case 'flakMark': case 'foundryEnter': case 'foundryDown': case 'laserWarn': case 'empPulse': case 'wingBreak': {
           if(event.type==='empPulse'&&(!boss||(game.events||[]).some(e=>e.type==='empClear'&&e.value==='reset')))break;
           const now=Number(game.time)||0;
           if(now-(this.skyLogs[event.type]??-99)<4)break;
           this.skyLogs[event.type]=now;
-          const copy={bayDown:'BAY DESTROYED / DRONE LAUNCHES CUT',flakBurst:'FLAK BURST / HOLD THE GAP',boxEnter:event.value==='climb'?'BOMBER BOX / CLIMBING FROM BELOW':'BOMBER BOX / DIVING',flakMark:'FLAK ALTITUDE MARKED / FIND THE GAP',foundryEnter:'FLYING FOUNDRY / BREAK THE BAYS',foundryDown:'FOUNDRY FALLING THROUGH CLOUD',laserWarn:'HALCYON / LATTICE CHARGING',empPulse:event.value?'EMP / ESCORTS OFFLINE':'EMP / ESCORTS PROTECTED',wingBreak:'HALCYON / WING BREAKING APART'};
+          const copy={skyAceDodge:'SKY ACE / EVASIVE ROLL',droneLaunch:'FOUNDRY / DRONES AWAY',laserFire:'HALCYON / LATTICE FIRING',empCharge:'HALCYON / EMP CHARGING',gunnerFire:'GUNNER / TRACKING FIRE',bayDown:'BAY DESTROYED / DRONE LAUNCHES CUT',flakBurst:'FLAK BURST / HOLD THE GAP',boxEnter:event.value==='climb'?'BOMBER BOX / CLIMBING FROM BELOW':'BOMBER BOX / DIVING',flakMark:'FLAK ALTITUDE MARKED / FIND THE GAP',foundryEnter:'FLYING FOUNDRY / BREAK THE BAYS',foundryDown:'FOUNDRY FALLING THROUGH CLOUD',laserWarn:'HALCYON / LATTICE CHARGING',empPulse:event.value?'EMP / ESCORTS OFFLINE':'EMP / ESCORTS PROTECTED',wingBreak:'HALCYON / WING BREAKING APART'};
           this._log(t,copy[event.type],event.type==='wingBreak'||event.type==='foundryDown'?'gold':'warn');break;
         }
         case 'hullEnter': this._log(t, 'ARMORED HULL / ' + String(event.value || 'warship').toUpperCase() + ' IN THE LINE', 'warn'); break;

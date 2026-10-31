@@ -276,3 +276,7 @@ body[data-sector="5"] .atmo-flash{background:radial-gradient(ellipse at 50% 80%,
 .console-route>i{display:none}
 .console-route span small{width:100%;visibility:hidden;overflow-wrap:anywhere}
 .console-route span[data-state="active"] small{visibility:visible}
+
+/* Keep node tops aligned and complete route names on one line. */
+.console-route span{align-items:flex-start;overflow:visible}
+.console-route span small{white-space:nowrap;overflow:visible;overflow-wrap:normal;max-width:none;width:auto;text-align:left;padding:0}

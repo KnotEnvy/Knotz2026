@@ -241,7 +241,7 @@ function birds(g, t, x0, y0, color, count = 9) {
 // ---------------------------------------------------------------- victory: dawn over the Meridian
 const V = { hz: 560, sun: { x: 1010, y: 528 } };
 function buildVictory(stage) {
-  if(stage===5){warmSkyforge();const sky=surface(W,H),c=sky.getContext('2d');c.translate(0,-360);c.scale(W/540,W/540);drawSkyforge(c,2600);return {sky,dusk:true};}
+  if(stage===5){warmSkyforge();const sky=surface(W,H),c=sky.getContext('2d');c.translate(0,-360);c.scale(W/540,W/540);drawSkyforge(c,2600,'victory');return {sky,dusk:true};}
   const { hz, sun } = V, out = {};
   const sky = surface(W, H), c = sky.getContext('2d');
   let gr = c.createLinearGradient(0, 0, 0, hz);
