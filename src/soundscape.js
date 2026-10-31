@@ -341,6 +341,8 @@ export class Soundscape {
     else if (name === 'sector2') this._stormWall(bed);
     else if (name === 'sector3') this._crown(bed);
     else if (name === 'sector4') this._typhoon(bed);
+    else if (name === 'sector5') this._skyforge(bed);
+    else if (/^sector\d+$/.test(name)) this._skyforge(bed); // later sectors borrow the latest bed until scored
     else if (name === 'endVictory') this._calm(bed);
     else if (name === 'endDefeat') this._storm(bed);
     else if (name === 'pressure') this._pressureBed(bed);
@@ -412,6 +414,82 @@ export class Soundscape {
     bed.every(9, 17, at => this._shipHorn(bed, at), [2, 4]);
     bed.every(3, 6, at => this._clank(bed, at, { distance: 0.8, pitch: this.between(130, 230), level: 0.08, heavy: true }), [1, 2]);
     this._flightModulation(bed, rush, 0.055);
+  }
+  _skyforge(bed) {
+    // Sector 05: dusk above the typhoon. Thin, bright air instead of rain; a far formation of
+    // piston engines beating against each other; factory platforms clanking out across the sky,
+    // their knocks thrown back off the cloud floor; thunder trapped in the cloud sea below.
+    const rush = this._rush(bed, { level: 0.05, cut: 3200 });
+    this._wind(bed, { level: 0.21, freq: 1250, q: 1.4, gust: [2.4, 6], depth: 0.75, low: 0.018, whistle: 0.055, whistleFreq: 2350 });
+    this._wind(bed, { level: 0.08, freq: 3400, q: 2.2, gust: [3.5, 8], depth: 0.6 });
+    this._engines(bed, { level: 0.05 });
+    bed.every(13, 24, at => this._flyover(bed, at), [4, 8]);
+    bed.every(4.5, 10, at => this._foundryClank(bed, at), [1.5, 3.5]);
+    bed.every(17, 33, at => this._vent(bed, at), [8, 14]);
+    this._flightModulation(bed, rush, 0.042);
+  }
+  _engines(bed, o) {
+    // Distant multi-engine drone: four radial engines per side, a few cents apart, so the
+    // formation throbs slowly. Mostly below 300 Hz and low-passed, it sits under the score.
+    const lp = this._filter('lowpass', 320, 0.7), amp = this._gain(o.level);
+    for (const [base, pan] of [[61.7, -0.5], [74.3, 0.45]]) {
+      const panner = this._panner(pan);
+      for (let k = 0; k < 4; k++) {
+        const osc = this.ctx.createOscillator(); osc.type = k % 2 ? 'triangle' : 'sawtooth';
+        osc.frequency.value = base * (1 + k * 0.0045) + this.between(-0.1, 0.1);
+        const g = this._gain(k % 2 ? 0.22 : 0.12); osc.connect(g); g.connect(panner); osc.start(this.now);
+        bed.sources.push(osc); this._keep(bed, g);
+      }
+      panner.connect(lp); this._keep(bed, panner);
+    }
+    // Prop wash: a band of noise that breathes with the engines.
+    const wash = this._filter('bandpass', 210, 1.4), washAmp = this._gain(o.level * 0.7);
+    this._chain([this._loop(bed, 'brown', 1.3), wash, washAmp, lp]);
+    this._chain([lp, amp, bed.gain]);
+    this._lfo(bed, amp.gain, 0.051, o.level * 0.4);
+    this._lfo(bed, lp.frequency, 0.033, 70);
+    this._keep(bed, lp, amp, wash, washAmp);
+  }
+  _flyover(bed, at) {
+    // A distant formation crossing high above: engines swell, pan across and drop a few cents
+    // as they pass (Doppler), then thin out into the wind.
+    const dur = this.between(7, 10), side = this.r() < 0.5 ? -1 : 1, base = this.between(78, 96);
+    const pan = this._panner(side * 0.75), send = this._gain(0.4), env = this._gain(0), lp = this._filter('lowpass', 520, 0.8), out = this._gain(0.034);
+    if (pan.pan) { pan.pan.setValueAtTime(side * 0.8, at); pan.pan.linearRampToValueAtTime(-side * 0.8, at + dur); }
+    env.gain.setValueAtTime(0, at); env.gain.linearRampToValueAtTime(1, at + dur * 0.5); env.gain.linearRampToValueAtTime(0, at + dur);
+    lp.frequency.setValueAtTime(300, at); lp.frequency.linearRampToValueAtTime(700, at + dur * 0.5); lp.frequency.linearRampToValueAtTime(260, at + dur);
+    this._chain([env, lp, out, pan]); pan.connect(bed.gain); pan.connect(send); send.connect(bed.send);
+    const nodes = [env, lp, out, pan, send];
+    let last = null;
+    for (let k = 0; k < 3; k++) {
+      const osc = this.ctx.createOscillator(); osc.type = 'sawtooth';
+      const f = base * (1 + k * 0.006);
+      osc.frequency.setValueAtTime(f * 1.03, at); osc.frequency.linearRampToValueAtTime(f * 1.02, at + dur * 0.4);
+      osc.frequency.linearRampToValueAtTime(f * 0.96, at + dur * 0.62); osc.frequency.linearRampToValueAtTime(f * 0.95, at + dur);
+      const g = this._gain(0.3); osc.connect(g); g.connect(env); osc.start(at); osc.stop(at + dur + 0.05);
+      nodes.push(osc, g); last = osc;
+    }
+    const air = this._burst('pink', at, dur), band = this._filter('bandpass', 900, 1.2), ag = this._gain(0.5);
+    this._chain([air, band, ag, env]); nodes.push(air, band, ag);
+    this._release(last, nodes);
+  }
+  _foundryClank(bed, at) {
+    // Factory platforms at work far off: a metal knock (sometimes a pair, a press stroke) and a
+    // softer copy thrown back off the cloud floor a third of a second later.
+    const distance = this.between(0.78, 0.93), pitch = this.between(150, 300), heavy = this.r() < 0.45;
+    this._clank(bed, at, { distance, pitch, heavy, level: 0.14, send: 0.75 });
+    if (this.r() < 0.4) this._clank(bed, at + this.between(0.16, 0.24), { distance, pitch: pitch * 1.19, level: 0.1, send: 0.75 });
+    const echo = this.between(0.3, 0.42);
+    this._clank(bed, at + echo, { distance: Math.min(0.97, distance + 0.08), pitch: pitch * 0.995, heavy, level: 0.065, send: 0.95 });
+  }
+  _vent(bed, at) {
+    // A foundry vents steam: a pneumatic hiss that swells and dies, far away.
+    const dur = this.between(1.4, 2.6), noise = this._burst('white', at, dur + 0.3);
+    const band = this._filter('bandpass', this.between(2600, 3800), 1.6), env = this._gain(0), lp = this._filter('lowpass', 5200);
+    env.gain.setValueAtTime(0, at); env.gain.linearRampToValueAtTime(1, at + 0.12); env.gain.setTargetAtTime(0, at + dur * 0.4, dur / 4);
+    const spot = this._spot(bed, this.between(-0.8, 0.8), 0.7), out = this._gain(0.016);
+    this._chain([noise, band, env, lp, out, spot.input]);
+    this._release(noise, [noise, band, env, lp, out, ...spot.nodes]);
   }
   _shipHorn(bed, at) {
     const spot = this._spot(bed, this.between(-0.65, 0.65), 0.65);
@@ -764,9 +842,10 @@ export class Soundscape {
   }
   _thunder(bed, at, o) {
     // Near strikes crack and rip before the roll; distant ones are a soft, dark grumble.
-    const near = 1 - clamp(o.distance, 0, 1), dark = o.dark ? 0.6 : 1;
-    const level = (0.042 + 0.15 * Math.pow(near, 1.4)) * (o.dark ? 0.8 : 1);
-    const cutoff = (140 + 1100 * near * near) * dark, dur = 3.5 + o.distance * 3 + this.r() * 2;
+    // `below` is thunder trapped in the cloud sea under sector 5: no crack, dark, felt more than heard.
+    const near = (1 - clamp(o.distance, 0, 1)) * (o.below ? 0.45 : 1), dark = o.dark ? 0.6 : o.below ? 0.42 : 1;
+    const level = (0.042 + 0.15 * Math.pow(near, 1.4)) * (o.dark ? 0.8 : o.below ? 1.4 : 1);
+    const cutoff = (140 + 1100 * near * near) * dark, dur = 3.5 + o.distance * 3 + this.r() * 2 + (o.below ? 1.5 : 0);
     const spot = this._spot(bed, o.pan, 0.25 + o.distance * 0.35), out = this._gain(level);
     out.connect(spot.input);
     const nodes = [out, ...spot.nodes];
@@ -839,14 +918,17 @@ export class Soundscape {
   // ---------------------------------------------------------------- state-driven extras
   _weather(s, now) {
     const bed = this.current;
-    if (!bed || !['sector2', 'sector3', 'sector4'].includes(bed.name) || !inFlight(s)) return;
+    if (!bed || !/^sector\d+$/.test(bed.name) || !inFlight(s)) return;
+    // Every sector asks the shared schedule; sectors without weather get null from lightningAt.
     const stage = Number(bed.name.slice(6));
     const strike = lightningAt(s.time, stage);
     if (!strike || strike.id === this.lastStrike) return;
     this.lastStrike = strike.id;
     // Thunder lags the shared flash by distance, as the visuals and page ambience expect.
-    const delay = Math.max(0.03, 0.3 + strike.distance * 2.2 - strike.age);
-    this._thunder(bed, now + delay, { distance: strike.distance, pan: strike.x * 1.6 - 0.8, dark: stage === 3 });
+    // From above the cloud floor (sector 5) the sound has further to climb, and arrives later.
+    const below = stage === 5;
+    const delay = Math.max(0.03, 0.3 + strike.distance * (below ? 2.8 : 2.2) + (below ? 0.4 : 0) - strike.age);
+    this._thunder(bed, now + delay, { distance: strike.distance, pan: (strike.x * 1.6 - 0.8) * (below ? 0.6 : 1), dark: stage === 3, below });
   }
   _pressure(s, now) {
     let target = 0;

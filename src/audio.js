@@ -21,11 +21,11 @@
 //   stageTime    seconds into the current sector
 //   bossWarning  0..1 progress through the pre-flagship warning, -1 when none
 //   boss         true while a flagship is alive
-//   bossName     'VESPER' | 'AURELIA' | 'THE CROWN' | 'LEVIATHAN' | null
+//   bossName     timeline FLAGSHIP_NAMES[stage] ('VESPER' … 'LEVIATHAN', 'HALCYON') | null
 //   bossPhase    1..3, 0 when no flagship
 //   bossHp       0..1 remaining flagship hull (0 when none)
 //   interlude    0..1 progress through the sector-clear interlude, -1 when none
-//   actTwo       true during the long Crown → Iron Monsoon hand-off
+//   actTwo       true during the long Crown → Iron Monsoon hand-off (other interludes are the normal length)
 //   interludeLength  actual transition length, seconds
 //   intensity    0..1 combat density (enemies, hostile bullets, flagship)
 //   critical     true when the player's hull is at 1 during play
