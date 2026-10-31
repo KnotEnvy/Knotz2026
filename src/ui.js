@@ -228,7 +228,7 @@ export class HUD {
         const b = game.boss, show = (b?.name === 'LEVIATHAN'||b?.name==='HALCYON') && b.phase === 1;
         this.mobileTurrets.hidden = !show;
         if (show) {
-          const states = (b.turrets || b.bays || []).map(id => (game.enemies || []).some(e => e.id === id && !e.dead && e.hp > 0));
+          const states = (b.name==='HALCYON'?b.bays||[]:b.turrets||[]).map(id => (game.enemies || []).some(e => e.id === id && !e.dead && e.hp > 0));
           const key = states.join('/');
           if (this.mobileTurrets.dataset.key !== key) {
             this.mobileTurrets.dataset.key = key;
@@ -262,7 +262,7 @@ export class HUD {
       text(ctx,label+'  /  '+this.salvageCount+' IN FIELD',270,y,12,this.scatterTime>0?COLORS.coral:COLORS.cyan,800,'center');
     }
     if (!this.compact&&(game.mode === "playing" || game.mode === "paused")) this.drawStatus(ctx, game);
-    if(this.compact&&game.player?.empTime>0){panel(ctx,140,800,260,32,.96);text(ctx,'ESCORTS OFFLINE · '+game.player.empTime.toFixed(1)+'s',270,817,16,'#edbeff',800,'center');}
+    if(this.compact&&game.player?.empTime>=.05&&game.player.escorts>0){panel(ctx,140,832,260,25,.5);text(ctx,'ESCORTS OFFLINE · '+game.player.empTime.toFixed(1)+'s',270,845,16,'#edbeff',800,'center');}
     const critical=Number(game.player?.hp||0)<=1;
     if (game.mode === "playing"&&critical)this.drawCritical(ctx,game);
     if(!this.compact&&game.mode==='playing'&&!critical){
@@ -349,7 +349,7 @@ export class HUD {
       ctx.fillStyle=COLORS.cyan;
       ctx.fillRect(11,66,518*clamp((game.stageTime||0)/(game.stageGoal?.[game.stage]||95),0,1),2);
     }
-    if(p.empTime>0){panel(ctx,155,800,230,32,.96);text(ctx,'ESCORTS OFFLINE · '+p.empTime.toFixed(1)+'s',270,817,13,'#edbeff',800,'center');}
+    if(p.empTime>=.05&&p.escorts>0){panel(ctx,155,832,230,25,.5);text(ctx,'ESCORTS OFFLINE · '+p.empTime.toFixed(1)+'s',270,845,13,'#edbeff',800,'center');}
     this.drawBottomRail(ctx,game);
   }
 
@@ -365,9 +365,9 @@ export class HUD {
       "LV " + Math.max(0, Number(this.lastPower) || 0) + " / " + Math.max(1, Number(this.lastCombo)||1).toFixed(1) + "×";
     text(ctx, boss.name==='HALCYON'?'FLYING-WING CARRIER':centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
     text(ctx, (boss.name==='HALCYON'?['THREE BAYS','LATTICE','ECLIPSE'][(boss.phase||1)-1]:'PHASE '+String(boss.phase||1)), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
-    if (leviathan && boss.phase === 1) {
-      for (let i = 0; i < (boss.turrets?.length || 4); i++) {
-        const live = (game.enemies || []).some(e => e.id === boss.turrets?.[i] && !e.dead && e.hp > 0);
+    if ((leviathan||halcyon) && boss.phase === 1) {
+      for (let i = 0; i < (halcyon?3:(boss.turrets?.length || 4)); i++) {
+        const live = (game.enemies || []).some(e => e.id === (halcyon?boss.bays?.[i]:boss.turrets?.[i]) && !e.dead && e.hp > 0);
         ctx.fillStyle = live ? COLORS.gold : '#364b50';
         ctx.fillRect(441 + i * 18, y + 15, 11, 4);
       }
