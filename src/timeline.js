@@ -1,16 +1,16 @@
 // Shared presentation timing and naming, so visuals and audio agree on the same moments.
 // Read-only helpers: never change game state from here.
 
-export const SECTOR_NAMES = Object.freeze(['', 'THE SHALLOWS', 'STORM WALL', 'THE CROWN', 'IRON MONSOON']);
-export const FLAGSHIP_NAMES = Object.freeze(['', 'VESPER', 'AURELIA', 'THE CROWN', 'LEVIATHAN']);
-export const FLAGSHIP_CLASSES = Object.freeze(['', 'STRIKE CARRIER', 'REACTOR DREADNOUGHT', 'LANCE CITADEL', 'SUPER-DREADNOUGHT']);
-export const SECTOR_COORDS = Object.freeze(['', 'N 07°21′  E 134°28′', 'N 21°44′  E 148°02′', 'N 29°58′  E 162°40′', 'N 33°12′  E 171°05′']);
-export const SECTOR_TAGLINES = Object.freeze(['', 'Reef lanes at first light.', 'Into the teeth of the storm.', 'Where the sea folds into fire.', 'The real fleet rides the typhoon.']);
+export const SECTOR_NAMES = Object.freeze(['', 'THE SHALLOWS', 'STORM WALL', 'THE CROWN', 'IRON MONSOON', 'SKYFORGE', 'ZERO MERIDIAN']);
+export const FLAGSHIP_NAMES = Object.freeze(['', 'VESPER', 'AURELIA', 'THE CROWN', 'LEVIATHAN', 'HALCYON', 'THE SOVEREIGN']);
+export const FLAGSHIP_CLASSES = Object.freeze(['', 'STRIKE CARRIER', 'REACTOR DREADNOUGHT', 'LANCE CITADEL', 'SUPER-DREADNOUGHT', 'FLYING-WING CARRIER', 'MIRROR CAPITAL SHIP']);
+export const SECTOR_COORDS = Object.freeze(['', 'N 07°21′  E 134°28′', 'N 21°44′  E 148°02′', 'N 29°58′  E 162°40′', 'N 33°12′  E 171°05′', 'N 35°40′  E 176°20′', 'N 37°00′  180°00′']);
+export const SECTOR_TAGLINES = Object.freeze(['', 'Reef lanes at first light.', 'Into the teeth of the storm.', 'Where the sea folds into fire.', 'The real fleet rides the typhoon.', 'Above the storm, the factories fly.', 'Where the long meridian ends.']);
 // First sector of Act II. Act I builds the arsenal through the Crown.
 import { ACT_TWO_STAGE, actOf } from './game.js';
 export { ACT_TWO_STAGE, actOf } from './game.js';
 export const ACT_NAMES = Object.freeze(['', 'ACT I', 'ACT II']);
-export const ACT_SUBTITLES = Object.freeze(['', 'OPERATION LONG MERIDIAN', 'IRON MONSOON']);
+export const ACT_SUBTITLES = Object.freeze(['', 'OPERATION LONG MERIDIAN', 'IRON MONSOON', 'SKYFORGE']);
 export const ACT_TAGLINES = Object.freeze(['', 'EVERY STORM HAS A SHORE', 'The Crown was only the gate.']);
 export function actName(stage) { return ACT_NAMES[actOf(stage)]; }
 // Rank describes carried-arsenal pressure in either act; flagship states override it in the HUD.
@@ -61,8 +61,8 @@ export function actTwoInterlude(game) {
 function hash(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 const STRIKE_LENGTH = 0.62;
 export function lightningAt(time, stage) {
-  if (stage !== 2 && stage !== 3 && stage !== 4) return null;
-  const period = stage === 2 ? 6.5 : stage === 4 ? 4.5 : 14;
+  if (stage !== 2 && stage !== 3 && stage !== 4 && stage !== 5) return null;
+  const period = stage === 5 ? 7 : stage === 2 ? 6.5 : stage === 4 ? 4.5 : 14;
   const t = Number(time) || 0;
   const slot = Math.floor(t / period);
   for (const s of [slot, slot - 1]) {
@@ -76,4 +76,11 @@ export function lightningAt(time, stage) {
     return { id: stage * 100000 + s, age, flash: flicker * (1 - distance * 0.55), x: hash(s * 7.73 + stage), distance };
   }
   return null;
+}
+
+// Four beats per bar; deterministic fallback when the audio clock is unavailable.
+export const ZERO_MERIDIAN_BPM = 140;
+export function auroraBarPhase(game) {
+  const phase = Number(game?.audioState?.barPhase);
+  return Number.isFinite(phase) ? phase % 1 : ((Number(game?.time)||0) * ZERO_MERIDIAN_BPM / 240) % 1;
 }

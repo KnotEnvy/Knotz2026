@@ -24,6 +24,7 @@ const OF = ' / ' + String(CAMPAIGN_STAGES).padStart(2, '0');
 const sectorOf = stage => clamp(stage | 0, 1, CAMPAIGN_STAGES);
 const introLength = stage => stage >= ACT_TWO_STAGE ? ACT_TWO_INTRO_LENGTH : stage === 1 ? 2.8 : INTRO_LENGTH;
 const PHASE_LENGTH = 1.25, LIFE_LENGTH = 1.9, EXTEND_LENGTH = 2.2;
+const OUTRO_TEASERS = {4:'Above the storm, the factories fly…',5:'The foundries fall. The meridian waits.',6:'The long meridian opens into dawn.'};
 const OUTRO = { victory: 2.3, gameover: 2.1, drillVictory: 1.4, drillGameover: 1.5 };
 const COMPACT_SCALE = 1.34; // phone layout: canvas text is drawn larger for legibility
 
@@ -192,7 +193,7 @@ export class Sequences {
     const step = clamp(Number(dt) || 0, 0, 0.1);
     if (this.outro) { this.outro.t = now() - this.outro.start; this.outroTime = this.outro.t; }
     this.track(game);
-    for (const key of ['phaseFx', 'lifeFx', 'extendFx']) if (this[key]) this[key].t += step;
+    for (const key of ['phaseFx', 'lifeFx', 'extendFx']) if (this[key] && !(key==='extendFx' && interludeProgress(game)>=0)) this[key].t += step;
     if (this.phaseFx && this.phaseFx.t > PHASE_LENGTH) this.phaseFx = null;
     if (this.lifeFx && this.lifeFx.t > LIFE_LENGTH) this.lifeFx = null;
     if (this.extendFx && this.extendFx.t > EXTEND_LENGTH) this.extendFx = null;
@@ -223,7 +224,7 @@ export class Sequences {
       // Stingers step below the warning bands when a flagship warning is up.
       const lower = warn >= 0 || intro;
       if (this.lifeFx) this.drawLifeLost(ctx, game, this.lifeFx, lower);
-      if (this.extendFx) this.drawExtend(ctx, this.extendFx, lower);
+      if (this.extendFx && inter < 0) this.drawExtend(ctx, this.extendFx, lower);
     }
     ctx.restore();
   }
@@ -231,7 +232,7 @@ export class Sequences {
   // The run just ended. Return how long the playfield should keep animating.
   beginOutro(game) {
     const won = game?.mode === 'victory', drill = !!game?.practiceStage;
-    const length = drill ? (won ? OUTRO.drillVictory : OUTRO.drillGameover) : (won ? OUTRO.victory : OUTRO.gameover);
+    const length = drill ? (won ? OUTRO.drillVictory : OUTRO.drillGameover) : (won ? (game.stage===CAMPAIGN_STAGES?4.6:OUTRO.victory) : OUTRO.gameover);
     const stage = sectorOf((game?.stage | 0) || 1);
     this.outro = { start: now(), t: 0, length, won, drill, stage,
       name: this.bossName || FLAGSHIP_NAMES[stage], score: Number(game?.summary?.score ?? game?.score) || 0 };
@@ -409,7 +410,7 @@ export class Sequences {
     const bx = 108 * open + 82;
     brackets(ctx, 270 - bx, y - 72, bx * 2, 146, 12, `rgba(${accent},${.55 * a})`);
     ctx.globalAlpha = a;
-    const kicker = (actName(stage) + '  ·  ') + 'SECTOR ' + two(stage) + OF;
+    const kicker = (actName(stage) + '  ·  ') + 'SECTOR ' + two(stage) + (stage===CAMPAIGN_STAGES?'':OF);
     wipe(ctx, this.label(kicker, 10, act2 ? C.coral : C.gold, { spacing: 2.4 }), 270, y - 59, ramp(.12, .62, t) * 1.02, a);
     // Fold the act title into the launch card, clear before the first enemy at 2.8 s.
     const launch = stage === 1;
@@ -545,7 +546,7 @@ export class Sequences {
     ctx.fillStyle = 'rgba(255,95,168,.55)'; ctx.fillRect(-300, -34, 7, 68); ctx.fillRect(293, -34, 7, 68);
     const final = fx.phase >= 3;
     blit(ctx, this.label('PHASE ' + fx.phase, 42, final ? C.gold : C.pale, { family: DISPLAY, weight: 900, spacing: 6 }), 0, -7, a);
-    blit(ctx, this.label((final ? 'FINAL PATTERN' : 'PATTERN SHIFT') + '  ·  ' + fx.name, 10, C.coral, { spacing: 3 }), 0, 24, a);
+    blit(ctx, this.label((fx.name==='HALCYON'?(final?'ECLIPSE PROTOCOL':'LATTICE'):(final ? 'FINAL PATTERN' : 'PATTERN SHIFT')) + '  ·  ' + fx.name, 10, C.coral, { spacing: 3 }), 0, 24, a);
     ctx.restore();
   }
 
@@ -566,16 +567,20 @@ export class Sequences {
       ctx.save();
       this.scaleGroup(ctx, 270, cy);
       this.band(ctx, cy, 110, .55 * ia);
-      const punch = reduced ? 1 : 1 + .32 * (1 - easeOut(te / .26));
+      const title=this.label('FLAGSHIP DOWN',40,C.gold,{family:DISPLAY,weight:900,spacing:4});
+      const punch = Math.min(reduced ? 1 : 1 + .32 * (1 - easeOut(te / .26)), (W-40)/(title.w*(this.compact?COMPACT_SCALE:1)));
       blit(ctx, this.label('FLAGSHIP DOWN', 40, C.gold, { family: DISPLAY, weight: 900, spacing: 4 }), 270, cy - 2, ia, punch);
       if (!reduced && te < .3) blit(ctx, this.label('FLAGSHIP DOWN', 40, '#fffaf0', { family: DISPLAY, weight: 900, spacing: 4 }), 270, cy - 2, ia * (1 - te / .3), punch);
       blit(ctx, this.label(d.name + '  ·  ' + (FLAGSHIP_CLASSES[d.stage] || 'FLAGSHIP') + ' DESTROYED', 10, C.coral, { spacing: 2.6 }), 270, cy - 38, ia * ramp(.08, .3, te));
       ctx.restore();
     }
     // Beat 2: tally card.
-    const tt = te - 1.05;
+    // HALCYON gets a beat longer to break apart; the card must still finish its
+    // count-ups and footer inside the 3.5 s interlude (last value settles ~1.55 s in).
+    const tallyStart=d.stage>=5?1.6:1.05;
+    const tt = te - tallyStart;
     const tallyEnd = d.actTwo ? ACT_TWO_TALLY_END : INTERLUDE_LENGTH;
-    const ta = envelope(tt, tallyEnd - 1.05, .32, d.final ? 0 : .34) * fade;
+    const ta = envelope(tt, tallyEnd - tallyStart, .32, d.final ? 0 : .34) * fade;
     if (ta <= 0) return;
     const rows = d.drill
       ? [['ACCURACY', d.accuracy, 'pct'], ['GRAZES', d.grazes, 'int'], ['HITS TAKEN', d.hits, 'hits']]
@@ -628,11 +633,11 @@ export class Sequences {
       ctx.globalAlpha = sa; ctx.fillStyle = C.gold; setFont(ctx, 20, DISPLAY, 900); ctx.textAlign = 'right';
       ctx.fillText(d.drill ? flightTime(d.time * count) : '+' + comma(d.score * count), x1 - 22, sy);
     }
-    const fa = ta * ramp(1.35, 1.75, tt);
+    const fa = ta * ramp(d.stage>=5?1.15:1.35, d.stage>=5?1.5:1.75, tt);
     if (fa > 0) {
       const lines = d.drill ? [['UNRANKED  ·  CAMPAIGN RECORDS PRESERVED', C.muted]]
         : d.actTwo ? [['THE CROWN FALLS  ·  THE GATE OPENS', C.gold]]
-        : d.final ? [['LEVIATHAN SUNK  ·  THE TYPHOON BREAKS', C.gold]]
+        : d.final ? [[(d.stage===CAMPAIGN_STAGES?'ACT II COMPLETE':d.stage===5?'HALCYON FALLS  ·  THE SKY OPENS':'LEVIATHAN SUNK  ·  THE TYPHOON BREAKS'), C.gold]]
         : [['RESUPPLY  ·  HULL +1  ·  SPECIAL +1', C.cyan], ['NEXT  ·  SECTOR ' + two(d.stage + 1) + ' — ' + (SECTOR_NAMES[d.stage + 1] || ''), C.muted]];
       this.band(ctx, bottom + 24 + (lines.length - 1) * 9.5, 30 + lines.length * 19, .5 * fa);
       lines.forEach(([str, color], i) => blit(ctx, this.label(str, 10, color, { spacing: 2 }), 270, bottom + 24 + i * 19, fa));
@@ -749,8 +754,13 @@ export class Sequences {
 
   drawOutro(ctx, game) {
     const o = this.outro, t = o.t, L = Math.max(.01, o.length), reduced = this.reducedEffects;
+    if (o.won && !o.drill && o.stage===CAMPAIGN_STAGES && t>2.6) {
+      const a=ramp(2.6,2.95,t);ctx.globalAlpha=a*.92;ctx.fillStyle='#02050e';ctx.fillRect(0,0,W,H);
+      blit(ctx,this.label('ACT III',44,C.gold,{family:DISPLAY,weight:900,spacing:6}),270,398,a);
+      blit(ctx,this.label('Beyond the meridian, the signal carries.',17,C.pale,{family:SERIF,italic:true}),270,457,a);return;
+    }
     if (o.won) {
-      if (this.down?.final) this.drawInterlude(ctx, this.down, INTERLUDE_LENGTH, 1 - ramp(0, .35, t));
+      if (this.down?.final) this.drawInterlude(ctx, this.down, INTERLUDE_LENGTH, 1 - ramp(0, .18, t));
       const bar = 96 * (reduced ? ramp(0, .5, t) : easeInOut(t / .7));
       ctx.globalAlpha = 1; ctx.fillStyle = '#03080c';
       ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar);
@@ -761,15 +771,15 @@ export class Sequences {
       this.scaleGroup(ctx, 270, cy);
       this.band(ctx, cy, 200, .55 * ramp(.05, .5, t));
       // Campaign victory after the last built sector; the copy points honestly at what lies beyond.
-      const kicker = o.drill ? o.name + '  ·  UNRANKED' : SECTOR_NAMES[o.stage] + '  ·  ' + (FLAGSHIP_NAMES[o.stage] || 'FLAGSHIP') + ' SUNK';
+      const kicker = o.drill ? o.name + '  ·  UNRANKED' : (this.compact ? '' : SECTOR_NAMES[o.stage] + '  ·  ') + (FLAGSHIP_NAMES[o.stage] || 'FLAGSHIP') + (o.stage===CAMPAIGN_STAGES?' SHATTERED':o.stage===5?' BROKEN':' SUNK');
       wipe(ctx, this.label(kicker, 11, C.gold, { spacing: 3.2 }), 270, cy - 64, ramp(.15, .55, t) * 1.02, 1);
-      const word = this.label(o.drill ? 'DRILL' : 'THE STORM', 46, C.pale, { family: DISPLAY, weight: 900, spacing: 6 });
+      const word = this.label(o.drill ? 'DRILL' : o.stage===CAMPAIGN_STAGES?'ACT II':'THE STORM', 46, C.pale, { family: DISPLAY, weight: 900, spacing: 6 });
       reduced ? blit(ctx, word, 270, cy - 20, ramp(.05, .4, t)) : wipe(ctx, word, 270, cy - 20, easeOut((t - .08) / .5), 1);
       const ea = ramp(.3, .7, t);
-      blit(ctx, this.label(o.drill ? 'complete.' : 'breaks.', 54, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 36 + (reduced ? 0 : 8 * (1 - ea)), ea);
+      blit(ctx, this.label(o.drill ? 'complete.' : o.stage===CAMPAIGN_STAGES?'complete.':'breaks.', 54, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 36 + (reduced ? 0 : 8 * (1 - ea)), ea);
       this.flare(ctx, cy + 78, W * (reduced ? 1 : easeOut((t - .4) / .5)), .8 * ramp(.4, .6, t) * (1 - ramp(1.1, 1.5, t)));
       if (!o.drill) {
-        blit(ctx, this.label('Above the storm, the factories fly…', 15, C.amber, { family: SERIF, weight: 400, italic: true }), 270, cy + 100, ramp(.7, 1.1, t));
+        blit(ctx, this.label(OUTRO_TEASERS[o.stage] || 'Beyond the clouds, the signal carries…', 15, C.amber, { family: SERIF, weight: 400, italic: true }), 270, cy + 100, ramp(.7, 1.1, t));
         blit(ctx, this.label('FINAL SCORE  ·  ' + String(Math.floor(o.score)).padStart(8, '0'), 10, C.muted, { spacing: 2.4 }), 270, cy + 128, ramp(.9, 1.2, t));
       }
       ctx.restore();

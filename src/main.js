@@ -9,9 +9,23 @@ import { PausePanel } from './pause.js';
 import { Sequences } from './sequences.js';
 import { Cinema } from './cinema.js';
 import { Ambience } from './ambience.js';
-import { bossWarningProgress, interludeProgress, FLAGSHIP_NAMES, ACT_TWO_STAGE, actName, threatName } from './timeline.js';
+import { bossWarningProgress, interludeProgress, FLAGSHIP_NAMES, SECTOR_NAMES, ACT_TWO_STAGE, actName, threatName } from './timeline.js';
 import { readSettings, writeSettings } from './settings.js';
 import { readProgress, saveProgress, markEncounter, recordFlight, flightAdvice, readDrillRecords, recordDrill, flightTime, drillClearTier } from './progress.js';
+
+// Build campaign navigation before any presentation module caches its nodes.
+const campaign = Array.from({length:CAMPAIGN_STAGES},(_,i)=>i+1);
+const stageLabel = n => String(n).padStart(2,'0');
+const sectorName = n => SECTOR_NAMES[n] || 'SECTOR '+stageLabel(n);
+const flagshipName = n => FLAGSHIP_NAMES[n] || 'FLAGSHIP';
+const actClass = n => n>=ACT_TWO_STAGE?'act-two':'';
+document.querySelector('.mastery-badges').innerHTML=campaign.map(n=>`<span data-mastery="${n}" class="${actClass(n)}">${flagshipName(n)}</span>`).join('');
+document.querySelector('.drill-buttons').innerHTML=campaign.map(n=>`<button type="button" class="drill-button ${actClass(n)}" data-drill="${n}" ${n>1?'disabled':''}><span>${stageLabel(n)} / ${flagshipName(n)} <em>${actName(n)}</em></span><small>${n===1?'UNRANKED / ARRIVAL KIT':'ENCOUNTER TO UNLOCK'}</small></button>`).join('');
+document.querySelector('.console-route').innerHTML=campaign.map(n=>`<span data-node="${n}"><b>${stageLabel(n)}</b><small>${({1:"SHALLOWS",2:"STORM WALL",3:"CROWN",4:"MONSOON",5:"SKYFORGE",6:"MERIDIAN"})[n]||sectorName(n)}</small></span>`).join('<i></i>');
+document.querySelector('.mission-route').innerHTML='<span>MISSION ROUTE</span>'+campaign.map(n=>`<b class="${actClass(n)}">${stageLabel(n)} / ${sectorName(n)}</b>`).join('<i>↗</i>');
+document.querySelector('#holdTrack').innerHTML='<i class="hold-track-fill"></i>'+campaign.map(n=>`<i class="hold-node" data-node="${n}" style="left:${(n-.5)/CAMPAIGN_STAGES*100}%"></i>`).join('')+'<i class="hold-track-marker"></i>';
+document.querySelector('.hold-nodes').innerHTML=campaign.map(n=>`<li data-sector="${n}"><b>${stageLabel(n)}</b><strong>${sectorName(n)}</strong><span>${flagshipName(n)}</span><em>AHEAD</em></li>`).join('');
+document.documentElement.style.setProperty('--campaign-stages',CAMPAIGN_STAGES);
 
 const artLoaded=await loadArt((loaded,total)=>{
   const bar=document.getElementById('assetProgress');if(bar)bar.value=loaded/total;
@@ -462,11 +476,11 @@ function endSortie(summary, fixture=false){
   let narrative;
   if(won){
     // Victory comes after the last built sector; Act II continues beyond it, so say so.
-    narrative=grade.startsWith('S')?'The Leviathan sinks without ever finding your line. Above the storm, the factories fly…':
+    narrative=stage>=CAMPAIGN_STAGES?'The final Act II flagship falls. The storm corridor is open. Beyond the meridian, Act III awaits.':stage===5?'HALCYON breaks apart and falls through the violet cloud floor. The factories fall silent. Act II continues.':grade.startsWith('S')?'The Leviathan sinks without ever finding your line. Above the storm, the factories fly…':
       grade.startsWith('A')?'The Leviathan sinks and the battle line breaks. Above the storm, the factories fly…':
       'The Leviathan sinks. You held through the typhoon. Above the storm, the factories fly…';
   }else{
-    narrative=stage>=ACT_TWO_STAGE?'The typhoon fleet held the line. Strip the turrets, guard your salvage, and fly into the storm again.':
+    narrative=stage>=CAMPAIGN_STAGES?'THE SOVEREIGN holds the meridian. Follow the mirror gaps and carry the signal through on the next sortie.':stage===5?'HALCYON holds the dusk sky. Break the bays, follow the lattice gaps, and roll through the EMP charge.':stage>=ACT_TWO_STAGE?'The typhoon fleet held the line. Strip the turrets, guard your salvage, and fly into the storm again.':
       stage===3?'The Crown held. Beyond it, the real fleet is waiting. One more sortie.':
       stage===2?'The storm wall claimed this flight. The next opening is yours to find.':
       'The first sector swallowed the signal. The flight deck is ready when you are.';
@@ -502,8 +516,8 @@ function endSortie(summary, fixture=false){
   // DEV FIXTURE DISPLAY END
   const score=number(data.score??game.score);
   const gradeLine='GRADE '+grade+' / '+String(score).padStart(8,'0')+' POINTS';
-  setText('endIntroKicker',won?'FINAL SIGNAL / LEVIATHAN SUNK':'MAYDAY / SECTOR '+String(stage).padStart(2,'0'));
-  setText('endIntroHeading',won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
+  setText('endIntroKicker',won?'FINAL SIGNAL / '+flagshipName(stage)+(stage===5?' BROKEN':' DOWN'):'MAYDAY / SECTOR '+String(stage).padStart(2,'0'));
+  setText('endIntroHeading',won&&stage===CAMPAIGN_STAGES?'ACT II COMPLETE':won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
   setText('endIntroLine',won?gradeLine:'FLIGHT RECORD RECOVERED / '+gradeLine);
   if(drill){
     const tier=drillClearTier(data);
@@ -593,7 +607,7 @@ function frame(now){
     if(outroUntil){
       // The run has ended: keep the playfield, HUD and outro sequence alive without updating the game.
       renderer.draw(game,dt);hud.draw(game,dt,ctx);sequences.draw(ctx,game,dt);
-      audio.update(game,dt);ambience.update(game,dt);readoutsFromGame(dt);
+      audio.update(game,dt);game.audioState=audio.state;ambience.update(game,dt);readoutsFromGame(dt);
       if(now>=outroUntil){outroUntil=0;endSortie(game.summary);}
       scheduleFrame();return;
     }
@@ -603,6 +617,8 @@ function frame(now){
     hud.draw(game,dt,ctx);
     sequences.draw(ctx,game,dt);
     audio.update(game,dt);
+    // The sector-6 aurora pulses on the score's bar clock (timeline.auroraBarPhase).
+    game.audioState=audio.state;
     ambience.update(game,dt);
     consumeOneShots();
     readoutsFromGame(dt);

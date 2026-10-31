@@ -225,15 +225,15 @@ export class HUD {
         host.insertBefore(this.mobileTurrets, document.getElementById('mobileBoss'));
       }
       if (this.mobileTurrets) {
-        const b = game.boss, show = b?.name === 'LEVIATHAN' && b.phase === 1;
+        const b = game.boss, show = (b?.name === 'LEVIATHAN'||b?.name==='HALCYON') && b.phase === 1;
         this.mobileTurrets.hidden = !show;
         if (show) {
-          const states = (b.turrets || []).map(id => (game.enemies || []).some(e => e.id === id && !e.dead && e.hp > 0));
+          const states = (b.name==='HALCYON'?b.bays||[]:b.turrets||[]).map(id => (game.enemies || []).some(e => e.id === id && !e.dead && e.hp > 0));
           const key = states.join('/');
           if (this.mobileTurrets.dataset.key !== key) {
             this.mobileTurrets.dataset.key = key;
             this.mobileTurrets.innerHTML = states.map(live => '<i style="font-style:normal;color:' + (live ? '#ffd98b' : '#526468') + '">▰</i>').join('');
-            this.mobileTurrets.setAttribute('aria-label', states.filter(Boolean).length + ' deck turrets remaining');
+            this.mobileTurrets.setAttribute('aria-label', states.filter(Boolean).length + (b.name==='HALCYON'?' launch bays remaining':' deck turrets remaining'));
           }
         }
       }
@@ -262,6 +262,7 @@ export class HUD {
       text(ctx,label+'  /  '+this.salvageCount+' IN FIELD',270,y,12,this.scatterTime>0?COLORS.coral:COLORS.cyan,800,'center');
     }
     if (!this.compact&&(game.mode === "playing" || game.mode === "paused")) this.drawStatus(ctx, game);
+    if(this.compact&&game.player?.empTime>=.05&&game.player.escorts>0){panel(ctx,140,832,260,25,.5);text(ctx,'ESCORTS OFFLINE · '+game.player.empTime.toFixed(1)+'s',270,845,16,'#edbeff',800,'center');}
     const critical=Number(game.player?.hp||0)<=1;
     if (game.mode === "playing"&&critical)this.drawCritical(ctx,game);
     if(!this.compact&&game.mode==='playing'&&!critical){
@@ -275,7 +276,7 @@ export class HUD {
   }
 
   drawStatus(ctx, game) {
-    if(game.stage === 4)return this.drawFleetStatus(ctx,game);
+    if(game.stage >= 4)return this.drawFleetStatus(ctx,game);
     const player = game.player || {};
     const boss = game.boss;
     panel(ctx, 11, 10, 518, 85, 0.94);
@@ -339,35 +340,45 @@ export class HUD {
     text(ctx,'SCORE',25,23,9,COLORS.muted,700,'left',1.2);
     text(ctx,String(Math.floor(game.score||0)).padStart(8,'0'),25,44,20,COLORS.pale,700);
     text(ctx,game.practiceStage?'DRILL':'SECTOR',210,23,9,COLORS.muted,700,'center',1);
-    text(ctx,'04',210,43,21,COLORS.cyan,800,'center');
+    text(ctx,String(game.stage).padStart(2,'0'),210,43,21,COLORS.cyan,800,'center');
     text(ctx,'HULL '+(p.hp||0)+'/'+(p.maxHp||4)+'   LIVES '+(p.lives||0)+'   B '+(p.bombs||0),273,23,10,COLORS.pale,700);
     text(ctx,'P'+(p.level||1)+'  E'+(p.escorts||0)+'  M'+(p.sidewinder||0)+'  ★'+(p.signature||0)+'  S'+(p.shield||0),273,44,11,COLORS.gold,700);
     if(p.reflector>0){ctx.fillStyle='#c3a3ff';ctx.fillRect(274,54,230*clamp(p.reflector/6,0,1),2);}
     if(game.boss?.hp>0)this.drawBossMeter(ctx,game.boss,game,67);
     else{
       ctx.fillStyle=COLORS.cyan;
-      ctx.fillRect(11,66,518*clamp((game.stageTime||0)/(game.stageGoal?.[4]||95),0,1),2);
+      ctx.fillRect(11,66,518*clamp((game.stageTime||0)/(game.stageGoal?.[game.stage]||95),0,1),2);
     }
+    if(p.empTime>=.05&&p.escorts>0){panel(ctx,155,832,230,25,.5);text(ctx,'ESCORTS OFFLINE · '+p.empTime.toFixed(1)+'s',270,845,13,'#edbeff',800,'center');}
     this.drawBottomRail(ctx,game);
   }
 
   drawBossMeter(ctx, boss, game, y = 148) {
-    panel(ctx, 11, y, 518, 36, 0.99);
+    panel(ctx, 11, y, 518, 36, boss.name==='THE SOVEREIGN'?.58:.99);
     const bossName = boss.name || (boss.type ? String(boss.type).replace(/[_-]/g, " ").toUpperCase() : "HOSTILE FLAGSHIP");
     text(ctx, bossName, 25, y + 10, 10, COLORS.coral, 800, "left", 1.2);
     const guardLeft = Math.max(0, (Number(boss.guardUntil) || 0) - (Number(boss.age) || 0));
-    const leviathan = game?.stage === CAMPAIGN_STAGES && boss.name === 'LEVIATHAN';
+    const leviathan = boss.name === 'LEVIATHAN';
     const liveTurrets = leviathan ? (game.enemies || []).filter(e => boss.turrets?.includes(e.id) && !e.dead && e.hp > 0).length : 0;
-    const centerLabel = leviathan && boss.phase === 1 ? (liveTurrets ? 'DECK ARMOR / 25% DAMAGE' : 'DECK GUNS SILENCED') : boss.guard ? "ARMOR CYCLING / " + guardLeft.toFixed(1) + "s" :
+    const halcyon=boss.name==='HALCYON',sovereign=boss.name==='THE SOVEREIGN';
+    const centerLabel = halcyon ? ['THREE BAYS','LATTICE','ECLIPSE PROTOCOL'][(boss.phase||1)-1] : leviathan && boss.phase === 1 ? (liveTurrets ? 'DECK ARMOR / 25% DAMAGE' : 'DECK GUNS SILENCED') : boss.guard ? "ARMOR CYCLING / " + guardLeft.toFixed(1) + "s" :
       "LV " + Math.max(0, Number(this.lastPower) || 0) + " / " + Math.max(1, Number(this.lastCombo)||1).toFixed(1) + "×";
-    text(ctx, centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
-    text(ctx, "PHASE " + String(boss.phase || 1), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
-    if (leviathan && boss.phase === 1) {
-      for (let i = 0; i < (boss.turrets?.length || 4); i++) {
-        const live = (game.enemies || []).some(e => e.id === boss.turrets?.[i] && !e.dead && e.hp > 0);
+    text(ctx, sovereign?'MIRROR CAPITAL SHIP':halcyon?'FLYING-WING CARRIER':centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
+    text(ctx, (sovereign?['REFLECTION','THEFT','BALLET'][(boss.phase||1)-1]:boss.name==='HALCYON'?['THREE BAYS','LATTICE','ECLIPSE'][(boss.phase||1)-1]:'PHASE '+String(boss.phase||1)), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
+    if ((leviathan||halcyon) && boss.phase === 1) {
+      for (let i = 0; i < (halcyon?3:(boss.turrets?.length || 4)); i++) {
+        const live = (game.enemies || []).some(e => e.id === (halcyon?boss.bays?.[i]:boss.turrets?.[i]) && !e.dead && e.hp > 0);
         ctx.fillStyle = live ? COLORS.gold : '#364b50';
         ctx.fillRect(441 + i * 18, y + 15, 11, 4);
       }
+    }
+    if(sovereign&&boss.phase===1){
+      const escorts=(game.enemies||[]).filter(e=>e.type==='mirrorEscort'&&e.parentId===boss.id&&!e.dead&&e.hp>0);
+      for(let i=0;i<6;i++){ctx.fillStyle=i<escorts.length?COLORS.cyan:'#364b50';ctx.fillRect(418+i*16,y+15,10,4);}
+    }
+    if(sovereign&&boss.phase===2&&(game.enemies||[]).some(e=>e.type==='tether'&&!e.dead)){
+      ctx.fillStyle='rgba(8,22,43,.55)';ctx.fillRect(11,y+38,518,19);
+      text(ctx,'SALVAGE TETHER / SHOOT TO RECOVER',270,y+48,10,COLORS.cyan,700,'center',1);
     }
     const ratio = clamp((boss.hp || 0) / Math.max(1, boss.maxHp || 1), 0, 1);
     ctx.fillStyle = "rgba(255,119,95,.18)";

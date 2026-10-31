@@ -143,7 +143,7 @@ try{
   await terminal.locator('#skipCinemaButton').click();assert.ok(await terminal.locator('#retryButton').isVisible());
   const record=await terminal.evaluate(()=>({score:__qaTerminalGame.score,saved:Number(localStorage.getItem('2026-high-score')),mode:__qaTerminalGame.mode}));
   const cues=await terminal.evaluate(()=>__qaTerminalCues);
-  if(terminalAudioReady){assert.equal(cues.dispatches,1);assert.equal(cues.oscillators,outcome==='victory'?9:3,'terminal cue voices (sfx.js victory: 5 brass + 4 bells; gameover: 3 falling tones)');record.audio={verified:true,...cues};}
+  if(terminalAudioReady){assert.equal(cues.dispatches,1);assert.equal(cues.oscillators,outcome==='victory'?(CAMPAIGN_STAGES>=6?0:9):3,'terminal cue voices (sfx.js victory: 5 brass + 4 bells, but after THE SOVEREIGN the score\'s ACT II COMPLETE sting carries it instead; gameover: 3 falling tones)');record.audio={verified:true,...cues};}
   else record.audio={verified:false,reason:report.audioLimitation};
   assert.ok(record.saved>=record.score);await terminal.locator('#retryButton').click();assert.equal(await terminal.locator('#app').getAttribute('data-screen'),'play');
   assert.deepEqual(terminalErrors,[]);report.checks.terminalFlows.push({outcome,...record,errors:terminalErrors});await terminal.close();

@@ -42,8 +42,8 @@ const tracker = game => {
   return { fire: true, pointerActive: true, pointerX: tx, pointerY: 700 };
 };
 
-test('the campaign runs the Crown, an ACT II interlude, sector 4, then victory after LEVIATHAN', () => {
-  assert.equal(CAMPAIGN_STAGES, 4);
+test('the campaign runs the Crown, an ACT II interlude, sector 4, then LEVIATHAN hands over to sector 5', () => {
+  assert.equal(CAMPAIGN_STAGES, 6);
   const game = sortie(); game.player.invuln = 999;
   game.stage = 3; game._spawnBoss(); game.boss.y = 285;
   game.events = []; game._killEnemy(game.boss);
@@ -62,8 +62,10 @@ test('the campaign runs the Crown, an ACT II interlude, sector 4, then victory a
   assert.equal(game.boss.name, 'LEVIATHAN');
   game.events = []; game._killEnemy(game.boss);
   assert.equal(count(game.events, 'actTwo'), 0); assert.equal(game._transition, 3.5);
-  step(game, 4);
-  assert.equal(game.mode, 'victory'); assert.equal(game.summary.outcome, 'victory'); assert.equal(game.summary.stage, 4);
+  const climb = step(game, 4);
+  // Sector 5 follows on an ordinary interlude; victory now comes after HALCYON (sector5.test.mjs).
+  assert.equal(game.mode, 'playing'); assert.equal(game.stage, 5); assert.equal(game.summary, null);
+  assert.ok(climb.some(e => e.type === 'stage' && e.value === 5));
 });
 
 test('drills 1-4 start at their flagship with the sector kit, and drill 4 uses the power-25 reference kit', () => {
@@ -84,19 +86,21 @@ test('drills 1-4 start at their flagship with the sector kit, and drill 4 uses t
 });
 
 test('career and drill records accept sector 4 and clamp at CAMPAIGN_STAGES', () => {
+  const last = CAMPAIGN_STAGES;
   const values = new Map(), storage = { getItem: k => values.get(k), setItem: (k, v) => values.set(k, v) };
   const progress = readProgress(storage);
   assert.ok(markEncounter(progress, 4)); assert.equal(progress.bossSeen, 4);
+  assert.ok(markEncounter(progress, 9)); assert.equal(progress.bossSeen, last, 'clamped to the last sector');
   assert.equal(markEncounter(progress, 9), false, 'no flagship past the campaign');
   recordFlight(progress, { shipId: 'manta', outcome: 'victory', score: 900000, bossesDefeated: 7 });
-  assert.equal(progress.ships.manta.bestClears, 4);
+  assert.equal(progress.ships.manta.bestClears, last);
   const saved = readProgress({ getItem: () => JSON.stringify({ bossSeen: 99, ships: { kestrel: { bestClears: 99 } } }) });
-  assert.equal(saved.bossSeen, 4); assert.equal(saved.ships.kestrel.bestClears, 4);
+  assert.equal(saved.bossSeen, last); assert.equal(saved.ships.kestrel.bestClears, last);
   const clear = { shipId: 'kestrel', practiceStage: 4, outcome: 'victory', time: 70.5, hitsTaken: 3, livesLost: 0 };
   assert.equal(drillClearTier(clear), 'controlled');
   const records = {}; assert.deepEqual(recordDrill(records, clear, storage), { bestTime: 70.5, fewestHits: 3 });
   assert.deepEqual(readDrillRecords(storage)['kestrel-4'], { bestTime: 70.5, fewestHits: 3 });
-  assert.equal(recordDrill(records, { ...clear, practiceStage: 5 }, storage), null);
+  assert.equal(recordDrill(records, { ...clear, practiceStage: last + 1 }, storage), null);
 });
 
 test('a hull takes 35% damage while any turret lives; turrets ride their hull and die with it', () => {

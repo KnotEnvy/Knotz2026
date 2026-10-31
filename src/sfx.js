@@ -10,10 +10,13 @@ const hz = midi => 440 * Math.pow(2, (midi - 69) / 12);
 // Events resolved before the high-volume shot and hit streams.
 export const PRIORITY_EVENTS = new Set([
   'scavengerSteal', 'scavengerDrop', 'scavengerEscape', 'hullEnter', 'hullDown', 'broadside', 'coreExposed', 'actTwo',
+  'boxEnter', 'flakMark', 'foundryEnter', 'foundryDown', 'laserWarn', 'empCharge', 'empPulse', 'empClear', 'wingBreak',
   'squadronBonus', 'arsenalScatter', 'salvageRecover', 'escortJoin', 'reflectorUp', 'reflectorDown', 'signatureUp', 'shieldUp',
   'playerHit', 'lifeLost', 'bomb', 'shieldBreak', 'shieldRestore', 'powerUp', 'wakeRoll', 'wakeReady',
   'wakeConvert', 'bossDown', 'bossPhase', 'bossEnter', 'reactorBreak', 'reactorOpen', 'lanceLock',
   'lanceFire', 'lanceCancel', 'stage', 'extend', 'gameover', 'victory',
+  'echoSpawn', 'satelliteEnter', 'satelliteDown', 'stationEnter', 'stationDown', 'mirrorCopy', 'tetherLaunch', 'tetherCut',
+  'tetherLost', 'sovereignGrow', 'mirrorShatter', 'actTwoComplete',
 ]);
 export const RECOVERY_FOLLOW_ON_EVENTS = new Set(['powerUp','shieldUp','shieldRestore','escortJoin','signatureUp','reflectorUp']);
 
@@ -24,19 +27,36 @@ const TRIM = {
   squadronEnter: 1.2, hullEnter: 1.35, hullDown: 1.1, turretDown: 0.9,
   scavengerSteal: 1.7, scavengerDrop: 1.5, scavengerEscape: 1.5,
   mineBurst: 0.9, broadside: 1.15, coreExposed: 1.4,
+  boxEnter: 1.3, 'boxEnter-dive': 1.6, gunnerFire: 1.4, skyAceDodge: 3, flakMark: 1.5, flakBurst: 1, foundryEnter: 1.3, foundryDown: 1.1,
+  bayDown: 1, droneLaunch: 1.3, laserWarn: 1.4, laserFire: 1.1, empCharge: 1.4, empPulse: 1.2, empClear: 1.6, wingBreak: 1.45,
   shoot: 1, missileLaunch: 1.3, roll: 3.4, wakeRoll: 2.8, wakeConvert: 1.2, drop: 1.5,
   'pickup-power': 2, 'pickup-shield': 2.1, 'pickup-life': 2.3, 'pickup-score': 1.9, 'pickup-bomb': 1.15,
   powerUp: 2.2, wakeReady: 1.7, shieldBreak: 1.5, shieldRestore: 1.7,
   'bomb-barrier': 2.3, 'bomb-storm': 1.9, bossGuard: 1.7, reactorOpen: 1.7, lanceLock: 2.8,
   flank: 2, lane: 3, extend: 2.2, stage: 1.9, victory: 2.1,
   flagshipWarning: 1.6, sectorClear: 1.9, criticalPulse: 1.45,
+  echoSpawn: 1.6, satelliteEnter: 1.2, satelliteDown: 1, shardBreak: 1, stationEnter: 1, stationDown: 1, stationTurretDown: 1,
+  mirrorCopy: 1.8, tetherLaunch: 1.2, tetherCut: 1.4, tetherLost: 1, sovereignGrow: 1, mirrorShatter: 1, actTwoComplete: 1, beam: 1, tether: 1,
   'ui-focus': 0.55, 'ui-confirm': 0.72, 'ui-skip': 1.6,
 };
 const BOOM_TRIM = { small: 1.3, medium: 1.6, large: 1 };
-const LARGE = new Set(['bomber', 'carrier', 'mini', 'hull']);
-const MEDIUM = new Set(['ace', 'turret', 'gunboat', 'hullTurret']);
-// Flagship roots: D, C#, A and D. Each flagship announces itself in its own key.
-const FLAGSHIP_ROOT = [0, 38, 37, 33, 38];
+const LARGE = new Set(['bomber', 'carrier', 'mini', 'hull', 'boxBomber']);
+const MEDIUM = new Set(['ace', 'turret', 'gunboat', 'hullTurret', 'skyAce', 'tailGunner', 'mirrorEscort']);
+// Kills that have their own collapse event (hullDown, foundryDown, bayDown, satelliteDown,
+// stationDown, stationTurretDown, tetherCut, the flagship).
+const OWN_COLLAPSE = new Set(['boss', 'hull', 'hullTurret', 'foundry', 'foundryBay', 'satellite', 'station', 'stationTurret', 'tether']);
+// Sector 6: the player's weapon family as an echo or the SOVEREIGN's copy of it (style is a
+// weaponType or a ship id).
+const STYLE_ROOT = { spread: 74, kestrel: 74, missile: 69, manta: 69, pierce: 78, wraith: 78 };
+// Phase-2 salvage by type: the pitch a tether's pull and its loss start from.
+const SALVAGE_ROOT = { power: 0, shield: 2, bomb: -3, life: 5, score: 7, escort: 4, sidewinder: -2, signature: 9, reflector: 3 };
+// D major pentatonic, high: shard tinks walk it and never repeat a note back to back.
+const SHARD_NOTES = [86, 88, 90, 93, 95, 98, 100];
+const MAX_BEAMS = 2, MAX_TETHERS = 3;
+// Flagship roots by sector, 1..6: D, C#, A, D, F (HALCYON), D. Each flagship announces itself in its own key.
+const FLAGSHIP_ROOT = [0, 38, 37, 33, 38, 41, 38];
+const SECTOR_CLEAR_ROOT = [0, 62, 64, 60, 62, 65, 62];
+const sectorOf = (value, game) => clamp(Math.floor(Number(value || game?.stage) || 1), 1, Math.max(CAMPAIGN_STAGES, FLAGSHIP_ROOT.length - 1));
 
 export class SfxLibrary {
   constructor(engine) {
@@ -46,6 +66,9 @@ export class SfxLibrary {
     this.batch = null;
     this.recoveryCount = 0;
     this.scale = 1;
+    // Sector 6 state-driven long cues (rotating beams, tether pulls), keyed by hazard or enemy id.
+    this.loops = new Map();
+    this.loopHold = 0;
   }
 
   // ---------------------------------------------------------------- utilities
@@ -57,6 +80,143 @@ export class SfxLibrary {
   vary(amount) { return 1 + this.rnd() * amount; }
   pan(x) { return clamp(((Number(x) || 270) - 270) / 270, -1, 1) * 0.45; }
   rate(name, interval) { return this.engine.canPlay(name, interval); }
+  // The EMP's dead hum ends with the escorts' state: a lost life, the run's end, HALCYON's fall
+  // and a sector change all cut it (the simulation also sends empClear "reset" for these).
+  _cutEmp() { this.empHum?.stop(0.05); this.empHum = null; }
+  // The dead hum itself: two detuned low saws for `seconds`. It is a tracked long cue, so pause,
+  // mute and leaving play cut it (stopLongCues also clears empHum).
+  _empHum(at, seconds, attack) {
+    this._cutEmp();
+    const hold = clamp(seconds, 0.2, 2.6), cue = this.group(this.alert);
+    this.engine.trackLongCue(cue, hold + Math.max(0, at - this.engine.ctx.currentTime));
+    this.osc({ at, dur: hold, type: 'sawtooth', freq: 55, vol: 0.01, attack, hold: Math.max(0, hold - 0.5), filter: { freq: 260 }, group: cue });
+    this.osc({ at, dur: hold, type: 'sawtooth', freq: 55.7, vol: 0.008, attack, hold: Math.max(0, hold - 0.5), filter: { freq: 240 }, group: cue });
+    this.empHum = cue;
+  }
+  // Play resumes (after a pause, an unmute or the effects coming back up) with the wing still
+  // down: the hum returns for the time left, without the pulse. Nothing when it is still running.
+  resumeEmpHum(t, seconds) {
+    if (this.empHum && !this.empHum.stopped) return false;
+    if (!(seconds > 0.12)) return false;
+    this._empHum(t, seconds, 0.08);
+    return true;
+  }
+  // ---------------------------------------------------- sector 6 long cues
+  // Stops every rotating beam and tether pull, and holds them off briefly, so a lost life or a
+  // flagship's fall leaves a clean gap. Anything still live afterwards comes back softly.
+  _cutLoops(hold = 0.5) {
+    for (const loop of this.loops.values()) { try { loop.cue.stop(0.06); } catch (_) {} }
+    this.loops.clear();
+    const ctx = this.engine.ctx;
+    if (ctx) this.loopHold = ctx.currentTime + hold;
+  }
+  // Called every tick by the engine. `live` is play running (not paused or muted, effects up, on the
+  // play screen). Loops start, follow and stop with their hazard or enemy; they are tracked long
+  // cues, so stopLongCues (pause, mute, leaving play) cuts them and the next live tick resumes
+  // them for the time left.
+  syncLoops(t, game, live) {
+    // Nothing playing and nothing to start: no work and no allocation (most ticks).
+    if (!this.loops.size && !(live && game && this._loopCandidates(game))) return;
+    const want = this._loopWant || (this._loopWant = new Map());
+    want.clear();
+    if (live && game) {
+      for (const hz of Array.isArray(game.hazards) ? game.hazards : []) {
+        if (hz?.kind !== 'laser' || !hz.rotating || hz.state !== 'fire') continue;
+        const on = Number(hz.on ?? hz.dur), left = Number.isFinite(on) ? (Number(hz.warn) || 0) + on - (Number(hz.age) || 0) : 3;
+        if (left > 0.15) want.set('beam:' + hz.id, { kind: 'beam', hz, left, fresh: (Number(hz.age) || 0) - (Number(hz.warn) || 0) < 0.12 });
+      }
+      for (const e of Array.isArray(game.enemies) ? game.enemies : []) {
+        if (e?.type !== 'tether' || e.dead || Number(e.hp) <= 0) continue;
+        const progress = clamp(Number(e.progress) || 0, 0, 1);
+        if (progress < 1) want.set('tether:' + e.id, { kind: 'tether', e, progress });
+      }
+    }
+    for (const [key, loop] of this.loops) {
+      if (want.has(key) && t < loop.until - 0.05) continue;
+      try { loop.cue.stop(loop.release); } catch (_) {}
+      this.loops.delete(key);
+    }
+    if (!live || t < this.loopHold) return;
+    const count = kind => { let n = 0; for (const loop of this.loops.values()) if (loop.kind === kind) n++; return n; };
+    for (const [key, w] of want) {
+      let loop = this.loops.get(key);
+      if (!loop) {
+        if (count(w.kind) >= (w.kind === 'beam' ? MAX_BEAMS : MAX_TETHERS)) continue;
+        loop = this.trimmed(w.kind, () => (w.kind === 'beam' ? this._beamLoop(t, w) : this._tetherLoop(t, w)));
+        if (!loop) continue;
+        this.loops.set(key, loop);
+      }
+      try { loop.update(t, w); } catch (_) {}
+    }
+  }
+  // True when the game holds a firing rotating beam or a live tether (a loop may start).
+  _loopCandidates(game) {
+    for (const hz of Array.isArray(game.hazards) ? game.hazards : []) if (hz?.kind === 'laser' && hz.rotating && hz.state === 'fire') return true;
+    for (const e of Array.isArray(game.enemies) ? game.enemies : []) if (e?.type === 'tether' && !e.dead) return true;
+    return false;
+  }
+  // A long cue with a live stereo position: group -> panner -> bus. Tracked for `seconds`.
+  _panGroup(bus, seconds, pan) {
+    const ctx = this.engine.ctx, panner = ctx.createStereoPanner();
+    panner.pan.value = clamp(pan, -1, 1);
+    panner.connect(bus);
+    const cue = this.group(panner), stop = cue.stop;
+    cue.stop = (fade = 0.08) => {
+      if (cue.stopped) return;
+      stop(fade);
+      if (typeof setTimeout !== 'undefined') setTimeout(() => { try { panner.disconnect(); } catch (_) {} }, (fade + 0.35) * 1000);
+    };
+    this.engine.trackLongCue(cue, seconds);
+    return { cue, panner };
+  }
+  // A satellite's rotating beam: the sector-5 beam hum, lighter (it lasts), with a whistle that
+  // glides as the beam turns and a stereo position that follows it. A fresh beam opens with a crack.
+  _beamLoop(t, w) {
+    const hz = w.hz, dur = clamp(w.left, 0.25, 6), attack = w.fresh ? 0.012 : 0.12, hold = Math.max(0, dur - attack - 0.18);
+    const { cue, panner } = this._panGroup(this.alert, dur + 0.1, this._beamPan(hz));
+    if (w.fresh) this.noise({ at: t, dur: 0.03, vol: 0.045, filter: { type: 'highpass', freq: 3000 }, group: cue });
+    this.osc({ at: t, dur, type: 'sawtooth', freq: 98, vol: 0.03, attack, hold, filter: { freq: 1500 }, drive: 'soft', group: cue });
+    this.osc({ at: t, dur, type: 'sawtooth', freq: 99.4, vol: 0.03, attack, hold, filter: { freq: 1500 }, drive: 'soft', group: cue });
+    this.noise({ at: t, dur, vol: 0.02, attack, hold, filter: { type: 'bandpass', freq: 3200, q: 0.9 }, group: cue });
+    this.osc({ at: t, dur, type: 'sine', freq: 49, vol: 0.03, attack, hold, group: cue });
+    const whistle = this.osc({ at: t, dur, type: 'sine', freq: this._beamWhistle(hz), vol: 0.006, attack: Math.max(attack, 0.08), hold, group: cue });
+    return {
+      kind: 'beam', cue, until: t + dur, release: 0.1,
+      update: (now, next) => {
+        panner.pan.setTargetAtTime(this._beamPan(next.hz), now, 0.06);
+        whistle?.frequency.setTargetAtTime(this._beamWhistle(next.hz), now, 0.05);
+      },
+    };
+  }
+  // `angle` is in the atan2 frame (0 = +x, pi/2 = straight down): the beam's far end leans the pan.
+  _beamPan(hz) { return clamp(this.pan(hz.pivotX ?? hz.x ?? hz.pos) * 1.3 + Math.cos(Number(hz.angle) || 0) * 0.25, -0.7, 0.7); }
+  // The whistle rises from 700 to 1300 Hz through the sweep (angle0 -> angle1), so its progress is audible.
+  _beamWhistle(hz) {
+    const a0 = Number(hz.angle0), a1 = Number(hz.angle1), a = Number(hz.angle);
+    const k = Number.isFinite(a0) && Number.isFinite(a1) && a1 !== a0 && Number.isFinite(a) ? clamp((a - a0) / (a1 - a0), 0, 1) : 0.5;
+    return 700 + 600 * k;
+  }
+  // A phase-2 tether: a taut line that rises two octaves and tightens as the salvage climbs toward
+  // the hull, so the time left to cut it can be heard. tetherLaunch voices the latch.
+  _tetherLoop(t, w) {
+    const e = w.e, dur = 6, root = 43 + (SALVAGE_ROOT[e.carrying?.type ?? e.carrying] ?? 0);
+    const { cue, panner } = this._panGroup(this.alert, dur + 0.1, this.pan(e.x));
+    const f = hz(root) * Math.pow(4, w.progress);
+    const body = this.osc({ at: t, dur, type: 'sawtooth', freq: f, vol: 0.016, attack: 0.1, hold: dur - 0.2, filter: { type: 'bandpass', freq: 900, q: 2.5 }, group: cue });
+    const top = this.osc({ at: t, dur, type: 'triangle', freq: f * 2.003, vol: 0.008, attack: 0.15, hold: dur - 0.25, group: cue });
+    cue.node.gain.value = 0.6 + 0.6 * w.progress;
+    return {
+      kind: 'tether', cue, until: t + dur, release: 0.06,
+      update: (now, next) => {
+        const g = Math.pow(4, next.progress) * hz(root);
+        body?.frequency.setTargetAtTime(g, now, 0.05);
+        top?.frequency.setTargetAtTime(g * 2.003, now, 0.05);
+        if (!cue.stopped) cue.node.gain.setTargetAtTime(0.6 + 0.6 * next.progress, now, 0.1);
+        panner.pan.setTargetAtTime(this.pan(next.e.x), now, 0.08);
+      },
+    };
+  }
+
   get combat() { return this.engine.combatBus; }
   get fx() { return this.engine.fxBus; }
   get alert() { return this.engine.alertBus; }
@@ -281,7 +441,7 @@ export class SfxLibrary {
     return this.trimmed('sectorClear', () => this._sectorClear(t, stage, drill));
   }
   _sectorClear(t, stage, drill) {
-    const root = drill ? 62 : [0, 62, 64, 60, 62][clamp(stage, 1, CAMPAIGN_STAGES)];
+    const root = drill ? 62 : SECTOR_CLEAR_ROOT[clamp(stage, 1, SECTOR_CLEAR_ROOT.length - 1)];
     [12, 16, 19, 24, 28].forEach((step, i) => {
       this.osc({ at: t + i * 0.07, dur: 0.5, type: 'glass', freq: hz(root + step), vol: 0.032, send: 0.35 });
     });
@@ -528,6 +688,16 @@ const HANDLERS = {
       this.noise({ at: t, dur: 0.028, vol: 0.062, filter: { type: 'bandpass', freq: (focus ? 2400 : 3200) * v, q: 0.9 }, pan: pan + side, bus: B });
       this.osc({ at: t, dur: 0.058, type: 'triangle', freq: 212 * v, end: 86, vol: 0.075 * weight, filter: { freq: focus ? 1200 : 1600 }, pan: pan + side, bus: B });
     }
+    // Escorts add a light, wide chatter. An EMP (player.empTime > 0) takes it away: the escorts
+    // fall silent and only a dead-electrics fizz is left until they reboot.
+    const escorts = Math.min(6, Number(p.escorts) || 0);
+    if (escorts > 0 && Number(p.empTime) > 0) {
+      if (this.shots % 4 === 0) this.noise({ at: t + 0.01, dur: 0.05, color: 'crackle', vol: 0.016, filter: { type: 'highpass', freq: 3500 }, pan: (this.shots % 8 ? 0.4 : -0.4), bus: B });
+    } else if (escorts > 0) {
+      const side = this.shots % 2 ? 0.42 : -0.42, level = 0.02 + 0.007 * escorts;
+      this.noise({ at: t + 0.018, dur: 0.026, vol: level, filter: { type: 'bandpass', freq: 5400 * v, q: 1.1 }, pan: pan + side, bus: B });
+      this.osc({ at: t + 0.018, dur: 0.035, type: 'triangle', freq: 560 * v, end: 300, vol: level * 0.7, filter: { freq: 2200 }, pan: pan + side, bus: B });
+    }
   },
 
   missileLaunch(ev, game, t) {
@@ -571,7 +741,7 @@ const HANDLERS = {
     this.osc({ at: t, dur: 0.08, type: 'glass', freq: (ev.value === 'reactor' ? 1650 : 1250) * v, vol: 0.014, pan, bus: this.combat });
   },
   explode(ev, game, t) {
-    if (ev.value === 'boss' || ev.value === 'hull' || ev.value === 'hullTurret') return; // Dedicated collapse events own these.
+    if (OWN_COLLAPSE.has(ev.value)) return; // Dedicated collapse events own these.
     const size = LARGE.has(ev.value) ? 'large' : MEDIUM.has(ev.value) ? 'medium' : 'small';
     if (!this.rate('boom-' + size, size === 'large' ? 0.09 : size === 'medium' ? 0.07 : 0.05)) return;
     this.boom(size, t, this.pan(ev.x));
@@ -693,6 +863,7 @@ const HANDLERS = {
     this.osc({ at: t + 0.12, dur: 0.1, type: 'square', freq: hz(77), vol: 0.026, filter: { type: 'bandpass', freq: 1500, q: 1.5 }, bus: this.alert });
   },
   lifeLost(ev, game, t) {
+    this._cutEmp(); this._cutLoops();
     const pan = this.pan(ev.x);
     this.engine.duck('beds', 0.45, 0.3, 0.8);
     this.engine.duck('combat', 0.25, 0.25, 0.6);
@@ -740,7 +911,25 @@ const HANDLERS = {
     }
   },
   bossEnter(ev, game, t) {
-    const stage = clamp(Number(ev.stage || ev.value || game.stage) || 1, 1, CAMPAIGN_STAGES), root = FLAGSHIP_ROOT[stage];
+    const stage = sectorOf(ev.stage || ev.value, game), root = FLAGSHIP_ROOT[stage];
+    if (stage === 5) {
+      // HALCYON: a wall of engines climbs over the horizon, then a wide F-minor wing chord.
+      this.engine.duck('combat', 0.32, 1, 1);
+      this.noise({ at: t, dur: 3, color: 'pink', vol: 0.09, attack: 1.4, filter: { type: 'bandpass', freq: 260, end: 1800, time: 2.4, q: 0.9 }, pan: -0.5, panEnd: 0.5, send: 0.35 });
+      for (const [k, step] of [0, 3, 7].entries()) {
+        this.osc({ at: t + 0.4 + k * 0.08, dur: 2.6, type: 'brass', freq: hz(root + 12 + step), vol: 0.035, attack: 0.5, hold: 0.8, filter: { freq: 500, end: 2400, time: 1.2 }, pan: (k - 1) * 0.35, send: 0.4 });
+      }
+    }
+    if (stage === 6) {
+      // THE SOVEREIGN: a long reversed swell, then one chord and its mirror image at once (D minor
+      // climbing above the root, its inversion falling below it) under a glass sheen.
+      this.engine.duck('combat', 0.32, 1, 1);
+      this.noise({ at: t, dur: 1.6, color: 'pink', vol: 0.06, attack: 1.5, filter: { type: 'bandpass', freq: 3000, end: 500, time: 1.6, q: 1 }, send: 0.4 });
+      for (const [k, step] of [3, 7, -4, -7].entries()) {
+        this.osc({ at: t + 0.3 + (k % 2) * 0.06, dur: 2.6, type: 'brass', freq: hz(root + 12 + step), vol: 0.028, attack: 0.5, hold: 0.8, filter: { freq: 500, end: 2400, time: 1.2 }, pan: step > 0 ? 0.35 : -0.35, send: 0.4 });
+      }
+      [86, 81, 93, 74].forEach((n, i) => this.osc({ at: t + 0.4 + i * 0.12, dur: 1.2, type: 'glass', freq: hz(n), vol: 0.018, pan: i % 2 ? 0.4 : -0.4, send: 0.5 }));
+    }
     if (stage === 4) {
       this.engine.duck('combat', 0.3, 1, 1);
       this.osc({ at: t, dur: 3.1, type: 'horn', freq: hz(root), vol: 0.08, attack: 0.3, hold: 0.7, filter: { freq: 900 }, send: 0.4 });
@@ -756,7 +945,29 @@ const HANDLERS = {
     this.fm({ at: t + 0.3, dur: 1.6, freq: hz(root + 12), ratio: 1.414, index: 2, indexEnd: 0.3, vol: 0.028, send: 0.35 });
   },
   bossPhase(ev, game, t) {
-    const stage = clamp(Number(ev.stage || game.stage) || 1, 1, CAMPAIGN_STAGES), phase = clamp(Number(ev.value) || 2, 2, 3), root = FLAGSHIP_ROOT[stage];
+    const stage = sectorOf(ev.stage, game), phase = clamp(Number(ev.value) || 2, 2, 3), root = FLAGSHIP_ROOT[stage];
+    if (stage === 5) {
+      // HALCYON reconfigures: servo whine up, hatch slam, then the new mode's tonic below.
+      this.engine.duck('combat', 0.38, 0.5, 0.5);
+      this.osc({ at: t, dur: 0.7, type: 'sawtooth', freq: 180, end: phase === 3 ? 1400 : 980, vol: 0.03, filter: { type: 'bandpass', freq: 700, end: 2600, q: 3 }, send: 0.2 });
+      this.fm({ at: t + 0.62, dur: 0.6, freq: 160, end: 70, ratio: 2.76, index: 4, vol: 0.05, send: 0.3 });
+      this.osc({ at: t + 0.62, dur: 1.5, type: 'horn', freq: hz(root + (phase === 3 ? 1 : 0)), vol: 0.07, attack: 0.08, hold: 0.4, filter: { freq: 1100 }, send: 0.35 });
+    }
+    if (stage === 6) {
+      this.engine.duck('combat', 0.38, 0.5, 0.5);
+      if (phase === 2) {
+        // Theft: a hooked, reversed suck of air into the hull, then a low growl.
+        this.noise({ at: t, dur: 0.7, color: 'pink', vol: 0.06, attack: 0.62, filter: { type: 'bandpass', freq: 3200, end: 400, time: 0.7, q: 1.2 }, send: 0.3 });
+        this.osc({ at: t + 0.62, dur: 1.2, type: 'sawtooth', freq: hz(root), end: hz(root - 1), vol: 0.04, attack: 0.04, filter: { freq: 700 }, drive: 'soft', send: 0.3 });
+      } else {
+        // Ballet: glass climbs in a fast mirrored pair of runs into a horn on the root.
+        [0, 3, 7, 10, 12, 15].forEach((step, i) => {
+          this.osc({ at: t + i * 0.05, dur: 0.3, type: 'glass', freq: hz(root + 36 + step), vol: 0.02, pan: 0.3, send: 0.3 });
+          this.osc({ at: t + i * 0.05, dur: 0.3, type: 'glass', freq: hz(root + 36 - step), vol: 0.016, pan: -0.3, send: 0.3 });
+        });
+        this.osc({ at: t + 0.35, dur: 1.5, type: 'horn', freq: hz(root + 12), vol: 0.065, attack: 0.08, hold: 0.4, filter: { freq: 1200 }, send: 0.35 });
+      }
+    }
     if (stage === 4) {
       this.engine.duck('combat', 0.35, 0.6, 0.5);
       this.boom('large', t, 0, this.fx, 0.7);
@@ -844,14 +1055,23 @@ const HANDLERS = {
   },
   stage(ev, game, t) {
     // Comms open: a static burst, two beeps and the air of the next sector.
+    this._cutEmp(); this._cutLoops();
     this.noise({ at: t, dur: 0.12, vol: 0.028, filter: { type: 'bandpass', freq: 1800, q: 1.5 } });
     this.osc({ at: t + 0.12, dur: 0.06, type: 'sine', freq: hz(81), vol: 0.03 });
     this.osc({ at: t + 0.2, dur: 0.08, type: 'sine', freq: hz(88), vol: 0.03, send: 0.2 });
     this.noise({ at: t, dur: 1.2, color: 'pink', vol: 0.04, attack: 0.5, filter: { type: 'bandpass', freq: 200, end: 900, q: 0.9 } });
   },
   bossDown(ev, game, t) {
+    this._cutEmp(); this._cutLoops();
     this.engine.duck('beds', 0.35, 1.6, 1.6);
     this.engine.duck('combat', 0.2, 1.6, 1);
+    // HALCYON's fall is voiced by wingBreak and THE SOVEREIGN's by mirrorShatter; bossDown keeps
+    // only the opening blasts for them.
+    if (this.inBatch('wingBreak') || this.inBatch('mirrorShatter') || Number(ev.value ?? ev.stage ?? game.stage) === 5) {
+      this.engine.duck('combat', 0.2, 1.6, 1);
+      [0, 0.16, 0.38].forEach((offset, i) => this.boom(i ? 'large' : 'medium', t + offset, this.rnd() * 0.5, this.fx, 0.95 + i * 0.08));
+      return;
+    }
     const leviathan = Number(ev.stage || game.stage) === 4;
     const times = leviathan ? [0, 0.14, 0.32, 0.58, 0.88, 1.2, 1.55] : [0, 0.18, 0.42, 0.7, 1.05];
     times.forEach((offset, i) => this.boom(i < 2 ? 'medium' : 'large', t + offset, this.rnd() * 0.4, this.fx, 0.75 + i * 0.07));
@@ -867,6 +1087,7 @@ const HANDLERS = {
     this.fm({ at: t + 0.2, dur: 2.5, freq: hz(28), ratio: 1.41, index: 2, indexEnd: 0.2, vol: 0.04, send: 0.4 });
   },
   gameover(ev, game, t) {
+    this._cutEmp(); this._cutLoops();
     // Signal lost: two falling carriers through static, then a distant boom.
     this.osc({ at: t, dur: 1.8, type: 'sine', freq: 880, end: 110, vol: 0.045, send: 0.3 });
     this.osc({ at: t + 0.1, dur: 2.0, type: 'sine', freq: 442, end: 55, vol: 0.045, send: 0.3 });
@@ -874,6 +1095,8 @@ const HANDLERS = {
     this.osc({ at: t + 0.15, dur: 1.2, type: 'sine', freq: 55, end: 30, vol: 0.12 });
   },
   victory(ev, game, t) {
+    // After THE SOVEREIGN the score's ACT II COMPLETE sting carries the moment (actTwoComplete).
+    if (this.inBatch('actTwoComplete')) return;
     // Operation complete: a D major chord swells under a rising bell arpeggio.
     for (const note of [62, 66, 69, 74, 78]) {
       this.osc({ at: t, dur: 1.8, type: 'brass', freq: hz(note), vol: 0.026, attack: 0.25, filter: { freq: 800, end: 3000, time: 0.6 }, send: 0.3 });
@@ -881,6 +1104,376 @@ const HANDLERS = {
     [86, 90, 93, 98].forEach((note, i) => this.osc({ at: t + 0.1 + i * 0.09, dur: 0.5, type: 'glass', freq: hz(note), vol: 0.025, send: 0.35 }));
     this.noise({ at: t, dur: 1.5, vol: 0.03, attack: 0.6, filter: { type: 'highpass', freq: 5000 } });
   },
+
+  // ------------------------------------------------------------- sector 5: SKYFORGE
+  boxEnter(ev, game, t) {
+    // The audio half of the edge warning, ~1.2 s before entry: a box of four piston engines
+    // swelling up from below (or bearing down from above), each engine a few cents apart.
+    if (!this.rate('boxEnter', 1)) return;
+    // `lead` is the warning time the simulation gives (1.2 s); the swell peaks as the box enters.
+    const climb = ev.value !== 'dive', pan = this.pan(ev.x), lead = clamp(Number(ev.lead) || 1.2, 0.6, 2), dur = lead + 0.35;
+    const width = clamp(((Math.max(...(ev.xs || [270])) - Math.min(...(ev.xs || [270]))) / 540) * 0.6, 0.12, 0.6);
+    for (let k = 0; k < 4; k++) {
+      const f = (climb ? 54 : 88) * (1 + k * 0.011), to = climb ? f * 1.55 : f * 0.86;
+      this.osc({ at: t, dur, type: k % 2 ? 'reed' : 'sawtooth', freq: f, end: to, glide: dur, vol: 0.026, attack: lead * 0.96,
+        filter: { freq: climb ? 160 : 420, end: climb ? 1300 : 1000, time: lead }, pan: pan + (k / 3 - 0.5) * width, bus: this.alert });
+    }
+    this.noise({ at: t, dur, color: 'brown', vol: 0.09, attack: lead * 0.92, filter: { type: 'bandpass', freq: climb ? 80 : 300, end: 520, time: lead, q: 0.9 }, pan, bus: this.alert });
+    if (climb) this.osc({ at: t, dur, type: 'sine', freq: 38, end: 56, vol: 0.07, attack: lead * 0.85, bus: this.alert });
+  },
+  gunnerFire(ev, game, t) {
+    // Tail gunners: one dry, mid-heavy crack per round of the burst (value = rounds, 0.12 s apart
+    // as the simulation fires them), so it reads apart from player fire.
+    if (!this.rate('gunnerFire', 0.14)) return;
+    const pan = this.pan(ev.x), rounds = clamp(Math.round(Number(ev.value) || 3), 1, 4);
+    for (let k = 0; k < rounds; k++) {
+      this.noise({ at: t + k * 0.12, dur: 0.032, vol: 0.045, filter: { type: 'bandpass', freq: 1500 * this.vary(0.1), q: 1.3 }, pan, bus: this.combat });
+      if (k === 0 || k === rounds - 1) this.osc({ at: t + k * 0.12, dur: 0.07, type: 'triangle', freq: 150, end: 80, vol: 0.026, filter: { freq: 700 }, pan, bus: this.combat });
+    }
+  },
+  skyAceDodge(ev, game, t) {
+    // A sky ace slips the firing line: a quick air whoosh that swings across the ace.
+    if (!this.rate('skyAceDodge', 0.35)) return;
+    const pan = this.pan(ev.x), dir = Math.sign(Number(ev.value) || this.rnd()) || 1;
+    this.noise({ at: t, dur: 0.32, color: 'pink', vol: 0.05, attack: 0.09, filter: { type: 'bandpass', freq: 700, end: 2900, time: 0.18, q: 1.3 }, pan: pan - dir * 0.35, panEnd: pan + dir * 0.35 });
+    this.osc({ at: t, dur: 0.22, type: 'sine', freq: 980, end: 620, vol: 0.008, pan });
+  },
+  flakMark(ev, game, t) {
+    // Altitude marked: tick-tick, pitched by the band's height (higher on screen, higher tick).
+    if (!this.rate('flakMark', 0.25)) return;
+    const f = 2300 + clamp(1 - (Number(ev.y) || 480) / 960, 0, 1) * 900;
+    for (const d of [0, 0.11]) {
+      this.osc({ at: t + d, dur: 0.035, type: 'square', freq: f, vol: 0.022, filter: { type: 'bandpass', freq: f, q: 4 }, bus: this.alert });
+      this.noise({ at: t + d, dur: 0.012, vol: 0.02, filter: { type: 'highpass', freq: 5000 }, bus: this.alert });
+    }
+  },
+  flakBurst(ev, game, t) {
+    // The band bursts: a wide row of crumps with shrapnel rattling out across the stereo field.
+    if (!this.rate('flakBurst', 0.2)) return;
+    for (const [i, pan] of [-0.55, 0, 0.55].entries()) {
+      this.noise({ at: t + i * 0.032, dur: 0.36, color: 'pink', vol: 0.07, filter: { freq: 1700 * this.vary(0.1), end: 280 }, pan });
+    }
+    this.osc({ at: t, dur: 0.32, type: 'sine', freq: 96, end: 34, vol: 0.075 });
+    this.noise({ at: t + 0.04, dur: 0.45, color: 'crackle', vol: 0.045, filter: { type: 'highpass', freq: 2200 }, pan: 0.2, send: 0.12 });
+  },
+  foundryEnter(ev, game, t) {
+    // A factory platform heaves into view: a low two-note horn over a rhythmic machine knock.
+    if (!this.rate('foundryEnter', 2)) return;
+    // The large foundry (value "large", with void batteries) sounds a fifth lower and knocks five times.
+    const pan = this.pan(ev.x), large = ev.value === 'large', drop = large ? 5 : 0;
+    for (const [offset, f] of [[0, hz(41 - drop)], [0.22, hz(48 - drop)]]) this.osc({ at: t + offset, dur: large ? 2 : 1.6, type: 'horn', freq: f, vol: 0.055, attack: 0.2, hold: large ? 0.6 : 0.3, filter: { freq: 700 }, pan, send: 0.3, bus: this.alert });
+    for (let k = 0; k < (large ? 5 : 3); k++) this.fm({ at: t + 0.3 + k * 0.26, dur: 0.3, freq: (large ? 150 : 190) - k * 12, ratio: 2.76, index: 3.5, vol: 0.03, pan: pan + (k % 3 - 1) * 0.2, send: 0.25, bus: this.alert });
+  },
+  foundryDown(ev, game, t) {
+    // The platform fails: blast, a long metal groan, and girders clattering away below.
+    if (!this.rate('foundryDown', 0.65)) return;
+    const pan = this.pan(ev.x), large = ev.value === 'large';
+    this.engine.duck('combat', 0.5, 0.45, 0.6);
+    this.boom('large', t, pan, this.fx, 0.95);
+    if (large) this.boom('large', t + 0.3, -pan, this.fx, 0.8);
+    this.fm({ at: t + 0.12, dur: large ? 2.4 : 1.8, freq: large ? 100 : 125, end: 36, ratio: 1.41, index: 4, vol: 0.05, send: 0.3 });
+    this.noise({ at: t + 0.4, dur: 1.7, color: 'brown', vol: 0.09, filter: { freq: 900, end: 90 }, send: 0.25 });
+    for (let k = 0; k < 3; k++) this.fm({ at: t + 0.5 + k * 0.23, dur: 0.35, freq: 420 - k * 70, ratio: 2.76, index: 3, vol: 0.022, pan: pan + this.rnd() * 0.5, send: 0.3 });
+  },
+  bayDown(ev, game, t) {
+    // A launch bay is gutted: blast, hatch slam, and its launcher spinning down.
+    if (!this.rate('bayDown', 0.18)) return;
+    const pan = this.pan(ev.x), flagship = ev.value === 'boss' || ev.value === game?.boss?.id || Number(ev.stage) === 5;
+    this.boom('medium', t, pan, flagship ? this.fx : this.combat, flagship ? 1.05 : 0.9);
+    this.fm({ at: t + 0.02, dur: 0.32, freq: 240, end: 150, ratio: 2.76, index: 3, vol: 0.035, pan, bus: flagship ? this.fx : this.combat });
+    this.osc({ at: t + 0.05, dur: 0.55, type: 'sawtooth', freq: 900, end: 110, vol: 0.016, filter: { type: 'bandpass', freq: 1200, end: 300, q: 2 }, pan, bus: this.combat });
+  },
+  droneLaunch(ev, game, t) {
+    // Popcorn leaves a bay: a pneumatic thup and a small rising whine.
+    if (!this.rate('droneLaunch', 0.5)) return;
+    const pan = this.pan(ev.x);
+    this.noise({ at: t, dur: 0.06, color: 'pink', vol: 0.04, filter: { type: 'bandpass', freq: 900, q: 1.2 }, pan, bus: this.combat });
+    this.osc({ at: t, dur: 0.07, type: 'sine', freq: 150, end: 70, vol: 0.035, pan, bus: this.combat });
+    this.osc({ at: t + 0.03, dur: 0.2, type: 'square', freq: 480, end: 1500, vol: 0.006, filter: { freq: 2400 }, pan, bus: this.combat });
+  },
+  laserWarn(ev, game, t) {
+    // A lattice bar charges: a thin tick, then a whine that climbs for the ~0.9 s telegraph.
+    // One event per lattice frame; vertical bars pan to their mean x. Void (phase 3) adds a low growl.
+    if (ev.mirror) {
+      // A mirror rail (a Wraith echo, or THE SOVEREIGN copying a Wraith): a short, thin charge.
+      if (!this.rate('mirrorRailWarn', 0.12)) return;
+      const pan = this.pan(ev.pos ?? ev.x);
+      this.osc({ at: t, dur: 0.03, type: 'glass', freq: 3100, vol: 0.016, pan, bus: this.alert });
+      this.osc({ at: t, dur: 0.5, type: 'sawtooth', freq: 600, end: 2200, vol: 0.012, attack: 0.42, filter: { type: 'bandpass', freq: 1400, end: 3600, q: 5 }, pan, bus: this.alert });
+      return;
+    }
+    if (!this.rate('laserWarn', 0.12)) return;
+    const bars = Array.isArray(ev.bars) && ev.bars.length ? ev.bars : [{ orient: ev.orient, pos: ev.pos }];
+    const vertical = bars.filter(b => b.orient === 'v'), pan = vertical.length ? this.pan(vertical.reduce((sum, b) => sum + (Number(b.pos) || 270), 0) / vertical.length) : 0;
+    const voided = ev.value === true;
+    // A satellite's rotating lance (sector 6) wavers as it charges, so it reads apart from a lattice.
+    if (ev.rotating) this.fm({ at: t, dur: 0.9, freq: 520, end: 1300, ratio: 0.0096, index: 0.1, indexEnd: 0.05, vol: 0.012, attack: 0.75, pan: this.pan(ev.pivotX ?? ev.x), bus: this.alert });
+    this.osc({ at: t, dur: 0.04, type: 'glass', freq: 2600, vol: 0.02, pan, bus: this.alert });
+    this.osc({ at: t, dur: 0.9, type: 'sawtooth', freq: 240, end: 1250, vol: 0.02, attack: 0.8, filter: { type: 'bandpass', freq: 700, end: 2600, q: 4 }, pan, bus: this.alert });
+    this.osc({ at: t, dur: 0.9, type: 'sine', freq: 480, end: 2500, vol: 0.01, attack: 0.8, pan, bus: this.alert });
+    if (voided) this.osc({ at: t, dur: 0.9, type: 'sawtooth', freq: 62, end: 124, vol: 0.022, attack: 0.7, filter: { freq: 380 }, drive: 'soft', bus: this.alert });
+  },
+  laserFire(ev, game, t) {
+    // The bar fires: a beating, driven beam hum with a sizzle on top and weight below.
+    // A rotating lance is a state-driven long cue (syncLoops) that lasts as long as it sweeps.
+    if (ev.rotating) return;
+    if (ev.mirror) {
+      // The mirror rail fires: the Wraith's dry crack and zip, copied and thinned.
+      if (!this.rate('mirrorRailFire', 0.1)) return;
+      const pan = this.pan(ev.pos ?? ev.x);
+      this.noise({ at: t, dur: 0.02, vol: 0.04, filter: { type: 'highpass', freq: 3800 }, pan, bus: this.combat });
+      this.osc({ at: t, dur: 0.22, type: 'sawtooth', freq: 2400, end: 700, vol: 0.022, filter: { type: 'bandpass', freq: 2000, end: 900, q: 3 }, pan, bus: this.combat });
+      this.osc({ at: t, dur: 0.25, type: 'sine', freq: 3200, end: 2100, vol: 0.008, pan, send: 0.2, bus: this.combat });
+      return;
+    }
+    if (!this.rate('laserFire', 0.15)) return;
+    const pan = ev.orient === 'v' ? this.pan(ev.pos) : 0;
+    // Round 3: the beam's low end is lighter so a frame landing on a flurry of core hits
+    // stays clear of the limiter. (A combat duck here pumped the player's guns every ~3 s
+    // without buying headroom, so it was removed; the dense-mix trims do that work.)
+    if (ev.value === true) this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 73.4, vol: 0.025, attack: 0.012, hold: 0.55, filter: { freq: 500 }, drive: 'hot' });
+    this.noise({ at: t, dur: 0.025, vol: 0.05, filter: { type: 'highpass', freq: 3000 }, pan });
+    this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 98, vol: 0.04, attack: 0.012, hold: 0.55, filter: { freq: 1600 }, drive: 'soft', pan: pan - 0.12 });
+    this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 99.6, vol: 0.04, attack: 0.012, hold: 0.55, filter: { freq: 1600 }, drive: 'soft', pan: pan + 0.12 });
+    this.noise({ at: t, dur: 0.8, vol: 0.03, attack: 0.012, hold: 0.55, filter: { type: 'bandpass', freq: 3200, q: 0.9 }, pan });
+    this.osc({ at: t, dur: 0.75, type: 'sine', freq: 49, vol: 0.055, attack: 0.012, hold: 0.5 });
+  },
+  empCharge(ev, game, t) {
+    // The EMP ring charges for ~1.2 s: a climbing FM whine over swelling static and ticks that speed up.
+    if (!this.rate('empCharge', 0.8)) return;
+    const pan = this.pan(ev.x);
+    this.fm({ at: t, dur: 1.2, freq: 110, end: 880, ratio: 1.5, index: 3, indexEnd: 0.6, vol: 0.03, attack: 1.05, pan, bus: this.alert });
+    this.noise({ at: t, dur: 1.2, vol: 0.018, attack: 1.1, filter: { type: 'bandpass', freq: 400, end: 4200, q: 1.2 }, pan, bus: this.alert });
+    [0, 0.4, 0.7, 0.9, 1.03, 1.12].forEach((d, i) => this.osc({ at: t + d, dur: 0.03, type: 'glass', freq: 1500 + i * 160, vol: 0.016 + i * 0.002, pan, bus: this.alert }));
+  },
+  empPulse(ev, game, t) {
+    // The pulse: a deep thoom and an electric snap. If it caught the escorts they power down
+    // (and stay silent; see shoot) under a dead hum until empClear. A roll that saved them
+    // answers with a bright shimmer instead.
+    const hit = Number(ev.value) > 0 || ev.value === true;
+    this.engine.duck('combat', 0.35, 0.3, 0.4);
+    this.osc({ at: t, dur: 0.9, type: 'sine', freq: 72, end: 28, vol: 0.1, bus: this.alert });
+    this.noise({ at: t, dur: 0.4, color: 'crackle', vol: 0.06, filter: { type: 'bandpass', freq: 2200, q: 0.8 }, bus: this.alert, send: 0.2 });
+    this.osc({ at: t, dur: 0.24, type: 'square', freq: 1900, end: 180, vol: 0.02, filter: { freq: 3000 }, bus: this.alert });
+    this._cutEmp();
+    if (!hit) {
+      [88, 95].forEach((n, i) => this.osc({ at: t + 0.12 + i * 0.07, dur: 0.3, type: 'glass', freq: hz(n), vol: 0.026, send: 0.2, bus: this.alert }));
+      return;
+    }
+    [0, 1, 2].forEach(i => this.osc({ at: t + 0.1 + i * 0.09, dur: 0.22, type: 'triangle', freq: 1250 - i * 220, end: 260 - i * 40, vol: 0.026, pan: (i - 1) * 0.45, bus: this.alert }));
+    this._empHum(t + 0.2, clamp(Number(game?.player?.empTime) || 2, 0.6, 2.6), 0.15);
+  },
+  empClear(ev, game, t) {
+    // Escorts reboot: the dead hum lifts and three chirps climb into a short power swell. A reset
+    // (scatter, lost life, HALCYON's fall, sector change) or a wing that is gone only cuts the hum.
+    this.empHum?.stop(0.06); this.empHum = null;
+    if (ev.value === 'reset' || !(Number(game?.player?.escorts) > 0)) return;
+    if (!this.rate('empClear', 0.4)) return;
+    [72, 79, 84].forEach((n, i) => this.osc({ at: t + i * 0.07, dur: 0.055, type: 'square', freq: hz(n), vol: 0.022, filter: { type: 'bandpass', freq: 1800, q: 1.2 }, bus: this.alert }));
+    this.osc({ at: t, dur: 0.4, type: 'sawtooth', freq: 80, end: 165, vol: 0.016, attack: 0.15, filter: { freq: 500, end: 1600, time: 0.35 }, bus: this.alert });
+  },
+  wingBreak(ev, game, t) {
+    // HALCYON breaks apart: the spar shears, blasts roll along the wing from tip to tip, then the
+    // hulk falls away with a long whistling drop and a muffled impact deep in the cloud floor.
+    this._cutEmp(); this._cutLoops();
+    if (!this.rate('wingBreak', 3)) return;
+    this.engine.duck('beds', 0.4, 2.4, 2);
+    this.engine.duck('combat', 0.2, 2, 1);
+    this.fm({ at: t, dur: 1.3, freq: 320, end: 60, ratio: 1.41, index: 6, indexEnd: 0.4, vol: 0.05, send: 0.35 });
+    this.noise({ at: t, dur: 2.2, color: 'crackle', vol: 0.05, filter: { type: 'highpass', freq: 1500 }, send: 0.3 });
+    [[0.5, -0.6], [0.85, 0.6], [1.25, -0.2]].forEach(([d, pan], i) => this.boom(i === 2 ? 'large' : 'medium', t + d, pan, this.fx, 0.85));
+    this.osc({ at: t + 1.2, dur: 3.6, type: 'hollow', freq: 1150, end: 150, vol: 0.035, attack: 0.35, filter: { freq: 2400, end: 500, time: 3.6 }, pan: 0.15, panEnd: -0.1, send: 0.35 });
+    this.osc({ at: t + 1.25, dur: 3.5, type: 'sine', freq: 1162, end: 146, vol: 0.02, attack: 0.35, pan: -0.15, send: 0.3 });
+    this.noise({ at: t + 1.1, dur: 3.8, color: 'pink', vol: 0.06, attack: 0.5, filter: { type: 'bandpass', freq: 1800, end: 240, time: 3.6, q: 0.8 }, send: 0.3 });
+    this.noise({ at: t + 4.6, dur: 2.6, color: 'brown', vol: 0.12, attack: 0.08, filter: { freq: 320, end: 70 }, send: 0.45 });
+    this.osc({ at: t + 4.6, dur: 2.2, type: 'sine', freq: 46, end: 24, vol: 0.12, attack: 0.05 });
+  },
+  // ------------------------------------------------------------- sector 6: ZERO MERIDIAN
+  echoSpawn(ev, game, t) {
+    // A ghost of the player's own flight fades in: a reversed swell across the field, then a glass
+    // glide pitched by the copied weapon family, answered by its own faint echo on the other side.
+    if (!this.rate('echoSpawn', 0.6)) return;
+    const pan = this.pan(ev.x), f = hz(STYLE_ROOT[ev.value] ?? 74);
+    this.noise({ at: t, dur: 0.42, color: 'pink', vol: 0.045, attack: 0.38, filter: { type: 'bandpass', freq: 600, end: 3600, time: 0.4, q: 1.4 }, pan: -pan, panEnd: pan, send: 0.3 });
+    this.osc({ at: t + 0.3, dur: 0.5, type: 'glass', freq: f * 1.5, end: f, vol: 0.024, attack: 0.02, pan, send: 0.4 });
+    this.osc({ at: t + 0.42, dur: 0.5, type: 'glass', freq: f * 1.5 * 1.012, end: f * 1.012, vol: 0.014, pan: -pan, send: 0.5 });
+  },
+  echoFire(ev, game, t) {
+    // An echo fires its weak copy of the player's gun: the same family, thinner, detuned and
+    // filtered, with a little delay smear, under the player's own fire.
+    if (!this.rate('echoFire', 0.12)) return;
+    const pan = this.pan(ev.x), style = ev.value, v = this.vary(0.05), B = this.combat;
+    if (style === 'pierce') {
+      this.osc({ at: t, dur: 0.07, type: 'sawtooth', freq: 2500 * v, end: 600, vol: 0.014, filter: { type: 'bandpass', freq: 2000, q: 3 }, pan, send: 0.2, bus: B });
+    } else if (style === 'missile') {
+      this.noise({ at: t, dur: 0.14, color: 'pink', vol: 0.022, attack: 0.02, filter: { type: 'bandpass', freq: 600, end: 2200, q: 1.4 }, pan, send: 0.2, bus: B });
+    } else {
+      this.noise({ at: t, dur: 0.024, vol: 0.022, filter: { type: 'bandpass', freq: 2600 * v, q: 1.2 }, pan, send: 0.25, bus: B });
+      this.osc({ at: t, dur: 0.05, type: 'triangle', freq: 260 * v * 1.02, end: 110, vol: 0.022, filter: { freq: 1100 }, pan, bus: B });
+    }
+  },
+  shardCurtain(ev, game, t) {
+    // A shard curtain drops in from the top edge: a falling sheet of glass shimmer, then a soft
+    // chord of tinks as it settles into rows.
+    if (!this.rate('shardCurtain', 1)) return;
+    const rows = clamp(Number(ev.value) || 2, 1, 6);
+    this.noise({ at: t, dur: 0.9, vol: 0.022, attack: 0.08, filter: { type: 'bandpass', freq: 9000, end: 3200, time: 0.8, q: 2 }, pan: -0.4, panEnd: 0.4, send: 0.35, bus: this.alert });
+    for (let k = 0; k < 2 + rows; k++) this.osc({ at: t + 0.1 + k * 0.07, dur: 0.3, type: 'sine', freq: hz(SHARD_NOTES[(k * 2) % SHARD_NOTES.length]), vol: 0.012, pan: (k % 2 ? 0.45 : -0.45), send: 0.3, bus: this.alert });
+  },
+  mirrorEscortDown(ev, game, t) {
+    // A mirror escort breaks (its blast comes from explode): a short pane of glass on top.
+    if (!this.rate('mirrorEscortDown', 0.12)) return;
+    const pan = this.pan(ev.x);
+    this.noise({ at: t, dur: 0.12, vol: 0.03, filter: { type: 'bandpass', freq: 6500, q: 3 }, pan, bus: this.combat });
+    this.fm({ at: t, dur: 0.4, freq: 1320, end: 880, ratio: 1.414, index: 1.2, vol: 0.012, pan, send: 0.3, bus: this.combat });
+  },
+  satelliteEnter(ev, game, t) {
+    // Telemetry from orbit: a three-chirp beacon over a slow servo hum.
+    if (!this.rate('satelliteEnter', 1.2)) return;
+    const pan = this.pan(ev.x);
+    [0, 0.14, 0.28].forEach((d, i) => this.osc({ at: t + d, dur: 0.05, type: 'sine', freq: i === 2 ? 2637 : 1976, vol: 0.02, pan, bus: this.alert }));
+    this.osc({ at: t, dur: 1.2, type: 'sawtooth', freq: 110, end: 116, vol: 0.016, attack: 0.4, filter: { type: 'bandpass', freq: 700, q: 4 }, pan, send: 0.3 });
+    this.noise({ at: t, dur: 1, vol: 0.01, attack: 0.5, filter: { type: 'bandpass', freq: 2400, q: 6 }, pan, send: 0.3 });
+  },
+  satelliteDown(ev, game, t) {
+    // The satellite breaks up: a blast, solar panels shattering, an electrical fizz and its beacon
+    // falling silent. Its lance stops with it (syncLoops follows the hazard).
+    if (!this.rate('satelliteDown', 0.3)) return;
+    const pan = this.pan(ev.x);
+    this.boom('medium', t, pan, this.fx, 0.85);
+    for (let k = 0; k < 4; k++) this.noise({ at: t + 0.02 + k * 0.045, dur: 0.04, vol: 0.03, filter: { type: 'bandpass', freq: 5200 + k * 900, q: 4 }, pan: pan + this.rnd() * 0.3 });
+    this.osc({ at: t + 0.05, dur: 0.6, type: 'sine', freq: 1976, end: 380, vol: 0.016, pan, send: 0.3 });
+    this.noise({ at: t + 0.05, dur: 0.5, color: 'crackle', vol: 0.04, filter: { type: 'highpass', freq: 2500 }, pan });
+  },
+  shardBreak(ev, game, t) {
+    // Shard rounds shot apart (throttled by the simulation, and here). A short crystalline tink on a
+    // high pentatonic walk that never repeats a note back to back; more shards add one or two
+    // grace tinks, not volume. On the combat bus, under the guns.
+    if (!this.rate('shardBreak', 0.045)) return;
+    const count = clamp(Number(ev.value) || 1, 1, 40), pan = this.pan(ev.x);
+    this.shardStep = ((this.shardStep ?? 3) + 1 + Math.floor(Math.abs(this.rnd()) * 3)) % SHARD_NOTES.length;
+    const tinks = Math.min(3, 1 + Math.floor(Math.log2(count))), vol = Math.min(0.026, 0.013 + 0.004 * Math.log2(count));
+    for (let k = 0; k < tinks; k++) {
+      const f = hz(SHARD_NOTES[(this.shardStep + k * 2) % SHARD_NOTES.length]) * this.vary(0.006), at = t + k * 0.024;
+      this.osc({ at, dur: 0.07 + Math.abs(this.rnd()) * 0.03, type: 'sine', freq: f, vol: vol * (1 - k * 0.28), pan: pan + this.rnd() * 0.2, bus: this.combat });
+      if (k === 0) this.osc({ at, dur: 0.035, type: 'sine', freq: f * 2.76, vol: vol * 0.25, pan, bus: this.combat });
+    }
+    this.noise({ at: t, dur: 0.012, vol: vol * 0.45, filter: { type: 'highpass', freq: 7500 }, pan, bus: this.combat });
+  },
+  stationEnter(ev, game, t) {
+    // The Meridian Gate rises into view: a vast slow orbital horn stacking D, A and D under an
+    // airy swell, then docking clamps knocking into place.
+    if (!this.rate('stationEnter', 3)) return;
+    const pan = this.pan(ev.x);
+    for (const [d, n] of [[0, 38], [0.3, 45], [0.6, 50]]) this.osc({ at: t + d, dur: 2.6, type: 'horn', freq: hz(n), vol: 0.045, attack: 0.4, hold: 0.8, filter: { freq: 600, end: 1100, time: 1.5 }, pan, send: 0.4, bus: this.alert });
+    this.noise({ at: t, dur: 2.8, color: 'pink', vol: 0.045, attack: 1.6, filter: { type: 'bandpass', freq: 400, end: 2400, time: 2.4, q: 1.2 }, send: 0.4, bus: this.alert });
+    for (let k = 0; k < 4; k++) this.fm({ at: t + 0.9 + k * 0.3, dur: 0.35, freq: 210 - k * 15, ratio: 2.76, index: 3, vol: 0.024, pan: pan + (k % 2 ? 0.25 : -0.25), send: 0.3, bus: this.alert });
+  },
+  stationTurretDown(ev, game, t) {
+    if (!this.rate('stationTurretDown', 0.16)) return;
+    const pan = this.pan(ev.x);
+    this.boom('medium', t, pan);
+    this.fm({ at: t, dur: 0.45, freq: 330, end: 250, ratio: 2.76, index: 3, vol: 0.026, pan, send: 0.2, bus: this.combat });
+  },
+  stationDown(ev, game, t) {
+    // The Gate fails: three blasts across the hull, a long falling metal groan, and its glass
+    // panels raining away into the dark. A tracked long cue: pause and leaving play cut the tail.
+    if (!this.rate('stationDown', 1)) return;
+    const pan = this.pan(ev.x), cue = this.group(this.fx);
+    this.engine.trackLongCue(cue, 4.6);
+    this.engine.duck('combat', 0.5, 0.45, 0.6);
+    this.boom('large', t, pan, cue.node, 0.95);
+    this.boom('large', t + 0.32, -pan, cue.node, 0.8);
+    this.boom('medium', t + 0.66, pan * 0.5, cue.node, 0.8);
+    this.fm({ at: t + 0.15, dur: 3, freq: 92, end: 30, ratio: 1.41, index: 4, vol: 0.05, send: 0.35, group: cue });
+    this.noise({ at: t + 0.4, dur: 2.4, color: 'brown', vol: 0.09, filter: { freq: 900, end: 80 }, send: 0.3, group: cue });
+    for (let k = 0; k < 10; k++) {
+      const d = 0.5 + 3 * Math.pow(k / 10, 1.4);
+      this.noise({ at: t + d, dur: 0.05, vol: 0.022 * (1 - k / 14), filter: { type: 'bandpass', freq: 8000 - k * 380, q: 5 }, pan: this.rnd() * 0.7, send: 0.4, group: cue });
+    }
+  },
+  mirrorCopy(ev, game, t) {
+    // THE SOVEREIGN copies the player's kit: the player's three-note figure (rising, from the left)
+    // comes back from the right inverted, hollow and slightly out of tune, as a low swell gathers it in.
+    if (!this.rate('mirrorCopy', 1.5)) return;
+    const root = STYLE_ROOT[ev.value] ?? 74;
+    [0, 4, 7].forEach((step, i) => this.osc({ at: t + i * 0.09, dur: 0.35, type: 'glass', freq: hz(root + step), vol: 0.028, pan: -0.35, send: 0.3, bus: this.alert }));
+    [0, -4, -7].forEach((step, i) => this.osc({ at: t + 0.55 + i * 0.09, dur: 0.5, type: 'hollow', freq: hz(root + step) * 1.01, vol: 0.03, attack: 0.08, pan: 0.35, send: 0.5, bus: this.alert }));
+    this.noise({ at: t + 0.1, dur: 0.6, vol: 0.026, attack: 0.55, filter: { type: 'bandpass', freq: 1200, end: 3200, q: 6 }, pan: 0.2, send: 0.5, bus: this.alert });
+    for (const d of [0, 0.7]) this.osc({ at: t + 0.5, dur: 1.4, type: 'sawtooth', freq: hz(root - 24) * (1 + d * 0.01), vol: 0.016, attack: 0.6, filter: { freq: 300, end: 1400, time: 1 }, drive: 'soft', pan: d ? 0.3 : -0.3, send: 0.4, bus: this.alert });
+  },
+  tetherLaunch(ev, game, t) {
+    // A hit's salvage is hooked: a whip crack as the line latches and a rising pull. The line's
+    // continuing pull is a long cue that follows the tether (syncLoops).
+    if (!this.rate('tetherLaunch', 0.25)) return;
+    const pan = this.pan(ev.x), root = 55 + (SALVAGE_ROOT[ev.value] ?? 0);
+    this.noise({ at: t, dur: 0.05, vol: 0.05, filter: { type: 'highpass', freq: 3000 }, pan, bus: this.alert });
+    this.osc({ at: t, dur: 0.4, type: 'sawtooth', freq: hz(root - 12), end: hz(root + 7), vol: 0.03, attack: 0.02, filter: { type: 'bandpass', freq: 600, end: 1800, q: 3 }, pan, bus: this.alert });
+    this.osc({ at: t, dur: 0.12, type: 'sine', freq: 90, end: 50, vol: 0.05, pan, bus: this.alert });
+  },
+  tetherCut(ev, game, t) {
+    // Cut in time: the line snaps, and the salvage drops back with a bright little reward.
+    // Salvage released by THE SOVEREIGN's death (quiet) is covered by mirrorShatter.
+    if (ev.quiet || !this.rate('tetherCut', 0.12)) return;
+    const pan = this.pan(ev.x);
+    this.noise({ at: t, dur: 0.03, vol: 0.065, filter: { type: 'highpass', freq: 2500 }, pan, bus: this.alert });
+    this.osc({ at: t, dur: 0.1, type: 'triangle', freq: 1400, end: 300, vol: 0.04, pan, bus: this.alert });
+    [81, 86, 93].forEach((n, i) => this.osc({ at: t + 0.06 + i * 0.06, dur: 0.22, type: 'glass', freq: hz(n), vol: 0.034, pan, send: 0.25, bus: this.alert }));
+  },
+  tetherLost(ev, game, t) {
+    // Too late: the salvage sinks into the hull. Two hollow tones a semitone apart fall together,
+    // and a muffled thud swallows them.
+    if (!this.rate('tetherLost', 0.25)) return;
+    const pan = this.pan(ev.x), root = 69 + (SALVAGE_ROOT[ev.value] ?? 0);
+    this.osc({ at: t, dur: 0.9, type: 'hollow', freq: hz(root), end: hz(root - 24), vol: 0.036, attack: 0.02, pan, send: 0.3, bus: this.alert });
+    this.osc({ at: t, dur: 0.9, type: 'hollow', freq: hz(root + 1), end: hz(root - 23), vol: 0.026, attack: 0.02, pan: -pan, send: 0.3, bus: this.alert });
+    this.osc({ at: t + 0.7, dur: 0.35, type: 'sine', freq: 70, end: 34, vol: 0.07, bus: this.alert });
+    this.noise({ at: t + 0.7, dur: 0.3, color: 'brown', vol: 0.05, filter: { freq: 400 }, bus: this.alert });
+  },
+  sovereignGrow(ev, game, t) {
+    // The stolen salvage becomes a weapon: a servo whine, a clamp locking, crystals growing in a
+    // quick rising run, and a low horn as the new gun comes online.
+    if (!this.rate('sovereignGrow', 0.6)) return;
+    const pan = this.pan(ev.x);
+    this.osc({ at: t, dur: 0.6, type: 'sawtooth', freq: 200, end: 1200, vol: 0.022, filter: { type: 'bandpass', freq: 700, end: 2400, q: 3 }, pan, bus: this.alert });
+    this.fm({ at: t + 0.55, dur: 0.4, freq: 140, end: 80, ratio: 1.41, index: 4, vol: 0.045, pan, send: 0.3, bus: this.alert });
+    [74, 77, 81, 84, 89, 93].forEach((n, i) => this.osc({ at: t + 0.6 + i * 0.035, dur: 0.18, type: 'glass', freq: hz(n), vol: 0.02, pan: pan + (i % 2 ? 0.2 : -0.2), bus: this.alert }));
+    this.osc({ at: t + 0.62, dur: 1.2, type: 'horn', freq: hz(38), vol: 0.05, attack: 0.08, hold: 0.3, filter: { freq: 900 }, send: 0.35, bus: this.alert });
+  },
+  mirrorShatter(ev, game, t) {
+    // THE SOVEREIGN's mirror hull shatters: a wide crack, two vast inharmonic rings falling a fifth
+    // and an octave, then shards tumbling away toward the Earth (each lower and quieter), over a
+    // sub drop and a rumbling cloud of debris. bossDown in the same batch keeps only its opening
+    // blasts. A tracked long cue.
+    this._cutEmp(); this._cutLoops();
+    if (!this.rate('mirrorShatter', 3)) return;
+    const cue = this.group(this.fx);
+    this.engine.trackLongCue(cue, 6);
+    this.engine.duck('beds', 0.4, 2.2, 2);
+    this.engine.duck('combat', 0.2, 1.8, 1);
+    for (const side of [-0.45, 0.45]) this.noise({ at: t, dur: 0.28, vol: 0.1, filter: { type: 'highpass', freq: 1800 }, pan: side, send: 0.3, group: cue });
+    this.fm({ at: t, dur: 2.8, freq: 1318.5, end: 659.3, ratio: 1.414, index: 2, indexEnd: 0.1, vol: 0.032, send: 0.5, group: cue });
+    this.fm({ at: t + 0.04, dur: 3.2, freq: 587.3, end: 293.7, ratio: 2.76, index: 1.5, indexEnd: 0.1, vol: 0.028, send: 0.5, group: cue });
+    this.osc({ at: t, dur: 2, type: 'sine', freq: 60, end: 24, vol: 0.15, group: cue });
+    this.noise({ at: t + 0.05, dur: 2.4, color: 'brown', vol: 0.15, filter: { freq: 1800, end: 120, time: 2 }, send: 0.35, group: cue });
+    for (let k = 0; k < 20; k++) {
+      const x = k / 20, d = 0.08 + 3.6 * Math.pow(x, 1.5), pan = this.rnd() * 0.75;
+      this.noise({ at: t + d, dur: 0.03 + Math.abs(this.rnd()) * 0.05, vol: 0.032 * (1 - x * 0.7), filter: { type: 'bandpass', freq: 9000 - 5200 * x, q: 5 }, pan, send: 0.45, group: cue });
+      if (k % 2 === 0) this.osc({ at: t + d, dur: 0.22, type: 'sine', freq: hz(SHARD_NOTES[(k * 3) % SHARD_NOTES.length] - Math.floor(x * 24)), vol: 0.012 * (1 - x * 0.6), pan, send: 0.4, group: cue });
+    }
+    this.osc({ at: t + 0.6, dur: 3.6, type: 'hollow', freq: 1800, end: 260, vol: 0.016, attack: 0.4, filter: { freq: 3000, end: 600, time: 3.6 }, pan: 0.2, panEnd: -0.15, send: 0.4, group: cue });
+  },
+  actTwoComplete(ev, game, t) {
+    // The score carries the ACT II COMPLETE sting; under it, a comms channel opens on a long glass
+    // shimmer and a soft sub swell.
+    if (!this.rate('actTwoComplete', 5)) return;
+    this.noise({ at: t, dur: 0.18, vol: 0.022, filter: { type: 'bandpass', freq: 1800, q: 1.5 } });
+    this.osc({ at: t + 0.2, dur: 0.07, type: 'sine', freq: hz(81), vol: 0.028 });
+    this.osc({ at: t + 0.3, dur: 0.1, type: 'sine', freq: hz(88), vol: 0.028, send: 0.25 });
+    this.noise({ at: t, dur: 2.4, vol: 0.014, attack: 1, filter: { type: 'highpass', freq: 7000 }, send: 0.3 });
+    this.osc({ at: t, dur: 2, type: 'sine', freq: 55, vol: 0.05, attack: 0.8 });
+  },
 };
+HANDLERS.tailGunnerFire = HANDLERS.gunnerFire;
 // Not voiced on purpose: chipHit (covered by hit), enemyDown (explode), special (bomb),
-// pause (the ui cue), shipSelect (the ui cue) and summary.
+// pause (the ui cue), shipSelect (the ui cue), and summary.

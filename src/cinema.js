@@ -4,6 +4,7 @@
 // defeat (the storm fleet, the Crown, or LEVIATHAN in the typhoon) and a dusk training range for drills. Static layers are built once and cached.
 import { SHIP_ORDER, shipShape } from './ships.js';
 import { actName, ACT_TWO_STAGE } from './timeline.js';
+import { drawZeroMeridian, drawZeroDawn, drawSkyforge, warmSkyforge } from './art.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const W = 1600, H = 900, TAU = Math.PI * 2;
@@ -239,7 +240,9 @@ function birds(g, t, x0, y0, color, count = 9) {
 
 // ---------------------------------------------------------------- victory: dawn over the Meridian
 const V = { hz: 560, sun: { x: 1010, y: 528 } };
-function buildVictory() {
+function buildVictory(stage) {
+  if(stage===6){const sky=surface(W,H),c=sky.getContext('2d');const scale=Math.max(W/540,H/900);c.translate((W-540*scale)/2,H-900*scale);c.scale(scale,scale);drawZeroMeridian(c);drawZeroDawn(c);return {sky,dusk:true,space:true};}
+  if(stage===5){warmSkyforge();const sky=surface(W,H),c=sky.getContext('2d');c.translate(0,-360);c.scale(W/540,W/540);drawSkyforge(c,2600,'victory');return {sky,dusk:true};}
   const { hz, sun } = V, out = {};
   const sky = surface(W, H), c = sky.getContext('2d');
   let gr = c.createLinearGradient(0, 0, 0, hz);
@@ -369,6 +372,13 @@ function buildCrownWreck() {
 
 function drawVictory(g, t, data, opts) {
   const L = opts.layers, { hz, sun } = V, id = data.shipId || 'kestrel';
+  if(L.dusk){
+    g.drawImage(L.sky,0,0);
+    if(L.space){g.save();g.globalAlpha=.32*(1-easeOut(t/3.3));g.fillStyle='#895069';g.fillRect(0,0,W,H);g.restore();}
+    const p=easeOut(t/3.3);
+    drawAircraft(g,id,lerp(1780,1196,p),lerp(1090,418,p)+Math.sin(t*.9)*6,lerp(3.4,1.8,p),-.42,.9,t);
+    return;
+  }
   const push = 1 + .05 * easeOut(t / 28);
   const cam = (f) => { const s = 1 + (push - 1) * f; g.setTransform(s, 0, 0, s, 1150 * (1 - s), 450 * (1 - s)); };
   cam(.25); g.globalAlpha = 1; g.drawImage(L.sky, 0, 0);
@@ -465,7 +475,11 @@ function buildDefeat(stage) {
   c.fillStyle = rg; c.fillRect(-900, -760, 1800, 760); c.restore();
   // Horizon silhouettes: the Crown intact, LEVIATHAN riding the typhoon, or the storm fleet.
   c.fillStyle = '#05080c';
-  if (lev) {
+  if (stage === 5) {
+    // HALCYON hangs above the cloud horizon.
+    poly(c, [[500,hz-100],[840,hz-160],[1000,hz-180],[1160,hz-160],[1500,hz-100],[1140,hz-117],[1000,hz-130],[860,hz-117]]);c.fill();
+    for(let i=0;i<3;i++){c.fillStyle='#c99382';c.fillRect(910+i*80,hz-143,30,3);}
+  } else if (lev) {
     // Super-dreadnought broadside-on: long low hull, stepped superstructure, turrets and funnels.
     poly(c, [[560, hz + 2], [600, hz - 22], [1420, hz - 26], [1470, hz - 8], [1490, hz + 2]]); c.fill();
     poly(c, [[860, hz - 22], [880, hz - 58], [930, hz - 64], [940, hz - 120], [968, hz - 126], [980, hz - 70], [1080, hz - 64], [1100, hz - 22]]); c.fill();
@@ -837,6 +851,7 @@ export function commendations(data = {}) {
   const hits = num(data.hitsTaken), lost = num(data.livesLost), grazes = num(data.grazes) || 0;
   const conversions = num(data.conversions) || 0, accuracy = num(data.accuracy) || 0, fired = num(data.shotsFired) || 0;
   const bosses = num(data.bossesDefeated) ?? (won ? (drill ? 1 : CAMPAIGN_STAGES) : Math.max(0, (num(data.stage) || 1) - 1));
+  if(won && !drill && Number(data.stage)>=CAMPAIGN_STAGES)list.push({tone:'gold',name:'ACT II COMPLETE',note:'THE SOVEREIGN SHATTERED'});
   if (won && hits === 0) list.push({ tone: 'gold', name: 'UNTOUCHED', note: 'NO HITS TAKEN' });
   else if (won && lost === 0) list.push({ tone: 'cyan', name: 'IRON WING', note: 'ALL LIVES KEPT' });
   if (!drill && won && bosses >= CAMPAIGN_STAGES) list.push({ tone: 'gold', name: 'FLEET BREAKER', note: CAMPAIGN_STAGES + ' FLAGSHIPS DOWN' });
@@ -865,12 +880,13 @@ export class Cinema {
     this.stage = Math.max(1, Math.min(CAMPAIGN_STAGES, num(this.data.stage) || 1));
     this.staticKey = ''; this.counting = false; this.revealAt = 0;
     const reached = actName(this.stage);
-    const record = drill ? reached + ' DRILL' : won ? 'BOTH ACTS CLEARED' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
+    const record = drill ? reached + ' DRILL' : won ? this.stage>=CAMPAIGN_STAGES?'ACT II COMPLETE / ACT III AWAITS':'SECTOR '+String(this.stage).padStart(2,'0')+' CLEARED / ACT II CONTINUES' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
     for (const id of ['endEyebrow', 'endIntroLine']) {
       const node = $(id);
       // The shell caches its base copy; consecutive losses may retain our prior suffix.
-      if (node) node.textContent = node.textContent.replace(/ \/ (?:REACHED ACT |ACT [IV]|BOTH ACTS CLEARED).*$/, '') + ' / ' + record;
+      if (node) node.textContent = node.textContent.replace(/ \/ (?:REACHED ACT |ACT [IV]|BOTH ACTS CLEARED|SECTOR \d+ CLEARED).*$/, '') + ' / ' + record;
     }
+    if(won&&!drill&&this.stage===CAMPAIGN_STAGES){$('endHeading').innerHTML='ACT II<br><em>COMPLETE</em>';$('endNarrative').textContent='THE SOVEREIGN SHATTERED. The long meridian is crossed. Dawn finds the way home.';}
     const screen = $('endScreen');
     if (screen) { screen.classList.remove('record-in'); screen.dataset.scene = this.scene; }
     const score = String(Math.max(0, Math.floor(num(this.data.score) || 0))).padStart(8, '0');
@@ -903,8 +919,8 @@ export class Cinema {
     if (this.counting) { const node = $('endScore'); if (node) node.textContent = '00000000'; }
   }
   layersFor(scene) {
-    const key = scene === 'defeat' ? 'defeat' + (this.stage >= 4 ? 4 : this.stage >= 3 ? 3 : 1) : scene;
-    return this.layers[key] ||= scene === 'victory' ? buildVictory() : scene === 'defeat' ? buildDefeat(this.stage) : buildRange();
+    const key = scene === 'defeat' ? 'defeat' + (this.stage >= 4 ? 4 : this.stage >= 3 ? 3 : 1) : scene==='victory'?scene+this.stage:scene;
+    return this.layers[key] ||= scene === 'victory' ? buildVictory(this.stage) : scene === 'defeat' ? buildDefeat(this.stage) : buildRange();
   }
   updateRecord() {
     if (!this.counting) return;

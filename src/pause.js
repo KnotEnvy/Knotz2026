@@ -1,4 +1,4 @@
-import { CAMPAIGN_STAGES } from './game.js';
+import { CAMPAIGN_STAGES, ACT_TWO_STAGE } from './game.js';
 // Pause / holding-pattern screen presentation.
 // main.js calls these hooks; keep the exported API stable.
 import { SHIPS, SPECIAL_LABELS, shipShape } from './ships.js';
@@ -56,6 +56,12 @@ function intelFor(game) {
       else if (r && !r.broken) { head = 'RIGHT REACTOR'; tip = 'Break the right reactor to disable the spiral cannon for the rest of the fight, or keep pressing the main hull.'; }
       else if (r && r.phase === 3 && r.broken) { head = 'SPIRAL OFFLINE'; tip = 'The right spiral cannon is silenced for the rest of the fight. Press the main hull.'; }
       else { head = 'OPTIONAL REACTORS'; tip = 'In phases two and three a side reactor opens. The left buys 3.2 seconds of cover; the right silences the spiral cannon.'; }
+    } else if (stage === 6) {
+      head = ['REFLECTION','THEFT','BALLET'][phase-1];
+      tip = phase === 1 ? 'Destroy the mirror escorts to open the core. The Sovereign copies your weapon family.' : phase === 2 ? 'Shoot the bright salvage tether before it reaches the hull. Lost salvage grows a new enemy weapon.' : 'Shoot crystalline shards to carve a lane. Violet void rounds pass through reflectors; read the copied gun pattern between curtains.';
+    } else if (stage === 5) {
+      head = ['THREE BAYS','LATTICE','ECLIPSE PROTOCOL'][phase-1];
+      tip = phase === 1 ? 'Break all three launch bays to open the armored core.' : phase === 2 ? 'Leave the marked laser lines before they fire. Roll through beams when trapped.' : 'Roll during the charged EMP pulse to protect escorts. Violet void lattices pass through reflectors and orbitals.';
     } else if (stage === 4) {
       head = phase === 1 ? 'BREAK THE DECK GUNS' : phase === 2 ? 'BROADSIDE BATTERIES' : 'MONSOON ENGINE';
       tip = phase === 1 ? 'Destroy the four deck turrets first. The armored core takes only a quarter of your damage while a gun survives.'
@@ -76,9 +82,9 @@ function intelFor(game) {
   }
   if (interludeProgress(game) >= 0) {
     if (drill) return { kind: 'clear', kicker: 'FLAGSHIP DOWN', right: 'DRILL COMPLETE', name: FLAGSHIP_NAMES[stage], sub: 'UNRANKED / CAMPAIGN RECORDS PRESERVED', hull: null, head: 'DEBRIEF', tip: 'The flight record is next. Take the pattern into your next sortie.' };
-    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
+    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: stage === CAMPAIGN_STAGES ? 'ACT II COMPLETE' : 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
     return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'NEXT / SECTOR ' + pad(stage + 1, 2), name: SECTOR_NAMES[stage + 1],
-      sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: 'One hull point and one special are restored as you cross into the next front.' };
+      sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: stage + 1 === ACT_TWO_STAGE ? 'One hull point and one special are restored as you cross into Act II.' : 'The hull is fully repaired and one special restored as you cross into the next front.' };
   }
   const goal = Number(game.stageGoal?.[stage]) || 0;
   const eta = Math.max(0, goal - (Number(game.stageTime) || 0));
@@ -86,9 +92,12 @@ function intelFor(game) {
     ['CURRENT LANES', 'Formations open marked corridors. Follow the current, break each formation and collect power from fallen aircraft.'],
     ['STORM WALL', 'Pincers and relay strikes close from both flanks. Hold the centre, read the second lane opening and keep WAKE charged.'],
     ['THE ABYSS', 'Storm curtains sweep the maelstrom. Focus to thread the gaps and keep a special in reserve for the Crown.'],
-    ['IRON MONSOON', 'Break the battleship turrets to thin their fire. Shoot mines before their fuses burst, and reclaim stolen salvage from glowing scavengers.']];
+    ['IRON MONSOON', 'Break the battleship turrets to thin their fire. Shoot mines before their fuses burst, and reclaim stolen salvage from glowing scavengers.'],
+    ['SKYFORGE', 'Watch the bottom edge for climbing bomber boxes. Use homing weapons against sidestepping aces. Break foundry bays and roll during EMP pulses to protect escorts.'],
+    ['ZERO MERIDIAN', 'Echoes replay your own flight path, so change your line. Shoot lanes through shard curtains, break the Gate\'s turrets first, and leave a satellite\'s beam before it sweeps.']];
+  const [head, tip] = tips[stage] || ['APPROACH', 'Hold formation and keep the arsenal intact for the flagship.'];
   return { kind: 'approach', kicker: 'NEXT CONTACT', right: 'ETA ' + clock(eta), name: FLAGSHIP_NAMES[stage], sub: 'SECTOR ' + pad(stage, 2) + ' FLAGSHIP',
-    hull: null, head: tips[stage][0], tip: tips[stage][1] };
+    hull: null, head, tip };
 }
 
 function flavorFor(game, critical, intel) {
@@ -311,6 +320,9 @@ export class PausePanel {
     this.reducedEffects = false;
     this.visible = false;
     this.root = $('pauseScreen');
+    const track=$('holdTrack'), nodes=this.root?.querySelector('.hold-nodes');
+    if(track){track.querySelectorAll('.hold-node').forEach(n=>n.remove());for(let k=1;k<=CAMPAIGN_STAGES;k++){const n=document.createElement('i');n.className='hold-node';n.dataset.node=k;n.style.left=((k-.5)/CAMPAIGN_STAGES*100)+'%';track.append(n);}}
+    if(nodes){nodes.style.gridTemplateColumns='repeat('+CAMPAIGN_STAGES+', minmax(0,1fr))';nodes.innerHTML=Array.from({length:CAMPAIGN_STAGES},(_,i)=>'<li data-sector="'+(i+1)+'"><b>'+pad(i+1,2)+'</b><strong>'+SECTOR_NAMES[i+1]+'</strong><span>'+FLAGSHIP_NAMES[i+1]+'</span><em>AHEAD</em></li>').join('');}
     this.scope = new Scope($('holdRadar'));
     this.craftCanvas = $('holdCraft');
     this.craftKey = '';

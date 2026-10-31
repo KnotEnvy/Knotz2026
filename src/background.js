@@ -1,5 +1,6 @@
+import { auroraBarPhase } from './timeline.js';
 // Cached procedural sea, coast and cloud geography for Storm Atlas.
-import { coastWaterAt, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
+import { coastWaterAt, drawZeroMeridian, drawZeroDawn, drawZeroAurora, drawSkyforge, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
 import { lightningAt, bossWarningProgress, interludeProgress } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 // Sectors 1-3 share the painted-coast pipeline (render.js adds its own weather tile, light
@@ -167,6 +168,8 @@ function boat(c,x,y,stage){
   c.fillStyle=stage===2?'#c49675':'#bac6b4';c.fillRect(x-3,y-7,6,8);
 }
 export function drawAtlasScenery(c,stage){
+  if(stage===6){drawZeroMeridian(c,0);return;}
+  if(stage===5){drawSkyforge(c,0);return;}
   if(worldPaintsStage(stage)){drawMonsoonSea(c,0);return;}
   const p=pal[stage-1];
   seaMaterial(c,stage);
@@ -311,15 +314,17 @@ function glowSprite(size,rgb,core=.55){
   });
 }
 // Interlude cloud palettes: 1 Shallows, 2 Storm Wall, 3 The Crown, 4 Iron Monsoon typhoon deck,
-// 5 dawn after the final flagship.
+// 5 Skyforge dusk climb, 6 dawn after the final flagship.
 const COVER={
   1:{fog:'#8fc3c0',lit:'226,246,236',body:'120,170,172',shade:'52,96,108'},
   2:{fog:'#5c6a7c',lit:'196,208,222',body:'98,112,130',shade:'40,48,62'},
   3:{fog:'#3e3058',lit:'200,168,236',body:'86,66,120',shade:'32,22,52'},
   4:{fog:'#141d1b',lit:'150,160,146',body:'46,58,54',shade:'8,13,13'},
-  5:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
+  5:{fog:'#51334e',lit:'255,196,133',body:'111,77,127',shade:'35,28,61'},
+  6:{fog:'#050a18',lit:'105,155,180',body:'24,35,58',shade:'3,7,18'},
+  7:{fog:'#e6b48a',lit:'255,244,222',body:'242,196,150',shade:'176,112,96'}
 };
-const DAWN=5;
+const DAWN=7;
 
 export class WorldAmbience {
   constructor(){
@@ -385,7 +390,21 @@ export class WorldAmbience {
       }
     });
     this.scud=[0,1,2].map(v=>scud(false,v));this.scudLit=[0,1,2].map(v=>scud(true,v));
-    this.flashCool=glowSprite(320,'196,214,255',.62);this.flashRed=glowSprite(320,'255,104,138',.58);
+    this.skyCloudLight=bake(360,180,c=>{
+      for(let i=0;i<7;i++)softBlob(c,48+i*44,94-Math.sin(i/6*Math.PI)*30,38,22,'222,193,255',.8,.6);
+    });
+    this.skyStreak=bake(420,56,c=>{
+      // Feather both the ends and the edges; no discrete marks over the aircraft.
+      const g=c.createLinearGradient(0,0,420,0);
+      g.addColorStop(0,'rgba(190,174,211,0)');g.addColorStop(.3,'rgba(190,174,211,.14)');
+      g.addColorStop(.65,'rgba(210,191,220,.2)');g.addColorStop(1,'rgba(190,174,211,0)');
+      c.fillStyle=g;c.fillRect(0,0,420,56);
+      c.globalCompositeOperation='destination-in';
+      const edge=c.createLinearGradient(0,0,0,56);
+      edge.addColorStop(0,'transparent');edge.addColorStop(.5,'white');edge.addColorStop(1,'transparent');
+      c.fillStyle=edge;c.fillRect(0,0,420,56);
+    });
+    this.flashViolet=glowSprite(320,'180,140,255',1);this.flashCool=glowSprite(320,'196,214,255',.62);this.flashRed=glowSprite(320,'255,104,138',.58);
     const pool=(size,rgb,core)=>bake(size,Math.round(size*.7),c=>{c.scale(1,.7);c.drawImage(glowSprite(size,rgb,core),0,0);});
     this.pools=[[96,128,160].map(s=>pool(s,'176,108,255',.5)),[96,128,160].map(s=>pool(s,'255,84,196',.45))];
     this.warmGlow=glowSprite(64,'255,166,92',.7);
@@ -411,7 +430,7 @@ export class WorldAmbience {
       c.fillStyle='rgba(255,120,80,.32)';c.fillRect(-2,-2,2.5,1.6);
     }));
     this.coverPuffs={};
-    for(const key of [1,2,3,4,5]){
+    for(const key of [1,2,3,4,5,6,7]){
       const p=COVER[key];
       // Cumulus: a shaded base, firm lobes and sunlit crowns, so the deck reads as cloud, not haze.
       // A broken cumulus bank seen from above: irregular lobes, shade only along the lower rim,
@@ -436,6 +455,7 @@ export class WorldAmbience {
   }
   // Called once per frame before any ambient layer.
   begin(game,t,scroll,stage,step,reduced){
+    if(game.stage===6)stage=6;
     this.reduced=!!reduced;this.game=game;this.gameT=t;this.scroll=scroll;
     const mode=game.mode||'playing';
     // The world keeps breathing at a slower rate while the end-of-run outro holds the action.
@@ -453,19 +473,24 @@ export class WorldAmbience {
   }
   // Water-surface life and low air, drawn right after the terrain.
   drawSurface(c,stage){
+    if(this.game?.stage===6)stage=6;
     c.save();
     if(stage===1){this.drawFoam(c,1);this.drawGlints(c);this.drawBoats(c,1);this.drawCloudShadows(c);}
     else if(stage===2){this.drawRipples(c);this.drawBoats(c,2);this.drawStacks(c);}
     else if(stage===3){this.drawPools(c);this.drawDebris(c);this.drawSpiral(c);}
+    else if(stage===5||stage===6){}
     else this.drawMonsoonSurface(c);
     c.restore();
   }
   // Weather above the surface (still beneath enemies and fire).
   drawAir(c,stage){
+    if(this.game?.stage===6)stage=6;
     c.save();
     if(stage===1)this.drawBirds(c);
     else if(stage===2){this.drawFog(c);this.drawScud(c);this.drawRain(c);}
     else if(stage===3)this.drawEmbers(c);
+    else if(stage===6)drawZeroAurora(c,this.gameT,auroraBarPhase(this.game),false,this.reduced);
+    else if(stage===5){}
     else this.drawMonsoonAir(c);
     if(this.strike)this.drawLightning(c,stage);
     c.restore();
@@ -480,7 +505,7 @@ export class WorldAmbience {
     else if(game.boss&&game.mode!=='victory'){const e=Math.max(0,1-(Number(game.boss.age)||0)/2.5);dark=.27*e;red=.12*e;}
     if(dark>.003){c.globalAlpha=dark;c.fillStyle='#03060e';c.fillRect(-20,-20,FW+40,FH+40);}
     if(red>.003){c.globalAlpha=red;c.fillStyle='#6e1422';c.fillRect(-20,-20,FW+40,FH+40);}
-    if(this.cover>.004||this.lines>.004)this.drawCover(c);
+    if(this.cover>.004||this.lines>.004||game.stage===6&&game.mode==='victory')this.drawCover(c);
     c.restore();
   }
   updateTransition(game,stage){
@@ -488,7 +513,7 @@ export class WorldAmbience {
     const final=stage>=CAMPAIGN_STAGES||!!game.practiceStage;
     let cover=-1,lines=0;
     if(ip>=0&&game.mode==='playing'){
-      this.palette=final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
+      this.palette=stage===6?'zero-dawn':final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
       cover=ease(.5,.95,ip)*(final?.6:1);lines=ease(.16,.7,ip);
     }else if(game.mode==='playing'&&!game.boss&&!game.practiceStage&&Number(game.stageTime)<1.25){
       // A new sector opens out of the cloud deck the interlude ended in.
@@ -499,6 +524,14 @@ export class WorldAmbience {
     this.flow+=this.dt*(.35+this.lines*2.6);
   }
   drawCover(c){
+    if(this.palette==='zero-dawn'||this.game?.stage===6&&this.game.mode==='victory'){
+      const ip=interludeProgress(this.game);
+      drawZeroDawn(c,ip>=0?ease(0,.8,ip):1);return;
+    }
+    if(this.palette===6){
+      const ip=interludeProgress(this.game),a=ip>=0?ease(.15,.95,ip):1;
+      c.save();c.globalAlpha=a;drawZeroMeridian(c,this.scroll);drawZeroAurora(c,this.gameT,auroraBarPhase(this.game),false,this.reduced);c.restore();return;
+    }
     const p=COVER[this.palette||1],puffs=this.coverPuffs[this.palette||1],cover=this.cover;
     if(cover>.004){
       // The deck closes almost completely as the sector swaps underneath it.
@@ -713,7 +746,27 @@ export class WorldAmbience {
       c.globalAlpha=(.16+.12*g)*Math.sin(age/3.4*Math.PI);c.strokeStyle='#d0dcec';c.lineWidth=1.2;c.stroke();
     }
   }
+  // Called after the player and before bullets by Renderer.
+  drawSkyforgeOver(c,game){
+    if(game.stage===6){drawZeroAurora(c,Number(game.time)||0,auroraBarPhase(game),true,this.reduced);return;}
+    if(game.stage!==5||this.reduced)return;
+    c.save();
+    for(let i=0;i<3;i++){
+      const y=(i*367+(Number(game.scroll)||0)*2.5)%1100-100,x=-100+noise(i*4)*270;
+      c.drawImage(this.skyStreak,x,y-28,420,56+i*7);
+    }c.restore();
+  }
   drawLightning(c,stage){
+    if(stage===5){
+      const l=this.strike,x=70+l.x*400,y=400+noise(l.id*.37)*330;
+      c.save();c.beginPath();c.rect(0,285,540,615);c.clip();
+      c.globalAlpha=l.flash*(this.reduced?.12:.5);c.drawImage(this.flashViolet,x-230,y-160,460,320);
+      if(!this.reduced){c.globalAlpha=l.flash*.5;c.drawImage(this.skyCloudLight,x-180,y-90);}
+      if(!this.reduced&&l.distance<.7){
+        c.globalAlpha=l.flash*(l.distance<.5?.7:.42);c.strokeStyle='#dac4ff';c.lineWidth=l.distance<.5?2.8:1.7;c.shadowColor='#b48cff';c.shadowBlur=l.distance<.5?14:0;c.beginPath();c.moveTo(x-32,y-14);c.lineTo(x-9,y-4);c.lineTo(x-18,y+4);c.lineTo(x+14,y+15);c.lineTo(x+32,y+9);c.stroke();
+      }c.restore();return;
+    }
+
     const l=this.strike,lx=40+l.x*460,ly=70+noise(l.id*.37)*460,red=stage===3,gold=stage>=4;
     c.globalCompositeOperation='lighter';
     c.globalAlpha=l.flash*(this.reduced?.25:gold?.75:.62);
