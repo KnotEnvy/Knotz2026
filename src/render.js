@@ -38,6 +38,9 @@ const TRACER_STYLES = Object.freeze({
 });
 // Preserve the early power ramp, then grow gently enough to keep columns apart.
 const tracerGrowth = radius => { const grow=Math.max(0,radius-4);return grow<=2.5?grow:2.5+Math.log1p(grow-2.5)*.7; };
+const SKY_SIDES = [-1,1];
+const HALCYON_BAY_X = [-150,0,150];
+const HALCYON_STREAK_COLORS = Array.from({length:12},(_,i)=>`rgba(255,230,210,${.25*(1-i/12)})`);
 const exhaustSprites = new Map();
 function playerExhaust(ship) {
   if(exhaustSprites.has(ship))return exhaustSprites.get(ship);
@@ -748,7 +751,10 @@ export class Renderer {
       for(const tile of [storm.shipLit,...storm.scudLit,storm.flash])c.drawImage(tile,0,0);
       c.getImageData(0,0,1,1);c.restore();this.monsoonWarmed=true;
     }
-    if(!this.skyWarmed&&((this.currentStage===4&&game._transition>0)||this.currentStage===5)&&skyArt.warmSkyforge){skyArt.warmSkyforge();this.skyWarmed=true;}
+    if(!this.skyWarmed&&skyArt.warmSkyforge&&(
+      (this.currentStage===4&&game._transition>0&&game._transition<=game._transitionLength-.5)||this.currentStage===5)){
+      this.skyWarmed=skyArt.warmSkyforge()!==false;
+    }
     c.setTransform(1,0,0,1,0,0);c.fillStyle='#061b2b';c.fillRect(0,0,W,H);
     c.save();
     this.playerPoint=game.player;
@@ -773,7 +779,7 @@ export class Renderer {
       for(const fx of this.impacts)if(fx.fleet&&fx.type==='bossDown')this.sinkingLeviathan(fx,t);
     }
     this.pickups(game.pickups||[],t);
-    if(!fleet){this.projectiles(game.shots||[],true,t);this.arsenalCraft(game.player,t);}
+    if(!fleet){if(this.currentStage!==5)this.projectiles(game.shots||[],true,t);this.arsenalCraft(game.player,t);}
     for(const e of enemies)if(!fleet||!['hull','gunboat','hullTurret'].includes(e.type)){if(!['foundry','foundryBay','tailGunner'].includes(e.type))this.enemy(e,t);}
     if(game.boss&&!enemies.includes(game.boss)) this.boss(game.boss,t);
     for(const e of enemies)if(e.type==='tailGunner')this.enemy(e,t);
@@ -788,10 +794,12 @@ export class Renderer {
     for(const e of enemies)if(e.type==='foundryBay')this.enemy(e,t);
     if(this.currentStage===5){
       this.ambience.drawSkyforgeOver?.(c,game);
+      this.foundrySilhouettes(game.player,enemies,t);
       const p=game.player;if(p&&!p.dead){c.save();c.translate(p.x,p.y);this.playerCore(p);c.restore();}
     }
     this.shieldAura(game.player);
     this.skyHazards(game,t);
+    if(this.currentStage===5)this.projectiles(game.shots||[],true,t);
     // Threats stay above the hull, escorts, orbitals, smoke and auras.
     this.projectiles(game.bullets||[],false,t);
     if(fleet){this.particles(game.particles||[]);this.drawEffects(t);this.fleetEffects(t);}
@@ -1949,8 +1957,8 @@ export class Renderer {
   }
 
   // Static metalwork is rasterized once; only weapons, lights and damage animate.
-  skyHull(type,w=80,h=65,phase=1) {
-    this.skySprites ||= new Map();const key=[type,w,h,phase].join('/');
+  skyHull(type,w=80,h=65) {
+    this.skySprites ||= new Map();const key=`${type}/${w}/${h}`;
     if(this.skySprites.has(key))return this.skySprites.get(key);
     const tile=surface(w*2+80,h*2+100),c=tile.getContext('2d');c.translate(w+40,h+40);c.lineJoin='round';
     const flagship=type==='halcyon',foundry=type==='foundry';
@@ -2021,19 +2029,52 @@ export class Renderer {
     }
     if(e.flash>0){c.globalAlpha=Math.min(1,e.flash*3);oval(c,0,0,18,12,'#fff0c7');}c.restore();return true;
   }
+  foundrySilhouettes(p,enemies,t) {
+    if(!p||p.dead||p.alive===false)return;
+    const c=this.ctx,ship=p.shipId||'kestrel';
+    // Test each craft independently so a covered escort remains readable too.
+    for(let i=-1;i<(p.escortSlots?.length||0);i++){
+      const craft=i<0?p:p.escortSlots[i],radius=i<0?50:20;
+      let covered=false;
+      for(const e of enemies){
+        if(e.type!=='foundry'||e.dead)continue;
+        const dx=craft.x-e.x,dy=craft.y-e.y,a=e.angle||0;
+        const x=dx*Math.cos(a)+dy*Math.sin(a),y=dy*Math.cos(a)-dx*Math.sin(a);
+        if(Math.abs(x)<(e.w||110)+12+radius&&Math.abs(y)<(e.h||62)+radius){covered=true;break;}
+      }
+      if(!covered)continue;
+      c.save();c.globalAlpha=.55;c.translate(craft.x,craft.y);
+      const roll=i<0&&p.roll>0?(1-p.roll/(p.rollCharged?.34:.25))*TAU*(p.rollX>=0?1:-1):0;
+      c.rotate(roll+(p.bank||0)*(i<0?.1:.13)+(i<0?0:Math.sin(t*3+(craft.rank||0))*.025));
+      if(i<0)c.scale(1-Math.abs(p.bank||0)*.12,1);
+      drawCraft(c,ship,0,0,i<0?(ship==='manta'?100:88):(ship==='manta'?39:34),i<0?92:36,true);
+      c.restore();
+    }
+  }
   halcyon(b,t) {
     if(!b)return;const c=this.ctx,w=b.w||220,h=b.h||70;
-    this.skyBayLife=[-150,0,150].map(x=>(this.skyEnemies||[]).some(e=>b.bays?.includes(e.id)&&Math.abs((e.ox??e.x-b.x)-x)<45&&!e.dead&&e.hp>0));
+    const bayLife=this.skyBayLife ||= [false,false,false];bayLife.fill(false);
+    for(const e of this.skyEnemies||[]){
+      if(e.dead||e.hp<=0||!b.bays?.includes(e.id))continue;
+      const x=e.ox??e.x-b.x;
+      for(let i=0;i<3;i++)if(Math.abs(x-HALCYON_BAY_X[i])<45)bayLife[i]=true;
+    }
     if(b.phase>=3){bloom(c,b.x,b.y,92,'#d9a1e0','rimViolet',.4);oval(c,b.x,b.y,56,56,'rgba(20,10,40,.8)');}
     c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
     c.save();c.translate(0,60);c.scale(1.1,1.1);const shadow=this.skyCloudShadow(w,h);c.drawImage(shadow,-shadow.width/2,-shadow.height/2);c.restore();
-    if(!this.reducedEffects)for(const side of [-1,1])for(let i=0;i<12;i++)line(c,[side*(w-4),i*10,side*(w-4)+Math.sin(t+i*.3)*3,i*10+11],'rgba(255,230,210,'+(.25*(1-i/12))+')',3+i*.25);
-    c.drawImage(this.skyHull('halcyon',w,h,b.phase||1),-w-40,-h-40);
+    if(!this.reducedEffects){
+      const points=this.skyStreakLine ||= [0,0,0,0];
+      for(const side of SKY_SIDES)for(let i=0;i<12;i++){
+        points[0]=side*(w-4);points[1]=i*10;points[2]=points[0]+Math.sin(t+i*.3)*3;points[3]=i*10+11;
+        line(c,points,HALCYON_STREAK_COLORS[i],3+i*.25);
+      }
+    }
+    c.drawImage(this.skyHull('halcyon',w,h),-w-40,-h-40);
     for(let i=0;i<3;i++){const x=(i-1)*150;if(!this.skyBayLife[i]){poly(c,[x-25,6,x+23,8,x+19,37,x-23,37],'#0b0d1c','#49334c',1);this.skyFire(c,x,28,t+i,22);}}
-    if(b.hp/b.maxHp<.66)for(const side of [-1,1])this.skyFire(c,side*143,8,t+side,18);
-    if(b.hp/b.maxHp<.33)for(const side of [-1,1]){line(c,[side*36,-22,side*68,-5,side*59,13,side*103,27],'#8e527b',4);line(c,[side*36,-22,side*68,-5,side*59,13,side*103,27],'#ffc3e4',1);}
-    if(b.phase>=2)for(const side of [-1,1])for(let i=0;i<5;i++){const x=side*(45+i*32),y=-h+14+i*8;poly(c,[x-5,y,x,y-9,x+5,y,x,y+6],'#29233e','#c59ac8',1);if(this.skyLaserWarning){bloom(c,x,y,17,'#d9a1e0','rimViolet',.7);oval(c,x,y,2,3,'#fff3ef');}}
-    for(const side of [-1,1])oval(c,side*(w-4),14,2.5,2.5,Math.sin(t*4+side)>0?(side<0?'#ff7888':'#9effc5'):'#49394f');
+    if(b.hp/b.maxHp<.66)for(const side of SKY_SIDES)this.skyFire(c,side*143,8,t+side,18);
+    if(b.hp/b.maxHp<.33)for(const side of SKY_SIDES){line(c,[side*36,-22,side*68,-5,side*59,13,side*103,27],'#8e527b',4);line(c,[side*36,-22,side*68,-5,side*59,13,side*103,27],'#ffc3e4',1);}
+    if(b.phase>=2)for(const side of SKY_SIDES)for(let i=0;i<5;i++){const x=side*(45+i*32),y=-h+14+i*8;poly(c,[x-5,y,x,y-9,x+5,y,x,y+6],'#29233e','#c59ac8',1);if(this.skyLaserWarning){bloom(c,x,y,17,'#d9a1e0','rimViolet',.7);oval(c,x,y,2,3,'#fff3ef');}}
+    for(const side of SKY_SIDES)oval(c,side*(w-4),14,2.5,2.5,Math.sin(t*4+side)>0?(side<0?'#ff7888':'#9effc5'):'#49394f');
     if(b.phase>=3){oval(c,0,0,32,32,'#eeb2d9');oval(c,0,0,25,25,'#090f23');oval(c,0,0,12,12,'#fff0c0',true,2);for(let i=0;i<8;i++){const a=i*TAU/8+t*.3;line(c,[Math.cos(a)*34,Math.sin(a)*34,Math.cos(a)*43,Math.sin(a)*43],'#d9a1e0',2);}}
     c.restore();
   }
@@ -2057,15 +2098,18 @@ export class Renderer {
         for(const x of [95,135,405,445])line(c,[x-8,y+4,x,y-5,x+8,y+4],'#ffd09e',2);
         c.fillStyle='#ffe0b5';c.font='800 15px Arial';c.textAlign='center';c.fillText(f.value==='dive'?'BOMBER DIVE':'BOMBERS CLIMBING',270,y+5);
       }else if(f.type==='wingBreak'){
-        const p=f.age/f.life,w=f.w,h=f.h,tile=this.skyHull('halcyon',w,h,3);
+        const p=f.age/f.life,w=f.w,h=f.h,tile=this.skyHull('halcyon',w,h);
+        // Keep the first breakup beat above the title, then plunge into cloud.
+        const early=Math.min(f.age/1.5,1),late=Math.max(0,(f.age-1.5)/(f.life-1.5));
+        const breakupY=clamp(f.y,180,200)+early*early*65+late*late*310;
         for(let piece=-1;piece<=1;piece++){
-          c.save();const drift=piece*p*95,fall=p*p*(piece===0?330:270);c.translate(f.x+drift,Math.min(f.y,210)+fall);c.rotate(f.angle+piece*p*.9);c.globalAlpha=p>.86?(1-p)/.14:1;
+          c.save();const drift=piece*(early*65+late*45),fall=piece===0?late*late*45:0;c.translate(f.x+drift,breakupY+fall);c.rotate(f.angle+piece*(early*.28+late*.62));c.globalAlpha=p>.86?(1-p)/.14:1;
           c.beginPath();c.rect(piece<0?-w-40:piece===0?-48:48,-h-40,piece===0?96:w,h*2+100);c.clip();c.drawImage(tile,-w-40,-h-40);c.restore();
-          for(let j=0;j<3;j++)this.skyFire(c,f.x+drift+piece*(65+j*35),Math.min(f.y,210)+fall-j*13,f.age+j,23+j*4);
+          for(let j=0;j<3;j++)this.skyFire(c,f.x+drift+piece*(65+j*35),breakupY+fall-j*13,f.age+j,23+j*4);
         }
         // Timed secondary detonations retain the full skin for more than two seconds.
         const beat=Math.floor(f.age/.3),blast=(f.age% .3)/.3;
-        if(p<.88){c.save();c.globalAlpha=1-blast;this.skyFire(c,f.x+Math.sin(beat*13)*150,Math.min(f.y,210)+p*p*270,f.age,25+blast*38);c.restore();}
+        if(p<.88){c.save();c.globalAlpha=1-blast;this.skyFire(c,f.x+Math.sin(beat*13)*150,breakupY,f.age,25+blast*38);c.restore();}
         if(p>.75){const q=(p-.75)/.25;c.save();c.globalAlpha=1-q;oval(c,f.x,560,40+q*210,10+q*38,'#d9a1e0',true,8*(1-q)+1);bloom(c,f.x,555,90,'#d9a1e0','rimViolet',1-q);c.restore();}
       }
     }
