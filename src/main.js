@@ -476,11 +476,11 @@ function endSortie(summary, fixture=false){
   let narrative;
   if(won){
     // Victory comes after the last built sector; Act II continues beyond it, so say so.
-    narrative=stage>=6?'The final Act II flagship falls. The storm corridor is open. Beyond the meridian, Act III awaits.':stage===5?'HALCYON breaks apart and falls through the violet cloud floor. The factories fall silent. Act II continues.':grade.startsWith('S')?'The Leviathan sinks without ever finding your line. Above the storm, the factories fly…':
+    narrative=stage>=CAMPAIGN_STAGES?'The final Act II flagship falls. The storm corridor is open. Beyond the meridian, Act III awaits.':stage===5?'HALCYON breaks apart and falls through the violet cloud floor. The factories fall silent. Act II continues.':grade.startsWith('S')?'The Leviathan sinks without ever finding your line. Above the storm, the factories fly…':
       grade.startsWith('A')?'The Leviathan sinks and the battle line breaks. Above the storm, the factories fly…':
       'The Leviathan sinks. You held through the typhoon. Above the storm, the factories fly…';
   }else{
-    narrative=stage>=6?'The final Act II flagship falls. The storm corridor is open. Beyond the meridian, Act III awaits.':stage===5?'HALCYON holds the dusk sky. Break the bays, follow the lattice gaps, and roll through the EMP charge.':stage>=ACT_TWO_STAGE?'The typhoon fleet held the line. Strip the turrets, guard your salvage, and fly into the storm again.':
+    narrative=stage>=CAMPAIGN_STAGES?'THE SOVEREIGN holds the meridian. Follow the mirror gaps and carry the signal through on the next sortie.':stage===5?'HALCYON holds the dusk sky. Break the bays, follow the lattice gaps, and roll through the EMP charge.':stage>=ACT_TWO_STAGE?'The typhoon fleet held the line. Strip the turrets, guard your salvage, and fly into the storm again.':
       stage===3?'The Crown held. Beyond it, the real fleet is waiting. One more sortie.':
       stage===2?'The storm wall claimed this flight. The next opening is yours to find.':
       'The first sector swallowed the signal. The flight deck is ready when you are.';
@@ -517,7 +517,7 @@ function endSortie(summary, fixture=false){
   const score=number(data.score??game.score);
   const gradeLine='GRADE '+grade+' / '+String(score).padStart(8,'0')+' POINTS';
   setText('endIntroKicker',won?'FINAL SIGNAL / '+flagshipName(stage)+(stage===5?' BROKEN':' DOWN'):'MAYDAY / SECTOR '+String(stage).padStart(2,'0'));
-  setText('endIntroHeading',won&&stage===6?'ACT II COMPLETE':won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
+  setText('endIntroHeading',won&&stage===CAMPAIGN_STAGES?'ACT II COMPLETE':won?(grade==='S'||grade==='A'?'THE STORM BREAKS':'ROUTE CLEARED'):(stage>=ACT_TWO_STAGE?'THE LINE HOLDS':stage===3?'THE CROWN HOLDS':'SIGNAL LOST'));
   setText('endIntroLine',won?gradeLine:'FLIGHT RECORD RECOVERED / '+gradeLine);
   if(drill){
     const tier=drillClearTier(data);
@@ -607,7 +607,7 @@ function frame(now){
     if(outroUntil){
       // The run has ended: keep the playfield, HUD and outro sequence alive without updating the game.
       renderer.draw(game,dt);hud.draw(game,dt,ctx);sequences.draw(ctx,game,dt);
-      audio.update(game,dt);ambience.update(game,dt);readoutsFromGame(dt);
+      audio.update(game,dt);game.audioState=audio.state;ambience.update(game,dt);readoutsFromGame(dt);
       if(now>=outroUntil){outroUntil=0;endSortie(game.summary);}
       scheduleFrame();return;
     }

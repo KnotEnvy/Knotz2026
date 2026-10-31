@@ -1,6 +1,6 @@
 import { auroraBarPhase } from './timeline.js';
 // Cached procedural sea, coast and cloud geography for Storm Atlas.
-import { coastWaterAt, drawZeroMeridian, drawZeroAurora, drawSkyforge, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
+import { coastWaterAt, drawZeroMeridian, drawZeroDawn, drawZeroAurora, drawSkyforge, drawMonsoonSea, drawMonsoonLit, MONSOON_WIND } from './art.js';
 import { lightningAt, bossWarningProgress, interludeProgress } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 // Sectors 1-3 share the painted-coast pipeline (render.js adds its own weather tile, light
@@ -505,7 +505,7 @@ export class WorldAmbience {
     else if(game.boss&&game.mode!=='victory'){const e=Math.max(0,1-(Number(game.boss.age)||0)/2.5);dark=.27*e;red=.12*e;}
     if(dark>.003){c.globalAlpha=dark;c.fillStyle='#03060e';c.fillRect(-20,-20,FW+40,FH+40);}
     if(red>.003){c.globalAlpha=red;c.fillStyle='#6e1422';c.fillRect(-20,-20,FW+40,FH+40);}
-    if(this.cover>.004||this.lines>.004)this.drawCover(c);
+    if(this.cover>.004||this.lines>.004||game.stage===6&&game.mode==='victory')this.drawCover(c);
     c.restore();
   }
   updateTransition(game,stage){
@@ -513,7 +513,7 @@ export class WorldAmbience {
     const final=stage>=CAMPAIGN_STAGES||!!game.practiceStage;
     let cover=-1,lines=0;
     if(ip>=0&&game.mode==='playing'){
-      this.palette=final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
+      this.palette=stage===6?'zero-dawn':final?DAWN:Math.min(CAMPAIGN_STAGES,stage+1);
       cover=ease(.5,.95,ip)*(final?.6:1);lines=ease(.16,.7,ip);
     }else if(game.mode==='playing'&&!game.boss&&!game.practiceStage&&Number(game.stageTime)<1.25){
       // A new sector opens out of the cloud deck the interlude ended in.
@@ -524,9 +524,13 @@ export class WorldAmbience {
     this.flow+=this.dt*(.35+this.lines*2.6);
   }
   drawCover(c){
+    if(this.palette==='zero-dawn'||this.game?.stage===6&&this.game.mode==='victory'){
+      const ip=interludeProgress(this.game);
+      drawZeroDawn(c,ip>=0?ease(0,.8,ip):1);return;
+    }
     if(this.palette===6){
       const ip=interludeProgress(this.game),a=ip>=0?ease(.15,.95,ip):1;
-      c.save();c.globalAlpha=a;drawZeroMeridian(c);drawZeroAurora(c,this.gameT,auroraBarPhase(this.game),false,this.reduced);c.restore();return;
+      c.save();c.globalAlpha=a;drawZeroMeridian(c,this.scroll);drawZeroAurora(c,this.gameT,auroraBarPhase(this.game),false,this.reduced);c.restore();return;
     }
     const p=COVER[this.palette||1],puffs=this.coverPuffs[this.palette||1],cover=this.cover;
     if(cover>.004){

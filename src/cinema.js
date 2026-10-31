@@ -4,7 +4,7 @@
 // defeat (the storm fleet, the Crown, or LEVIATHAN in the typhoon) and a dusk training range for drills. Static layers are built once and cached.
 import { SHIP_ORDER, shipShape } from './ships.js';
 import { actName, ACT_TWO_STAGE } from './timeline.js';
-import { drawZeroMeridian, drawSkyforge, warmSkyforge } from './art.js';
+import { drawZeroMeridian, drawZeroDawn, drawSkyforge, warmSkyforge } from './art.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const W = 1600, H = 900, TAU = Math.PI * 2;
@@ -241,7 +241,7 @@ function birds(g, t, x0, y0, color, count = 9) {
 // ---------------------------------------------------------------- victory: dawn over the Meridian
 const V = { hz: 560, sun: { x: 1010, y: 528 } };
 function buildVictory(stage) {
-  if(stage===6){const sky=surface(W,H),c=sky.getContext('2d');c.scale(W/540,H/900);drawZeroMeridian(c);return {sky,dusk:true,space:true};}
+  if(stage===6){const sky=surface(W,H),c=sky.getContext('2d');const scale=Math.max(W/540,H/900);c.translate((W-540*scale)/2,H-900*scale);c.scale(scale,scale);drawZeroMeridian(c);drawZeroDawn(c);return {sky,dusk:true,space:true};}
   if(stage===5){warmSkyforge();const sky=surface(W,H),c=sky.getContext('2d');c.translate(0,-360);c.scale(W/540,W/540);drawSkyforge(c,2600,'victory');return {sky,dusk:true};}
   const { hz, sun } = V, out = {};
   const sky = surface(W, H), c = sky.getContext('2d');
@@ -851,7 +851,7 @@ export function commendations(data = {}) {
   const hits = num(data.hitsTaken), lost = num(data.livesLost), grazes = num(data.grazes) || 0;
   const conversions = num(data.conversions) || 0, accuracy = num(data.accuracy) || 0, fired = num(data.shotsFired) || 0;
   const bosses = num(data.bossesDefeated) ?? (won ? (drill ? 1 : CAMPAIGN_STAGES) : Math.max(0, (num(data.stage) || 1) - 1));
-  if(won && !drill && Number(data.stage)>=6)list.push({tone:'gold',name:'ACT II COMPLETE',note:'THE SOVEREIGN SHATTERED'});
+  if(won && !drill && Number(data.stage)>=CAMPAIGN_STAGES)list.push({tone:'gold',name:'ACT II COMPLETE',note:'THE SOVEREIGN SHATTERED'});
   if (won && hits === 0) list.push({ tone: 'gold', name: 'UNTOUCHED', note: 'NO HITS TAKEN' });
   else if (won && lost === 0) list.push({ tone: 'cyan', name: 'IRON WING', note: 'ALL LIVES KEPT' });
   if (!drill && won && bosses >= CAMPAIGN_STAGES) list.push({ tone: 'gold', name: 'FLEET BREAKER', note: CAMPAIGN_STAGES + ' FLAGSHIPS DOWN' });
@@ -880,13 +880,13 @@ export class Cinema {
     this.stage = Math.max(1, Math.min(CAMPAIGN_STAGES, num(this.data.stage) || 1));
     this.staticKey = ''; this.counting = false; this.revealAt = 0;
     const reached = actName(this.stage);
-    const record = drill ? reached + ' DRILL' : won ? this.stage>=6?'ACT II COMPLETE / ACT III AWAITS':'SECTOR '+String(this.stage).padStart(2,'0')+' CLEARED / ACT II CONTINUES' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
+    const record = drill ? reached + ' DRILL' : won ? this.stage>=CAMPAIGN_STAGES?'ACT II COMPLETE / ACT III AWAITS':'SECTOR '+String(this.stage).padStart(2,'0')+' CLEARED / ACT II CONTINUES' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
     for (const id of ['endEyebrow', 'endIntroLine']) {
       const node = $(id);
       // The shell caches its base copy; consecutive losses may retain our prior suffix.
       if (node) node.textContent = node.textContent.replace(/ \/ (?:REACHED ACT |ACT [IV]|BOTH ACTS CLEARED|SECTOR \d+ CLEARED).*$/, '') + ' / ' + record;
     }
-    if(won&&!drill&&this.stage===6){$('endHeading').innerHTML='ACT II<br><em>COMPLETE</em>';$('endNarrative').textContent='THE SOVEREIGN SHATTERED. Beyond the meridian, the signal carries.';}
+    if(won&&!drill&&this.stage===CAMPAIGN_STAGES){$('endHeading').innerHTML='ACT II<br><em>COMPLETE</em>';$('endNarrative').textContent='THE SOVEREIGN SHATTERED. The long meridian is crossed. Dawn finds the way home.';}
     const screen = $('endScreen');
     if (screen) { screen.classList.remove('record-in'); screen.dataset.scene = this.scene; }
     const score = String(Math.max(0, Math.floor(num(this.data.score) || 0))).padStart(8, '0');
