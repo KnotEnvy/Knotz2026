@@ -594,26 +594,126 @@ Round 1, same bot and seeds, for comparison:
 - With Crown-arrival kits, Manta and Wraith now take 3.8–7.9 sector hits (round 1: 1.8–4.9), and the average Wraith clears 6/8 (round 1: 8/8). That is the intended "sweat", but it is also the largest felt change.
 - The rank (0–0.88) is no longer comparable with round-1 values. Anything keyed to the old 1.25 cap must use the new gates.
 
-### Sector 5: SKYFORGE (planned, not built yet)
+### Sector 5: SKYFORGE (build now)
+
+Status: approved direction (2026-10-31). The owner's verdict on Act I and sector 4: "completely the right direction." Sectors 5 and 6 complete Act II, and Act III will be the final act (not planned yet). Each sector is built, judged and iterated until all four judges score it 8.5 or higher, with no P0 or P1 left open. Each sector gets at most three rounds; after that, the lead reports to the owner.
 
 - **Tagline:** "Above the storm, the factories fly."
-- **Setting:** high altitude above a cloud sea at dusk, with a flying fortress fleet and aerial factories. Cloud layers parallax over and under the player.
-- **New threats:**
-  - Bomber boxes with tail gunners.
-  - Flak bands: timed bursting rows that mark their altitude first.
-  - Interceptor aces that dodge player fire lines.
-- **Flagship HALCYON:** a flying-wing mothership with three bays.
-  - It launches squadrons and sweeps a lattice of laser bars, telegraphed with gaps.
-  - In phase 3 it fires reflector-proof void lattices and EMP pulses that briefly disable escorts.
+- **Coordinates:** N 35°40′ E 176°20′. The route runs east along the meridian: sector 4 is at E 171°, sector 6 sits on the 180th meridian.
+- **Flagship:** HALCYON, class FLYING-WING CARRIER.
+- **Setting:** high altitude at dusk, above the typhoon's cloud sea.
+  - Two parallax cloud decks: a slow violet floor below, and torn amber wisps that pass *over* the player (kept thin, so they never hide bullets).
+  - Aerial factory platforms, contrails and a magenta-gold sun low on the horizon.
+  - The typhoon from sector 4 is still visible below as lightning glowing inside the cloud floor: a soft violet flicker on a period of about 7 s.
+  - At a glance it must read as a new altitude, not as sector 4 recoloured. Procedural art is fine. `worldPaintsStage(5)` is already true, so the world layer owns the whole background.
+- **Transition from sector 4:** after LEVIATHAN sinks, the normal 3.5 s interlude plays as a climb. The cover cloud deck rises through the typhoon into dusk light. There is no act card.
+- **Length:** about 100 s before the flagship (`stageGoal[5] ≈ 100`).
 
-### Sector 6: ZERO MERIDIAN (planned, not built yet)
+**What's new in sector 5**
+- **Threats from below.** Bomber boxes climb up from the bottom edge and overtake the player. Their tail gunners fire back down at the player as they pass. Fair warning comes first: shadows, an engine-drone cue and an edge marker about 1.2 s before entry.
+- **Flak bands.** A horizontal row marks its altitude first, then bursts into short-range shrapnel with readable gaps. These are the vertical counterpart to sector 4's lane sweeps.
+- **Sky aces.** Interceptors that sidestep the player's main-gun firing line. The player's answer is homing fire: sidewinders, Manta torpedoes and Wraith orbitals, or the escort spread.
+- **Foundries.** Armored flying factory platforms whose bay modules launch drone popcorn until the bays are destroyed. They are this sector's version of sector 4's hulls.
+
+**Sector beats** (times are suggestions; place drops by the Act I rule: each item is collected before the attack it answers)
+1. **2.5–12 s:** interceptor squadrons over the cloud sea, a power trip. The first sky-ace pair debuts at about 10 s, right after a sidewinder or signature drop.
+2. **About 14 s:** the first bomber box climbs from below, teaching that threats now come from below.
+3. **About 24 s:** a corridor of three flak bands, with drifting popcorn.
+4. **About 34 s:** foundry 1, whose bays launch drones. Scavengers answer any scatter, as in sector 4.
+5. **About 48 s:** a sky-ace wing plus flak bands.
+6. **About 60 s:** the mid-sector peak: two bomber boxes (one climbing, one diving) over foundry 2, a larger one with void-round batteries.
+7. **About 80 s:** a breather, then an interceptor pincer through a flak gauntlet, with sky aces, before HALCYON.
+
+**Flagship HALCYON** (a flying-wing mothership spanning about 80% of the width, `boss.w` × `boss.h` ≈ 220×70)
+- **Phase 1, "Three bays":** three destructible bay modules (child enemies, as with LEVIATHAN's turrets) launch interceptor squadrons. The core takes 25% damage while any bay lives. Each bay destroyed drops an item.
+- **Phase 2, "Lattice":** HALCYON sweeps a lattice of laser bars. Each bar is telegraphed (a thin marked line for about 0.9 s), then fires for about 0.6–1.0 s, and always leaves a readable gap. A bar hurts on contact unless the player is rolling. The reflector and orbitals can't stop it.
+- **Phase 3, "Eclipse protocol":** reflector-proof void lattices, plus EMP pulses that disable the player's escorts for about 2 s.
+  - Each EMP charges as a visible ring for about 1.2 s.
+  - Disabled escorts visibly go dark and stop firing.
+  - A barrel roll during the pulse protects the escorts.
+  - The phase ends in a desperation curtain on its guard floor.
+- **Kill time:** about 65–85 s with the sector-5 reference kit, and about 3× that for a bare ship. HALCYON gets its own learn windows and `BOSS_GUARD_PAR` entry.
+- **Death:** the wing breaks apart and falls through the cloud floor. Its `bossDown` carries its last pose, as LEVIATHAN's does.
+
+**Music and ambience**
+- New `sector5`, `warning5` and `boss5` cues: soaring and tense, about 150 bpm. Use string ostinatos and synth arpeggios in a bright mode that darkens (Lydian to Dorian), over sector 4's low drums, kept lighter. They must sound like a climb, not like the typhoon again.
+- The ambience bed: thin high-altitude wind, distant engine drones and the clank of the factories.
+
+### Sector 5 build contract (shared by the four sector-5 builders)
+
+The simulation owns state, and everyone else reads it. Builders may extend this contract, but must write any change here.
+
+**Campaign**
+- **Campaign length.** `CAMPAIGN_STAGES = 5` for this build; sector 6 will raise it to 6. Victory comes after HALCYON for now.
+- **Interlude.** LEVIATHAN → sector 5 uses the normal interlude. There's no `actTwo` event.
+- **Remove hard-coded counts.** Presentation removes the four-sector assumptions it still has: the console route, the pause hold-track nodes, the hangar mission route, the drill buttons and the mastery badges. Each is generated from `CAMPAIGN_STAGES` (or extended to 6 and hidden past `CAMPAIGN_STAGES`), so sector 6 needs no markup work. Route positions are computed, not fixed percentages.
+- **Drills.** `startDrill(5)` exists. HALCYON unlocks after the player encounters it. Drill 5 starts with the sector-5 reference kit, which the simulation defines.
+- **Reference kit.** The simulation measures what a strong player carries into sector 5: the kit-ledger collector from sector 4, without hits. It records that kit as the sector-5 reference in "Simulation notes (sector 5)". The Act II HP for sector 5 (`_actTwoScale`, currently ×1.35) is re-tuned against it.
+
+**Sector 5 enemy types** (`e.type`)
+
+| Type | What it is | Key fields | Notes |
+| --- | --- | --- | --- |
+| `boxBomber` | Heavy four-engine bomber, flying in boxes of 3–4. | `e.box` (formation id), `e.climb` (true when entering from the bottom), `e.gunners` (child ids) | High HP. Body contact hurts (it's in the air). A climbing box enters from y > 900, overtakes the player and leaves at the top. A box wipe uses the squadron bonus. |
+| `tailGunner` | Destructible gun on a box bomber. | `e.parentId`, `e.ox`, `e.oy`, `e.aim` | Fires aimed bursts toward the player. Dies with its parent. |
+| `skyAce` | Elusive interceptor. | `e.dodge` (seconds of sidestep left), `e.lane` | Sidesteps when a main-gun shot column is within about 40 px, on a cooldown, so it isn't immortal. Homing weapons and escort spread counter it. Leads its aim. |
+| `foundry` | Armored flying factory platform. | `e.w`, `e.h`, `e.bays` (child ids) | Like a `hull`: huge HP, 35% damage while any bay lives, never fires itself. It's in the air, but body contact does NOT hurt; it flies above the player's layer. Bullets pass under it. |
+| `foundryBay` | Bay module on a foundry, or on HALCYON. | `e.parentId`, `e.ox`, `e.oy`, `e.launch` (seconds to the next launch) | Launches `drone` popcorn on a cadence that scales with threat. Its own HP. Dies with its parent. |
+| `drone` | Popcorn launched from a bay. | (none) | Dies to one volley. A short aimed shot, or a kamikaze dive toward the player. |
+
+**Hazards** (a new `game.hazards` array; the presentation draws them, the simulation collides them)
+
+| Kind | Fields | Behaviour |
+| --- | --- | --- |
+| `flakBand` | `y`, `gaps: [x…]`, `gapW`, `warn`, `age`, `state` (`"mark"` or `"burst"`) | Marks its altitude for `warn` seconds (about 1.0), then bursts into short-lived shrapnel bullets along the row, except in the gaps. It is gone after the burst. |
+| `laser` | `orient` (`"h"` or `"v"`), `pos`, `from`, `to` (span), `warn`, `on`, `age`, `state` (`"warn"`, `"fire"` or `"off"`), `void` (bool) | A telegraph line during `warn`, then a beam during `on`. It hurts on contact unless the player is rolling. Void lasers are not stopped by the reflector or orbitals (no laser is). |
+| `emp` | `x`, `y`, `r`, `charge`, `state` (`"charge"` or `"pulse"`) | When it pulses, escorts are disabled for about 2 s (`player.empTime` seconds, readable by the HUD) unless the player is rolling. |
+
+**Player field:** `player.empTime`, in seconds, is greater than 0 while the escorts are disabled.
+
+**New events**
+- `boxEnter {value: climb?"climb":"dive"}`: fires about 1.2 s before entry, so presentation can show the edge warning.
+- `flakMark {y}` and `flakBurst {y}`.
+- `skyAceDodge`, throttled.
+- `foundryEnter`, `foundryDown`, `bayDown {value: parent}` and `droneLaunch`, throttled.
+- `laserWarn {orient, pos}`, `laserFire` and `empCharge`.
+- `empPulse {value: hitEscorts}` and `empClear`.
+- `wingBreak`: HALCYON's death. `bossDown` carries `w, h, angle` and the bays still alive.
+
+Existing boss events carry `stage === 5`.
+
+**Presentation and world**
+- `SECTOR_NAMES[5] = "SKYFORGE"`, `FLAGSHIP_NAMES[5] = "HALCYON"`, `FLAGSHIP_CLASSES[5] = "FLYING-WING CARRIER"`, plus the coordinates and tagline above. The kicker reads `ACT II · SECTOR 05`.
+- `lightningAt(time, 5)`: a soft violet flicker under the cloud floor, on a period of about 7 s. Thunder is muffled and distant.
+- The cover palette gains the dusk climb. Renumber the final dawn palette, keeping it last.
+- The page console gets a `body[data-sector="5"]` dusk backdrop and log lines for the new events.
+- Hazards must be readable in every effects mode:
+  - flak marks and laser warnings read on reduced effects;
+  - the EMP ring, and escorts going dark, are clear;
+  - nothing in the over-player cloud layer hides bullets or hazards.
+
+**Builder file ownership (sector 5)**
+- **Simulation:** `src/game.js`, `src/progress.js`, `test/*` and `qa/*`, plus this contract's "Simulation notes (sector 5)".
+- **Combat rendering:** `src/render.js`, `src/ui.js` and `src/pause.js`. This covers enemy, hazard and HALCYON art, the HUD (the EMP state) and the pause route.
+- **World and story:**
+  - `src/background.js`, `src/art.js`, `src/timeline.js`, `src/ambience.js`;
+  - `src/sequences.js`, `src/cinema.js`, `src/frontend.js`, `src/main.js`;
+  - `index.html`, the CSS, `README.md` and `PLAYTEST.md`.
+- **Audio:** `src/music.js`, `src/soundscape.js`, `src/sfx.js` and `src/audio.js`.
+- Builders don't commit; Luna does the git work.
+
+### Simulation notes (sector 5)
+
+(Simulation builder: record the sector-5 reference kit, the drop schedule with its drop → attack pairs, the HP curve, the hazard numbers, HALCYON's numbers and the bot tables here.)
+
+### Sector 6: ZERO MERIDIAN (planned; build after sector 5 passes)
 
 - **Tagline:** "Where the long meridian ends."
-- **Setting:** the stratosphere at eclipse. The sea is a distant curve, the sky is black-blue and auroras pulse with the music.
-- **Final flagship THE SOVEREIGN:** a mirror-ship that copies the player's current arsenal in its patterns (spread, missiles or rails).
+- **Setting:** the stratosphere at eclipse, on the 180th meridian. The sea is a distant curve, the sky is black-blue, and auroras pulse with the music.
+- **Final Act II flagship, THE SOVEREIGN:** a mirror-ship that copies the player's current arsenal in its patterns (spread, missiles or rails).
   - In phase 2 it steals the player's salvage on any hit.
   - Its final form is a full-screen bullet ballet with void and destructible bullet layers.
-  - Its defeat triggers the true ending.
+- **Act III hook:** its defeat ends Act II, not the whole game. The true ending moves to Act III (the final act, not yet planned). Until Act III exists, victory after THE SOVEREIGN shows the Act II ending plus an "ACT III" tease.
 
 ## Part 3: Act I retune (sectors 1–3)
 
