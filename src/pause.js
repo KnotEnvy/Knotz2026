@@ -56,6 +56,9 @@ function intelFor(game) {
       else if (r && !r.broken) { head = 'RIGHT REACTOR'; tip = 'Break the right reactor to disable the spiral cannon for the rest of the fight, or keep pressing the main hull.'; }
       else if (r && r.phase === 3 && r.broken) { head = 'SPIRAL OFFLINE'; tip = 'The right spiral cannon is silenced for the rest of the fight. Press the main hull.'; }
       else { head = 'OPTIONAL REACTORS'; tip = 'In phases two and three a side reactor opens. The left buys 3.2 seconds of cover; the right silences the spiral cannon.'; }
+    } else if (stage === 6) {
+      head = ['REFLECTION','THEFT','BALLET'][phase-1];
+      tip = phase === 1 ? 'Destroy the mirror escorts to open the core. The Sovereign copies your weapon family.' : phase === 2 ? 'Shoot the bright salvage tether before it reaches the hull. Lost salvage grows a new enemy weapon.' : 'Shoot crystalline shards to carve a lane. Violet void rounds pass through reflectors; read the copied gun pattern between curtains.';
     } else if (stage === 5) {
       head = ['THREE BAYS','LATTICE','ECLIPSE PROTOCOL'][phase-1];
       tip = phase === 1 ? 'Break all three launch bays to open the armored core.' : phase === 2 ? 'Leave the marked laser lines before they fire. Roll through beams when trapped.' : 'Roll during the charged EMP pulse to protect escorts. Violet void lattices pass through reflectors and orbitals.';
@@ -79,7 +82,7 @@ function intelFor(game) {
   }
   if (interludeProgress(game) >= 0) {
     if (drill) return { kind: 'clear', kicker: 'FLAGSHIP DOWN', right: 'DRILL COMPLETE', name: FLAGSHIP_NAMES[stage], sub: 'UNRANKED / CAMPAIGN RECORDS PRESERVED', hull: null, head: 'DEBRIEF', tip: 'The flight record is next. Take the pattern into your next sortie.' };
-    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
+    if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: stage === 6 ? 'ACT II COMPLETE' : 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
     return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'NEXT / SECTOR ' + pad(stage + 1, 2), name: SECTOR_NAMES[stage + 1],
       sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: 'One hull point and one special are restored as you cross into the next front.' };
   }

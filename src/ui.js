@@ -354,23 +354,31 @@ export class HUD {
   }
 
   drawBossMeter(ctx, boss, game, y = 148) {
-    panel(ctx, 11, y, 518, 36, 0.99);
+    panel(ctx, 11, y, 518, 36, boss.name==='THE SOVEREIGN'?.58:.99);
     const bossName = boss.name || (boss.type ? String(boss.type).replace(/[_-]/g, " ").toUpperCase() : "HOSTILE FLAGSHIP");
     text(ctx, bossName, 25, y + 10, 10, COLORS.coral, 800, "left", 1.2);
     const guardLeft = Math.max(0, (Number(boss.guardUntil) || 0) - (Number(boss.age) || 0));
     const leviathan = boss.name === 'LEVIATHAN';
     const liveTurrets = leviathan ? (game.enemies || []).filter(e => boss.turrets?.includes(e.id) && !e.dead && e.hp > 0).length : 0;
-    const halcyon=boss.name==='HALCYON';
+    const halcyon=boss.name==='HALCYON',sovereign=boss.name==='THE SOVEREIGN';
     const centerLabel = halcyon ? ['THREE BAYS','LATTICE','ECLIPSE PROTOCOL'][(boss.phase||1)-1] : leviathan && boss.phase === 1 ? (liveTurrets ? 'DECK ARMOR / 25% DAMAGE' : 'DECK GUNS SILENCED') : boss.guard ? "ARMOR CYCLING / " + guardLeft.toFixed(1) + "s" :
       "LV " + Math.max(0, Number(this.lastPower) || 0) + " / " + Math.max(1, Number(this.lastCombo)||1).toFixed(1) + "×";
-    text(ctx, boss.name==='HALCYON'?'FLYING-WING CARRIER':centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
-    text(ctx, (boss.name==='HALCYON'?['THREE BAYS','LATTICE','ECLIPSE'][(boss.phase||1)-1]:'PHASE '+String(boss.phase||1)), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
+    text(ctx, sovereign?'MIRROR CAPITAL SHIP':halcyon?'FLYING-WING CARRIER':centerLabel, 276, y + 10, 9, boss.guard ? COLORS.cyan : COLORS.gold, 700, "center", .5);
+    text(ctx, (sovereign?['REFLECTION','THEFT','BALLET'][(boss.phase||1)-1]:boss.name==='HALCYON'?['THREE BAYS','LATTICE','ECLIPSE'][(boss.phase||1)-1]:'PHASE '+String(boss.phase||1)), 512, y + 10, 9, COLORS.muted, 700, "right", 1);
     if ((leviathan||halcyon) && boss.phase === 1) {
       for (let i = 0; i < (halcyon?3:(boss.turrets?.length || 4)); i++) {
         const live = (game.enemies || []).some(e => e.id === (halcyon?boss.bays?.[i]:boss.turrets?.[i]) && !e.dead && e.hp > 0);
         ctx.fillStyle = live ? COLORS.gold : '#364b50';
         ctx.fillRect(441 + i * 18, y + 15, 11, 4);
       }
+    }
+    if(sovereign&&boss.phase===1){
+      const escorts=(game.enemies||[]).filter(e=>e.type==='mirrorEscort'&&e.parentId===boss.id&&!e.dead&&e.hp>0);
+      for(let i=0;i<6;i++){ctx.fillStyle=i<escorts.length?COLORS.cyan:'#364b50';ctx.fillRect(418+i*16,y+15,10,4);}
+    }
+    if(sovereign&&boss.phase===2&&(game.enemies||[]).some(e=>e.type==='tether'&&!e.dead)){
+      ctx.fillStyle='rgba(8,22,43,.55)';ctx.fillRect(11,y+38,518,19);
+      text(ctx,'SALVAGE TETHER / SHOOT TO RECOVER',270,y+48,10,COLORS.cyan,700,'center',1);
     }
     const ratio = clamp((boss.hp || 0) / Math.max(1, boss.maxHp || 1), 0, 1);
     ctx.fillStyle = "rgba(255,119,95,.18)";
