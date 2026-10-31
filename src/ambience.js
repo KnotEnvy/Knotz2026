@@ -1,6 +1,6 @@
 // Page-level ambience around the playfield: masthead, side panels and site backdrop.
 // Everything here is presentation. It reads the game and writes the DOM only when a value changes.
-import { SECTOR_NAMES, FLAGSHIP_NAMES, actName, threatName, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
+import { SECTOR_NAMES, FLAGSHIP_NAMES, FLAGSHIP_CLASSES, actName, threatName, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const TAU = Math.PI * 2;
@@ -78,7 +78,7 @@ export class Ambience {
   reset(game) {
     if (!this.ready) return;
     this.lastStage = 0; this.lastPhase = 0; this.lastStrike = -1; this.warned = false; this.critical = false;
-    this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;
+    this.jamUntil = 0; this.stealLogged = -9; this.actTwoLogged = false;this.skyLogs=Object.create(null);
     this.teleClock = this.radarClock = this.gridClock = 1;
     const log = this.el('consoleLog');
     if (log) log.textContent = '';
@@ -163,21 +163,23 @@ export class Ambience {
     this.critical = critical;
     for (const event of game.events || []) {
       switch (event?.type) {
-        case 'bossEnter': this.lastPhase = 1; this._log(t, stage >= ACT_TWO_STAGE ? name + ' SURFACING / ' + 'SUPER-DREADNOUGHT ENGAGED' : 'FLAGSHIP ' + name + ' ENGAGED', 'hot'); break;
+        case 'bossEnter': this.lastPhase = 1; this._log(t, stage >= ACT_TWO_STAGE ? name + ' / ' + FLAGSHIP_CLASSES[stage] + ' ENGAGED' : 'FLAGSHIP ' + name + ' ENGAGED', 'hot'); break;
         case 'bossPhase': {
           const phase = Number(event.value) || (boss?.phase ?? 2);
           if (phase !== this.lastPhase) { this.lastPhase = phase; this._log(t, name + ' / PHASE ' + phase + ' / PATTERN SHIFT', 'warn'); }
           break;
         }
-        case 'bossDown': this._log(t, stage >= ACT_TWO_STAGE ? name + ' SINKING / SECTOR ' + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
+        case 'empClear': if(event.value==='reset')this._clearEMPLog();break;
+        case 'bossDown': this._clearEMPLog();this._log(t, stage >= ACT_TWO_STAGE ? name + (stage===5?' BREAKING APART / SECTOR ':' SINKING / SECTOR ') + pad(stage) + ' CLEAR' : name + ' DOWN / SECTOR ' + pad(stage) + ' CLEAR', 'gold'); break;
         case 'actTwo':
           if (!this.actTwoLogged) { this.actTwoLogged = true; this._log(t, 'ACT II / THE CROWN WAS ONLY THE GATE', 'gold'); this._log(t, 'NEW CONTACT / ENEMY BATTLE LINE IN TYPHOON', 'warn'); }
           break;
-        case 'boxEnter': case 'flakMark': case 'foundryEnter': case 'foundryDown': case 'laserWarn': case 'empPulse': case 'wingBreak': {
+        case 'bayDown': case 'flakBurst': case 'boxEnter': case 'flakMark': case 'foundryEnter': case 'foundryDown': case 'laserWarn': case 'empPulse': case 'wingBreak': {
+          if(event.type==='empPulse'&&(!boss||(game.events||[]).some(e=>e.type==='empClear'&&e.value==='reset')))break;
           const now=Number(game.time)||0;
           if(now-(this.skyLogs[event.type]??-99)<4)break;
           this.skyLogs[event.type]=now;
-          const copy={boxEnter:event.value==='climb'?'BOMBER BOX / CLIMBING FROM BELOW':'BOMBER BOX / DIVING',flakMark:'FLAK ALTITUDE MARKED / FIND THE GAP',foundryEnter:'FLYING FOUNDRY / BREAK THE BAYS',foundryDown:'FOUNDRY FALLING THROUGH CLOUD',laserWarn:'HALCYON / LATTICE CHARGING',empPulse:event.value?'EMP / ESCORTS OFFLINE':'EMP / ESCORTS PROTECTED',wingBreak:'HALCYON / WING BREAKING APART'};
+          const copy={bayDown:'BAY DESTROYED / DRONE LAUNCHES CUT',flakBurst:'FLAK BURST / HOLD THE GAP',boxEnter:event.value==='climb'?'BOMBER BOX / CLIMBING FROM BELOW':'BOMBER BOX / DIVING',flakMark:'FLAK ALTITUDE MARKED / FIND THE GAP',foundryEnter:'FLYING FOUNDRY / BREAK THE BAYS',foundryDown:'FOUNDRY FALLING THROUGH CLOUD',laserWarn:'HALCYON / LATTICE CHARGING',empPulse:event.value?'EMP / ESCORTS OFFLINE':'EMP / ESCORTS PROTECTED',wingBreak:'HALCYON / WING BREAKING APART'};
           this._log(t,copy[event.type],event.type==='wingBreak'||event.type==='foundryDown'?'gold':'warn');break;
         }
         case 'hullEnter': this._log(t, 'ARMORED HULL / ' + String(event.value || 'warship').toUpperCase() + ' IN THE LINE', 'warn'); break;
@@ -209,6 +211,10 @@ export class Ambience {
     item.append(stamp, text);
     log.prepend(item);
     while (log.children.length > 5) log.lastElementChild.remove();
+  }
+
+  _clearEMPLog(){
+    for(const row of [...(this.el('consoleLog')?.children||[])])if(row.textContent.includes('ESCORTS OFFLINE'))row.remove();
   }
 
   _meter(game, stage, boss, interlude) {

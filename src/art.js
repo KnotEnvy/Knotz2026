@@ -239,45 +239,73 @@ export function drawMonsoonLit(c,scroll,alpha){
   blitSea(c,monsoonSea().lit,scroll);c.restore();
 }
 
-// SKYFORGE: sky rather than water. Cloud lobes are baked once; two drift rates
-// give the storm below depth without allocating textures during flight.
+// SKYFORGE: cached dusk sky, three seamless cumulus decks and aerial platforms.
 let skyforge;
+function bakeSkyforge(){
+  if(skyforge)return skyforge;
+  const sky=seaCanvas(540,900),b=sky.getContext('2d');
+  const g=b.createLinearGradient(0,0,0,900);
+  g.addColorStop(0,'#10162c');g.addColorStop(.22,'#442849');g.addColorStop(.34,'#875062');g.addColorStop(.46,'#35283f');g.addColorStop(1,'#171d34');
+  b.fillStyle=g;b.fillRect(0,0,540,900);
+  const halo=b.createRadialGradient(408,244,8,408,244,155);
+  halo.addColorStop(0,'#f7ba79');halo.addColorStop(.25,'#ce6c84');halo.addColorStop(1,'rgba(180,71,133,0)');
+  b.fillStyle=halo;b.fillRect(230,60,310,360);
+  b.fillStyle='#efbd85';b.beginPath();b.arc(408,244,36,0,Math.PI*2);b.fill();
+  const clouds=[0,1,2].map(layer=>{
+    const tile=seaCanvas(680,1100),d=tile.getContext('2d');
+    // Each bank has a firm shadow base, overlapping lobes and a warm upper-right rim.
+    for(let i=0;i<32;i++){
+      const x=mh(i*3+layer*47)*760-40,y=mh(i*7+layer*31)*1100,r=32+mh(i*11+layer*19)*52;
+      for(const wrap of [-1100,0,1100]){
+        const cy=y+wrap;
+        d.fillStyle='#2a1d40';d.beginPath();d.ellipse(x+5,cy+20,r*1.65,r*.55,0,0,Math.PI*2);d.fill();
+        for(let j=0;j<5;j++){
+          const lx=x+(j-2)*r*.48,ly=cy-Math.sin(j/4*Math.PI)*r*.3,lr=r*(.48+mh(i*17+j*3)*.22);
+          const f=d.createLinearGradient(lx,ly-lr,lx,ly+lr);
+          f.addColorStop(0,'#9d718e');f.addColorStop(.38,'#705477');f.addColorStop(1,'#3d2d55');
+          d.fillStyle=f;d.beginPath();d.ellipse(lx,ly,lr,lr*.72,0,0,Math.PI*2);d.fill();
+          d.strokeStyle='rgba(241,164,160,.35)';d.lineWidth=2;d.beginPath();d.ellipse(lx,ly,lr-1,lr*.72-1,0,Math.PI*1.1,Math.PI*1.88);d.stroke();
+        }
+      }
+    }return tile;
+  });
+  const glare=seaCanvas(540,615),d=glare.getContext('2d');
+  const gl=d.createRadialGradient(408,0,0,408,0,530);gl.addColorStop(0,'rgba(255,190,140,.12)');gl.addColorStop(1,'rgba(255,190,140,0)');
+  d.save();d.translate(286,0);d.scale(.3,1);d.fillStyle=gl;d.fillRect(-960,0,1800,615);d.restore();
+  const veil=seaCanvas(540,95),v=veil.getContext('2d'),vg=v.createLinearGradient(0,0,0,95);
+  vg.addColorStop(0,'#814c60');vg.addColorStop(1,'rgba(90,57,80,0)');v.fillStyle=vg;v.fillRect(0,0,540,95);
+  const platform=seaCanvas(220,180),f=platform.getContext('2d');f.translate(110,80);
+  f.fillStyle='rgba(18,13,32,.4)';f.beginPath();f.ellipse(12,57,90,32,-.15,0,Math.PI*2);f.fill();
+  f.fillStyle='#25253b';f.strokeStyle='#9c7383';f.lineWidth=2;
+  f.beginPath();f.moveTo(-68,-26);f.lineTo(45,-43);f.lineTo(77,19);f.lineTo(-42,37);f.closePath();f.fill();f.stroke();
+  for(const [x,y] of [[-72,-22],[61,-37],[-48,34],[81,18]]){
+    f.fillStyle='#181e30';f.beginPath();f.ellipse(x,y,22,15,-.15,0,Math.PI*2);f.fill();f.stroke();
+    f.strokeStyle='#766a80';f.beginPath();f.moveTo(x-15,y-6);f.lineTo(x+15,y+6);f.moveTo(x-10,y+10);f.lineTo(x+10,y-10);f.stroke();
+  }
+  f.fillStyle='#3a3047';f.fillRect(-33,-25,60,39);f.strokeStyle='#ba8990';f.strokeRect(-33,-25,60,39);
+  f.strokeStyle='#937b8f';for(let j=0;j<4;j++){f.beginPath();f.moveTo(-42+j*23,-38);f.lineTo(-30+j*23,28);f.stroke();}
+  f.shadowColor='#ff985c';f.shadowBlur=10;f.fillStyle='#f2a36b';for(let j=0;j<3;j++)f.fillRect(-24+j*16,-13,8,15);f.shadowBlur=0;
+  return skyforge={sky,clouds,glare,veil,platform,warmed:false};
+}
+export function warmSkyforge(){
+  const s=bakeSkyforge();if(s.warmed)return;
+  const raster=seaCanvas(680,1100),c=raster.getContext('2d',{willReadFrequently:true});
+  for(const tile of [s.sky,...s.clouds,s.glare,s.veil,s.platform])c.drawImage(tile,0,0);
+  c.getImageData(0,0,1,1);s.warmed=true;
+}
 export function drawSkyforge(c,scroll=0){
-  if(!skyforge){
-    const sky=seaCanvas(540,900),b=sky.getContext('2d');
-    const g=b.createLinearGradient(0,0,0,900);
-    g.addColorStop(0,'#10162c');g.addColorStop(.22,'#442849');g.addColorStop(.34,'#875062');g.addColorStop(.46,'#35283f');g.addColorStop(1,'#171d34');
-    b.fillStyle=g;b.fillRect(0,0,540,900);
-    const halo=b.createRadialGradient(408,244,8,408,244,155);
-    halo.addColorStop(0,'#f7ba79');halo.addColorStop(.25,'#ce6c84');halo.addColorStop(1,'rgba(180,71,133,0)');
-    b.fillStyle=halo;b.fillRect(230,60,310,360);
-    b.fillStyle='#efbd85';b.beginPath();b.arc(408,244,36,0,Math.PI*2);b.fill();
-    const cloud=seaCanvas(680,1100),d=cloud.getContext('2d');
-    for(let i=0;i<95;i++){
-      const x=mh(i*3)*680,y=mh(i*7)*1100,r=45+mh(i*11)*100;
-      const f=d.createRadialGradient(x,y,0,x,y,r);
-      f.addColorStop(0,i%3?'rgba(99,74,128,.35)':'rgba(184,119,153,.24)');f.addColorStop(1,'rgba(60,44,88,0)');
-      d.fillStyle=f;d.fillRect(x-r,y-r,r*2,r*2);
-    }
-    skyforge={sky,cloud};
-  }
-  c.drawImage(skyforge.sky,0,0);
+  const s=bakeSkyforge();c.drawImage(s.sky,0,0);
   c.save();c.beginPath();c.rect(0,285,540,615);c.clip();
-  for(let layer=0;layer<2;layer++){
-    const drift=scroll*(layer?.055:.025),offset=drift%1100;
-    c.globalAlpha=layer?.48:.8;
-    for(let j=-1;j<2;j++)c.drawImage(skyforge.cloud,-70+Math.sin(scroll*.0001+layer)*22,offset+j*1100);
+  for(let layer=0;layer<3;layer++){
+    const offset=(scroll*[.025,.055,.12][layer])%1100;
+    c.globalAlpha=[.65,.45,.32][layer];
+    for(let j=-1;j<1;j++)c.drawImage(s.clouds[layer],-70+Math.sin(scroll*.0001+layer)*22,offset+j*1100);
   }
-  c.restore();
-  // Long contrails and remote industrial wings sit above the horizon.
+  c.globalAlpha=1;c.drawImage(s.glare,0,285);c.drawImage(s.veil,0,285);c.restore();
   c.save();c.strokeStyle='rgba(231,180,158,.16)';c.lineWidth=1;
   for(let i=0;i<6;i++){const y=(i*173+scroll*.035)%1000-50;c.beginPath();c.moveTo(35+i*82,y);c.lineTo(100+i*82,y+125);c.stroke();}
   for(let i=0;i<4;i++){
     const x=45+i*148,y=170+(i*139+scroll*.018)%420,k=.4+i*.08;
-    c.save();c.translate(x,y);c.scale(k,k);c.fillStyle='#28253b';
-    c.beginPath();c.moveTo(-72,0);c.lineTo(-25,-13);c.lineTo(32,-13);c.lineTo(74,3);c.lineTo(26,13);c.lineTo(-24,10);c.closePath();c.fill();
-    c.fillRect(-23,-25,12,16);c.fillRect(5,-31,8,20);c.fillRect(25,-20,11,12);
-    c.strokeStyle='rgba(237,165,116,.32)';c.beginPath();c.moveTo(-60,-1);c.lineTo(55,-1);c.stroke();
-    c.fillStyle='#c18c76';for(let j=0;j<5;j++)c.fillRect(-20+j*10,3,3,1);c.restore();
+    c.drawImage(s.platform,x-110*k,y-80*k,220*k,180*k);
   }c.restore();
 }

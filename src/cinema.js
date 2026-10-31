@@ -4,6 +4,7 @@
 // defeat (the storm fleet, the Crown, or LEVIATHAN in the typhoon) and a dusk training range for drills. Static layers are built once and cached.
 import { SHIP_ORDER, shipShape } from './ships.js';
 import { actName, ACT_TWO_STAGE } from './timeline.js';
+import { drawSkyforge, warmSkyforge } from './art.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const W = 1600, H = 900, TAU = Math.PI * 2;
@@ -239,7 +240,8 @@ function birds(g, t, x0, y0, color, count = 9) {
 
 // ---------------------------------------------------------------- victory: dawn over the Meridian
 const V = { hz: 560, sun: { x: 1010, y: 528 } };
-function buildVictory() {
+function buildVictory(stage) {
+  if(stage===5){warmSkyforge();const sky=surface(W,H),c=sky.getContext('2d');c.translate(0,-360);c.scale(W/540,W/540);drawSkyforge(c,2600);return {sky,dusk:true};}
   const { hz, sun } = V, out = {};
   const sky = surface(W, H), c = sky.getContext('2d');
   let gr = c.createLinearGradient(0, 0, 0, hz);
@@ -369,6 +371,12 @@ function buildCrownWreck() {
 
 function drawVictory(g, t, data, opts) {
   const L = opts.layers, { hz, sun } = V, id = data.shipId || 'kestrel';
+  if(L.dusk){
+    g.drawImage(L.sky,0,0);
+    const p=easeOut(t/3.3);
+    drawAircraft(g,id,lerp(1780,1196,p),lerp(1090,418,p)+Math.sin(t*.9)*6,lerp(3.4,1.8,p),-.42,.9,t);
+    return;
+  }
   const push = 1 + .05 * easeOut(t / 28);
   const cam = (f) => { const s = 1 + (push - 1) * f; g.setTransform(s, 0, 0, s, 1150 * (1 - s), 450 * (1 - s)); };
   cam(.25); g.globalAlpha = 1; g.drawImage(L.sky, 0, 0);
@@ -869,11 +877,11 @@ export class Cinema {
     this.stage = Math.max(1, Math.min(CAMPAIGN_STAGES, num(this.data.stage) || 1));
     this.staticKey = ''; this.counting = false; this.revealAt = 0;
     const reached = actName(this.stage);
-    const record = drill ? reached + ' DRILL' : won ? 'BOTH ACTS CLEARED' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
+    const record = drill ? reached + ' DRILL' : won ? this.stage>=6?'ACT II CLEARED / ACT III AWAITS':'SECTOR '+String(this.stage).padStart(2,'0')+' CLEARED / ACT II CONTINUES' : this.stage >= ACT_TWO_STAGE ? 'REACHED ' + reached : reached + ' · SECTOR ' + String(this.stage).padStart(2, '0');
     for (const id of ['endEyebrow', 'endIntroLine']) {
       const node = $(id);
       // The shell caches its base copy; consecutive losses may retain our prior suffix.
-      if (node) node.textContent = node.textContent.replace(/ \/ (?:REACHED ACT |ACT [IV]|BOTH ACTS CLEARED).*$/, '') + ' / ' + record;
+      if (node) node.textContent = node.textContent.replace(/ \/ (?:REACHED ACT |ACT [IV]|BOTH ACTS CLEARED|SECTOR \d+ CLEARED).*$/, '') + ' / ' + record;
     }
     const screen = $('endScreen');
     if (screen) { screen.classList.remove('record-in'); screen.dataset.scene = this.scene; }
@@ -907,8 +915,8 @@ export class Cinema {
     if (this.counting) { const node = $('endScore'); if (node) node.textContent = '00000000'; }
   }
   layersFor(scene) {
-    const key = scene === 'defeat' ? 'defeat' + (this.stage >= 4 ? 4 : this.stage >= 3 ? 3 : 1) : scene;
-    return this.layers[key] ||= scene === 'victory' ? buildVictory() : scene === 'defeat' ? buildDefeat(this.stage) : buildRange();
+    const key = scene === 'defeat' ? 'defeat' + (this.stage >= 4 ? 4 : this.stage >= 3 ? 3 : 1) : scene==='victory'?scene+this.stage:scene;
+    return this.layers[key] ||= scene === 'victory' ? buildVictory(this.stage) : scene === 'defeat' ? buildDefeat(this.stage) : buildRange();
   }
   updateRecord() {
     if (!this.counting) return;

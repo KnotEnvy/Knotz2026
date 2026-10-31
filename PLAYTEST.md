@@ -48,3 +48,53 @@ The game has no feedback submission service; collect reports through your chosen
 For local build and preview commands, see [README.md](README.md).
 
 SKYFORGE (sector 5) climbs above the typhoon into dusk. Watch for bombers from below, marked flak bands, sky aces and flying foundries. Break HALCYON’s bays, follow the laser gaps and roll through EMP pulses to protect escorts. HALCYON ends the current campaign; its drill unlocks on encounter. Act II continues.
+
+### SKYFORGE round 2 — world iterator (2026-10-31)
+
+World changes: cached cumulus tops with warm rims, shaded bases, three scroll rates
+(0.025 / 0.055 / 0.12), sun glare, and rotor/gantry/furnace platforms with cloud
+shadows (`art.js`). `warmSkyforge()` bakes and rasterizes every tile once, reads
+one pixel, then returns immediately on subsequent calls. The combat iterator
+calls it during the LEVIATHAN interlude.
+
+`WorldAmbience.drawSkyforgeOver(c, game)` draws three thin amber strokes after the
+player and before hostile bullets. Reduced effects omits them. `background.js`
+also replaces the red lightning sprite with violet, clips it below y=285, uses
+0.28 / 0.12 normal/reduced opacity multipliers, and adds a short cloud bolt.
+The seven-second `lightningAt(time, 5)` schedule remains unchanged.
+
+`main.js` and `css/ambience.css` shorten route names, give all nodes equal space,
+and show only the active node's name. Five- and six-node fixtures have no route
+overflow at 1440, 1280 and 1102 px. `ambience.js` uses flagship classes, logs
+HALCYON breaking apart, throttles bay/flak messages, resets per-sortie throttles,
+and removes stale EMP log lines on reset and flagship death. `cinema.js` keys its
+victory backdrop by stage: sector 5 uses dusk above clouds. Result copy says
+SECTOR 05 CLEARED / ACT II CONTINUES; sector 6 will say ACT II CLEARED / ACT III
+AWAITS. `main.js` also names the actual defeated flagship in the cinema kicker.
+`index.html` hangar copy mentions climbing above the storm.
+
+Evidence lives in `artifacts/s5-r2-world/`: `sky-scroll-{0,2000,6000,11000}.png`
+(parallax), `sector-4-vs-5.png`, `lightning-floor.png`,
+`wisps-player-bullets.png`, `factories.png`, `desktop-route-1440.png`,
+`route-{1440,1280,1102}-{5,6}.png`, `victory-cinema.png`, `victory-record.png`,
+and `hangar.png`. Captures use the real game and renderer with frozen technical
+fixtures, including authored bullet positions. No temporary over-player draw
+call was needed: combat had already wired the export. The sixth route node is a
+DOM-only fixture; sector 6 gameplay is not implemented.
+
+Verification: 191 Node tests passed; build produced 34 runtime files; career QA
+passed. The initial browser run found a non-finite gradient in combat-owned
+`Renderer.drawEffects` / `bloom`; a trace is preserved in
+`browser-trace/qa.json`. The combat iterator subsequently changed its effect
+filter; the final full browser rerun passed with zero page errors
+(`browser-final/qa.json`). `verification.json` proves
+EMP reset removes the stale log, reduced effects omits wisps, and lightning
+cannot paint above the cloud floor.
+
+Performance (`report.json`): 240 requestAnimationFrame-paced background draws,
+p50 0.10 ms, p95 0.20 ms, max 9.40 ms (CPU submission, software Chromium;
+concurrent iterator/QA processes were active). Repeated warming averaged
+0.00030 ms; a fresh-page cold bake plus forced raster measured 112.40 ms and
+10,000 repeated calls averaged 0.00045 ms (`verification.json`). Cold work now
+happens before sector 5 rather than on its first gameplay frame. No new visual
+judge score is claimed. Own QA server: port 4391, PID 2028892; stopped after verification.
