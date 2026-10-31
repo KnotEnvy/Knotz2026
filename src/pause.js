@@ -1,4 +1,4 @@
-import { CAMPAIGN_STAGES } from './game.js';
+import { CAMPAIGN_STAGES, ACT_TWO_STAGE } from './game.js';
 // Pause / holding-pattern screen presentation.
 // main.js calls these hooks; keep the exported API stable.
 import { SHIPS, SPECIAL_LABELS, shipShape } from './ships.js';
@@ -84,7 +84,7 @@ function intelFor(game) {
     if (drill) return { kind: 'clear', kicker: 'FLAGSHIP DOWN', right: 'DRILL COMPLETE', name: FLAGSHIP_NAMES[stage], sub: 'UNRANKED / CAMPAIGN RECORDS PRESERVED', hull: null, head: 'DEBRIEF', tip: 'The flight record is next. Take the pattern into your next sortie.' };
     if (stage >= CAMPAIGN_STAGES) return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'ROUTE COMPLETE', name: stage === CAMPAIGN_STAGES ? 'ACT II COMPLETE' : 'THE SKY IS OPEN', sub: 'OPERATION LONG MERIDIAN', hull: null, head: 'FINAL LEG', tip: 'Every flagship is down. Resume to bring the flight record home.' };
     return { kind: 'clear', kicker: 'SECTOR ' + pad(stage, 2) + ' CLEAR', right: 'NEXT / SECTOR ' + pad(stage + 1, 2), name: SECTOR_NAMES[stage + 1],
-      sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: 'One hull point and one special are restored as you cross into the next front.' };
+      sub: 'FLAGSHIP ' + FLAGSHIP_NAMES[stage + 1] + ' AHEAD', hull: null, head: 'RESUPPLY', tip: stage + 1 === ACT_TWO_STAGE ? 'One hull point and one special are restored as you cross into Act II.' : 'The hull is fully repaired and one special restored as you cross into the next front.' };
   }
   const goal = Number(game.stageGoal?.[stage]) || 0;
   const eta = Math.max(0, goal - (Number(game.stageTime) || 0));
@@ -93,9 +93,11 @@ function intelFor(game) {
     ['STORM WALL', 'Pincers and relay strikes close from both flanks. Hold the centre, read the second lane opening and keep WAKE charged.'],
     ['THE ABYSS', 'Storm curtains sweep the maelstrom. Focus to thread the gaps and keep a special in reserve for the Crown.'],
     ['IRON MONSOON', 'Break the battleship turrets to thin their fire. Shoot mines before their fuses burst, and reclaim stolen salvage from glowing scavengers.'],
-    ['SKYFORGE', 'Watch the bottom edge for climbing bomber boxes. Use homing weapons against sidestepping aces. Break foundry bays and roll during EMP pulses to protect escorts.']];
+    ['SKYFORGE', 'Watch the bottom edge for climbing bomber boxes. Use homing weapons against sidestepping aces. Break foundry bays and roll during EMP pulses to protect escorts.'],
+    ['ZERO MERIDIAN', 'Echoes replay your own flight path, so change your line. Shoot lanes through shard curtains, break the Gate\'s turrets first, and leave a satellite\'s beam before it sweeps.']];
+  const [head, tip] = tips[stage] || ['APPROACH', 'Hold formation and keep the arsenal intact for the flagship.'];
   return { kind: 'approach', kicker: 'NEXT CONTACT', right: 'ETA ' + clock(eta), name: FLAGSHIP_NAMES[stage], sub: 'SECTOR ' + pad(stage, 2) + ' FLAGSHIP',
-    hull: null, head: tips[stage][0], tip: tips[stage][1] };
+    hull: null, head, tip };
 }
 
 function flavorFor(game, critical, intel) {

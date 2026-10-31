@@ -810,6 +810,7 @@ export class Renderer {
     if(this.currentStage===5)this.projectiles(game.shots||[],true,t);
     // Threats stay above the hull, escorts, orbitals, smoke and auras.
     this.projectiles(game.bullets||[],false,t);
+    if(this.currentStage===6)this.zeroLabels();
     if(fleet){this.particles(game.particles||[]);this.drawEffects(t);this.fleetEffects(t);}
     this.foreground(t,this.reducedEffects?0:Math.min(.09,game.flash||0));
     c.restore();c.setTransform(1,0,0,1,0,0);
@@ -2249,14 +2250,32 @@ export class Renderer {
     const c=this.ctx;c.save();
     for(const f of this.impacts){if(!f.zero)continue;const p=f.age/f.life;c.save();c.globalAlpha=1-p;
       if(f.death){
-        const tile=this.zeroHull('sovereign',f.w,f.h),cols=8,rows=3,tw=tile.width/cols,th=tile.height/rows;
+        // The finale lands: a brief white-violet bloom, then bright-edged shards.
+        const bloom=clamp(1-f.age/.35,0,1);
+        if(bloom>0){c.save();c.globalAlpha=(this.reducedEffects?.35:.75)*bloom;oval(c,f.x,f.y,f.w*(.7+(1-bloom)*.6),f.h*(1+(1-bloom)*.9),'#f4e8ff');
+          c.globalAlpha=(this.reducedEffects?.2:.45)*bloom;oval(c,f.x,f.y,f.w*(1.1+(1-bloom)*.9),f.h*(1.6+(1-bloom)*1.2),'#b48cff');c.restore();}
+        const tile=this.zeroHull('sovereign',f.w,f.h),cols=8,rows=3,tw=tile.width/cols,th=tile.height/rows,edge=clamp(1-f.age/1.2,0,1);
         for(let i=0;i<cols*rows;i++){const col=i%cols,row=Math.floor(i/cols),age=f.age;
-          c.save();c.globalAlpha*=clamp((2.4-age)/.8,0,1);c.translate(f.x+(col-3.5)*tw*(1+age*.22),f.y+(row-1)*th+age*10+age*age*5);c.rotate(f.angle+(hash(i+8)-.5)*age*2);c.drawImage(tile,col*tw,row*th,tw,th,-tw/2,-th/2,tw,th);c.restore();}
+          c.save();c.globalAlpha*=clamp((2.4-age)/.8,0,1);c.translate(f.x+(col-3.5)*tw*(1+age*.22),f.y+(row-1)*th+age*10+age*age*5);c.rotate(f.angle+(hash(i+8)-.5)*age*2);c.drawImage(tile,col*tw,row*th,tw,th,-tw/2,-th/2,tw,th);
+          if(edge>0){c.globalAlpha*=edge*(.45+.55*hash(i+31));c.strokeStyle='#f6eaff';c.lineWidth=1.5;c.strokeRect(-tw/2+1,-th/2+1,tw-2,th-2);}c.restore();}
       }else if(f.type==='mirrorCopy'){
-        oval(c,f.x,f.y,30+p*170,15+p*65,'#c2eeff',true,2);c.fillStyle='#c9efff';c.font='bold 12px monospace';c.textAlign='center';c.strokeStyle='#10172b';c.lineWidth=4;c.strokeText('ARSENAL COPIED',f.x,clamp(f.y+f.h+28,150,550));c.fillText('ARSENAL COPIED',f.x,clamp(f.y+f.h+28,150,550));
+        oval(c,f.x,f.y,30+p*170,15+p*65,'#c2eeff',true,2);
       }else{const snap=f.type==='tetherCut';for(let i=0;i<8;i++){const a=i*TAU/8,r=8+p*38;line(c,[f.x+Math.cos(a)*r,f.y+Math.sin(a)*r,f.x+Math.cos(a)*(r+8),f.y+Math.sin(a)*(r+8)],snap?'#a6ffed':f.type==='shardBreak'?'#d2f7ff':'#edbaff',2);}}
       c.restore();
     }c.restore();
+  }
+  // Text that must read over enemy fire (drawn after the bullet layer).
+  zeroLabels() {
+    const c=this.ctx;
+    for(const f of this.impacts){
+      if(!f.zero||f.type!=='mirrorCopy')continue;
+      const a=clamp(Math.min(f.age/.15,(f.life-f.age)/.4),0,1);if(a<=0)continue;
+      const y=clamp(f.y+f.h+30,150,550);
+      c.save();c.globalAlpha=a;c.font='bold 14px monospace';c.textAlign='center';c.textBaseline='middle';
+      const w=c.measureText('ARSENAL COPIED').width+22;
+      c.fillStyle='rgba(8,12,28,.82)';c.fillRect(f.x-w/2,y-12,w,24);c.strokeStyle='rgba(194,238,255,.55)';c.lineWidth=1;c.strokeRect(f.x-w/2+.5,y-11.5,w-1,23);
+      c.fillStyle='#d6f3ff';c.fillText('ARSENAL COPIED',f.x,y+1);c.restore();
+    }
   }
   enemy(e,t) {
     if(!e||e.dead||e.alive===false||e.hidden)return;

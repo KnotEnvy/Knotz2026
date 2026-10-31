@@ -359,9 +359,11 @@ export function warmZeroMeridian(){
   c.fillStyle=sky;c.fillRect(0,0,540,900);
   // Low contrast eclipse, half occluded by the planetary horizon.
   const corona=c.createRadialGradient(470,780,24,470,780,112);
-  corona.addColorStop(0,'rgba(226,210,188,.3)');corona.addColorStop(.17,'rgba(179,186,215,.10)');corona.addColorStop(1,'rgba(110,139,199,0)');
+  corona.addColorStop(0,'rgba(226,210,188,.5)');corona.addColorStop(.17,'rgba(179,186,215,.16)');corona.addColorStop(1,'rgba(110,139,199,0)');
   c.fillStyle=corona;c.fillRect(350,660,240,240);
   c.fillStyle='#081223';c.beginPath();c.arc(470,780,25,0,Math.PI*2);c.fill();
+  // A hairline of light on the upper rim keeps the eclipse readable as a motif.
+  c.strokeStyle='rgba(255,236,206,.55)';c.lineWidth=1.2;c.beginPath();c.arc(470,780,25.5,Math.PI*1.08,Math.PI*1.92);c.stroke();
   // Large-radius planetary limb, with a thin atmosphere and a distant typhoon.
   c.fillStyle='#0a1c30';c.strokeStyle='#496b84';c.lineWidth=2;
   c.beginPath();c.ellipse(210,1210,780,458,0,0,Math.PI*2);c.fill();c.stroke();

@@ -3719,13 +3719,18 @@ export class Game {
     this.events[this.events.length-1].summary=this.summary;
   }
   _cleanup() {
+    // A departing Meridian Gate climbs out of the top; once its hull clears
+    // the field it and its turrets are gone quietly (no stationDown, no drops).
+    let departed=0;
+    for(const e of this.enemies)if(e.type==="station"&&!e.dead&&e.state==="leave"&&e.y+e.h<0){departed=e.id;break;}
     let write=0;
     for(let read=0;read<this.enemies.length;read++) {
       const e=this.enemies[read];
       // Rising interceptors start below the field; Act II fliers that climb
       // out of the top are gone.
       const gone=(e.type==="hull"||e.type==="foundry"||e.type==="station"?e.y-e.h>=920:e.y>=(e.hidden?1200:990))||e.x<=-130||e.x>=670||
-        (e.y< -110&&e.age>1&&ESCAPE_TYPES.has(e.type));
+        (e.y< -110&&e.age>1&&ESCAPE_TYPES.has(e.type))||
+        (departed!==0&&(e.id===departed||(e.type==="stationTurret"&&e.parentId===departed)));
       if(!e.dead&&!gone)this.enemies[write++]=e;
       else if(!e.dead&&e.type==="hullTurret")this._turretLost(e);
       else if(!e.dead&&CHILD_TYPES.has(e.type))this._childLost(e);
