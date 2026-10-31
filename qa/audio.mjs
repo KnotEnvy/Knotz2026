@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {chromium} from 'playwright';
 // Live-browser audio checks: bus routing, pause treatment, interface cues, presentation cues and
-// five short in-flight recordings (sectors 1-3, LEVIATHAN phase 3 with a maxed kit, then HALCYON
-// phase 3 with the sector-5 reference kit, metered before the limiter), plus the EMP hum on pause.
+// five in-flight recordings (12 s each for sectors 1-3 and LEVIATHAN phase 3 with a maxed kit, then
+// 30 s of HALCYON phase 3 with the sector-5 reference kit, metered before the limiter), plus the
+// EMP hum on pause and its return on resume.
 // These are measurements, not listening judgments.
 const origin=process.env.GAME_URL||'http://127.0.0.1:4173/';
 const output=new URL('../artifacts/audio/',import.meta.url);await mkdir(output,{recursive:true});
@@ -64,8 +65,8 @@ try{
   const a=__qaSound.audio,play=a.playEvent.bind(a);__qaSound.counts={};
   a.playEvent=(event,game)=>{const counts=__qaSound.counts;counts[event.type]=(counts[event.type]||0)+1;play(event,game);};
  });
- // 12 s recording of the master bus with peak, RMS and voice metering every 30 ms.
- const record=()=>page.evaluate(async()=>{
+ // Recording of the master bus (12 s by default) with peak, RMS and voice metering every 30 ms.
+ const record=(ms=12000)=>page.evaluate(async(ms)=>{
    const a=__qaSound.audio,ctx=a.ctx,dest=ctx.createMediaStreamDestination(),meter=ctx.createAnalyser();meter.fftSize=2048;a.master.connect(dest);a.master.connect(meter);
    const chunks=[],samples=[],data=new Float32Array(meter.fftSize),recorder=new MediaRecorder(dest.stream,{mimeType:'audio/webm;codecs=opus'});
    recorder.ondataavailable=e=>chunks.push(e.data);const done=new Promise(resolve=>recorder.onstop=resolve);
@@ -73,10 +74,10 @@ try{
     meter.getFloatTimeDomainData(data);let sum=0,peak=0;for(const value of data){sum+=value*value;peak=Math.max(peak,Math.abs(value));}
     samples.push({rms:Math.sqrt(sum/data.length),peak,voices:a.activeVoices,combat:a.combatVoices});
    },30);
-   recorder.start();await new Promise(r=>setTimeout(r,12000));recorder.stop();await done;clearInterval(interval);a.master.disconnect(dest);a.master.disconnect(meter);
+   recorder.start();await new Promise(r=>setTimeout(r,ms));recorder.stop();await done;clearInterval(interval);a.master.disconnect(dest);a.master.disconnect(meter);
    const bytes=new Uint8Array(await new Blob(chunks).arrayBuffer());let binary='';for(const v of bytes)binary+=String.fromCharCode(v);
    return{base64:btoa(binary),events:__qaSound.counts,maxPeak:Math.max(...samples.map(s=>s.peak)),rmsDb:20*Math.log10(Math.sqrt(samples.reduce((s,v)=>s+v.rms*v.rms,0)/samples.length)),maxVoices:Math.max(...samples.map(s=>s.voices)),maxCombatVoices:Math.max(...samples.map(s=>s.combat))};
- });
+ },ms);
  const recordLegs=process.env.QA_AUDIO_RECORD!=='0';
  for(const [index,ship] of (recordLegs?['kestrel','manta','wraith']:[]).entries()){
   await page.evaluate(({ship,index})=>{
@@ -120,9 +121,10 @@ try{
   report.samples.push({ship:'manta',stage:4,drill:4,file,duration:12,timeline:'LEVIATHAN phase 3, maxed kit; fire held; strafing left/right every 1.4 s',...metrics});
  }
  // Drill 5: HALCYON phase 3 (void lattices, void rows, EMP rings, hangar drones) against the
- // sector-5 reference kit with music, effects and ambience all at full. The glue stage feeds the
- // limiter, so its peak is the mix before limiting: it must stay under 0.75. Then an EMP catches
- // the wing and a pause must cut its dead hum.
+ // sector-5 reference kit with music, effects and ambience all at full, for 30 s (round 3; was
+ // 12 s), so several lattice frames and EMP pulses land. The glue stage feeds the limiter, so its
+ // peak is the mix before limiting: it must stay under 0.75. Then an EMP catches the wing, a pause
+ // must cut its dead hum, and resuming with the wing still down must bring the hum back.
  if(recordLegs){
   await page.evaluate(()=>{
    const {game:g,audio:a}=__qaSound;g.shipId='kestrel';g.startDrill(5);
@@ -130,13 +132,16 @@ try{
    g._syncEscortSlots();g._syncOrbitals();g._syncArsenal();g.threat=g._threatTarget();
    const boss=g.boss;for(const b of g.enemies.filter(e=>e.type==='foundryBay'))g._killEnemy(b,false,true);
    boss.age=Math.max(boss.age,6);boss.phase=3;boss.phaseStart=boss.age;boss.hp=Math.floor(boss.maxHp/3)-1;g._halcyonEnterPhase(boss);
+   // Hold HALCYON in phase 3 for the whole leg (the reference kit would otherwise kill it).
+   const update=g.update.bind(g);g.update=(dt,input)=>{update(dt,input);if(g.boss){g.player.invuln=999;g.boss.hp=Math.max(g.boss.hp,g.boss.maxHp*.12);}};
+   __qaSound.restoreUpdate=()=>{g.update=update;};
    a.setLevels(1,1,1);a.lastSound.clear();__qaSound.counts={};
    const tap=a.ctx.createAnalyser();tap.fftSize=2048;a.glue.connect(tap);const buf=new Float32Array(tap.fftSize);
    __qaSound.glue={peak:0,tap};__qaSound.glueTimer=setInterval(()=>{tap.getFloatTimeDomainData(buf);for(const v of buf)__qaSound.glue.peak=Math.max(__qaSound.glue.peak,Math.abs(v));},30);
   });
-  const recording=record();
+  const recording=record(30000);
   await page.keyboard.down('Space');
-  for(let i=0;i<8;i++){const key=i%2?'ArrowRight':'ArrowLeft';await page.keyboard.down(key);await page.waitForTimeout(1400);await page.keyboard.up(key);}
+  for(let i=0;i<21;i++){const key=i%2?'ArrowRight':'ArrowLeft';await page.keyboard.down(key);await page.waitForTimeout(1400);await page.keyboard.up(key);}
   const {base64,...metrics}=await recording;await page.keyboard.up('Space');
   const p3=await page.evaluate(()=>{
    const {game:g,audio:a}=__qaSound;clearInterval(__qaSound.glueTimer);a.glue.disconnect(__qaSound.glue.tap);
@@ -147,7 +152,7 @@ try{
   assert.ok(metrics.maxPeak<.95,'sample must not clip');assert.ok(metrics.maxVoices<=96&&metrics.maxCombatVoices<=40,'voice budget holds');
   assert.ok(metrics.events.shoot>40&&metrics.events.laserWarn>0&&metrics.events.empCharge>0,'the leg must exercise held fire, the void lattice and EMP rings');
   const file='halcyon-p3-sfx-ambience.webm';await writeFile(new URL(file,output),Buffer.from(base64,'base64'));
-  report.samples.push({ship:'kestrel',stage:5,drill:5,file,duration:12,timeline:'HALCYON phase 3, sector-5 reference kit, all levels at full; fire held; strafing left/right every 1.4 s',gluePeak:p3.gluePeak,...metrics});
+  report.samples.push({ship:'kestrel',stage:5,drill:5,file,duration:30,timeline:'HALCYON phase 3, sector-5 reference kit, all levels at full; fire held; strafing left/right every 1.4 s',gluePeak:p3.gluePeak,...metrics});
   // EMP: a ring pulses on the still ship (no roll), the hum starts; pause cuts it.
   report.empPause=await page.evaluate(async()=>{
    const {game:g,audio:a}=__qaSound,p=g.player;p.roll=0;
@@ -155,11 +160,16 @@ try{
    await new Promise(r=>setTimeout(r,350));
    const hum=a.sfx.empHum,started=!!hum&&!hum.stopped,empTime=p.empTime;
    a.setScreen('pause');a.update({...g,mode:'paused',events:[]},0);
-   const stopped=!!hum?.stopped;a.setScreen('play');
-   return{started,empTime,stopped};
+   const stopped=!!hum?.stopped,cleared=a.sfx.empHum===null;
+   // Resume with the wing still down: the hum comes back for the time left.
+   a.setScreen('play');a.update({...g,mode:'playing',events:[]},0);
+   const back=a.sfx.empHum,resumed=!!back&&back!==hum&&!back.stopped&&p.empTime>0;
+   __qaSound.restoreUpdate?.();
+   return{started,empTime,stopped,cleared,resumed};
   });
   assert.ok(report.empPause.started&&report.empPause.empTime>0,'an EMP that catches the wing starts the dead hum');
-  assert.ok(report.empPause.stopped,'pause cuts the EMP hum');
+  assert.ok(report.empPause.stopped&&report.empPause.cleared,'pause cuts the EMP hum');
+  assert.ok(report.empPause.resumed,'resuming with the wing still down brings the hum back');
  }
  assert.deepEqual(report.errors,[]);
  assert.deepEqual(report.warnings,[],'no audio module may be disabled by an exception');

@@ -67,6 +67,24 @@ export class SfxLibrary {
   // The EMP's dead hum ends with the escorts' state: a lost life, the run's end, HALCYON's fall
   // and a sector change all cut it (the simulation also sends empClear "reset" for these).
   _cutEmp() { this.empHum?.stop(0.05); this.empHum = null; }
+  // The dead hum itself: two detuned low saws for `seconds`. It is a tracked long cue, so pause,
+  // mute and leaving play cut it (stopLongCues also clears empHum).
+  _empHum(at, seconds, attack) {
+    this._cutEmp();
+    const hold = clamp(seconds, 0.2, 2.6), cue = this.group(this.alert);
+    this.engine.trackLongCue(cue, hold + Math.max(0, at - this.engine.ctx.currentTime));
+    this.osc({ at, dur: hold, type: 'sawtooth', freq: 55, vol: 0.01, attack, hold: Math.max(0, hold - 0.5), filter: { freq: 260 }, group: cue });
+    this.osc({ at, dur: hold, type: 'sawtooth', freq: 55.7, vol: 0.008, attack, hold: Math.max(0, hold - 0.5), filter: { freq: 240 }, group: cue });
+    this.empHum = cue;
+  }
+  // Play resumes (after a pause, an unmute or the effects coming back up) with the wing still
+  // down: the hum returns for the time left, without the pulse. Nothing when it is still running.
+  resumeEmpHum(t, seconds) {
+    if (this.empHum && !this.empHum.stopped) return false;
+    if (!(seconds > 0.12)) return false;
+    this._empHum(t, seconds, 0.08);
+    return true;
+  }
   get combat() { return this.engine.combatBus; }
   get fx() { return this.engine.fxBus; }
   get alert() { return this.engine.alertBus; }
@@ -1029,12 +1047,15 @@ const HANDLERS = {
     // The bar fires: a beating, driven beam hum with a sizzle on top and weight below.
     if (!this.rate('laserFire', 0.15)) return;
     const pan = ev.orient === 'v' ? this.pan(ev.pos) : 0;
-    if (ev.value === true) this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 73.4, vol: 0.03, attack: 0.012, hold: 0.55, filter: { freq: 500 }, drive: 'hot' });
+    // Round 3: repeated fire and hits sit back under a live frame, and the beam's low end is
+    // lighter, so a frame landing on a flurry of core hits stays clear of the limiter.
+    this.engine.duck('combat', 0.7, 0.55, 0.3);
+    if (ev.value === true) this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 73.4, vol: 0.025, attack: 0.012, hold: 0.55, filter: { freq: 500 }, drive: 'hot' });
     this.noise({ at: t, dur: 0.025, vol: 0.05, filter: { type: 'highpass', freq: 3000 }, pan });
     this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 98, vol: 0.04, attack: 0.012, hold: 0.55, filter: { freq: 1600 }, drive: 'soft', pan: pan - 0.12 });
     this.osc({ at: t, dur: 0.8, type: 'sawtooth', freq: 99.6, vol: 0.04, attack: 0.012, hold: 0.55, filter: { freq: 1600 }, drive: 'soft', pan: pan + 0.12 });
     this.noise({ at: t, dur: 0.8, vol: 0.03, attack: 0.012, hold: 0.55, filter: { type: 'bandpass', freq: 3200, q: 0.9 }, pan });
-    this.osc({ at: t, dur: 0.75, type: 'sine', freq: 49, vol: 0.07, attack: 0.012, hold: 0.5 });
+    this.osc({ at: t, dur: 0.75, type: 'sine', freq: 49, vol: 0.055, attack: 0.012, hold: 0.5 });
   },
   empCharge(ev, game, t) {
     // The EMP ring charges for ~1.2 s: a climbing FM whine over swelling static and ticks that speed up.
@@ -1050,7 +1071,7 @@ const HANDLERS = {
     // answers with a bright shimmer instead.
     const hit = Number(ev.value) > 0 || ev.value === true;
     this.engine.duck('combat', 0.35, 0.3, 0.4);
-    this.osc({ at: t, dur: 0.9, type: 'sine', freq: 72, end: 28, vol: 0.12, bus: this.alert });
+    this.osc({ at: t, dur: 0.9, type: 'sine', freq: 72, end: 28, vol: 0.1, bus: this.alert });
     this.noise({ at: t, dur: 0.4, color: 'crackle', vol: 0.06, filter: { type: 'bandpass', freq: 2200, q: 0.8 }, bus: this.alert, send: 0.2 });
     this.osc({ at: t, dur: 0.24, type: 'square', freq: 1900, end: 180, vol: 0.02, filter: { freq: 3000 }, bus: this.alert });
     this._cutEmp();
@@ -1059,11 +1080,7 @@ const HANDLERS = {
       return;
     }
     [0, 1, 2].forEach(i => this.osc({ at: t + 0.1 + i * 0.09, dur: 0.22, type: 'triangle', freq: 1250 - i * 220, end: 260 - i * 40, vol: 0.026, pan: (i - 1) * 0.45, bus: this.alert }));
-    const hold = clamp(Number(game?.player?.empTime) || 2, 0.6, 2.6), cue = this.group(this.alert);
-    this.engine.trackLongCue(cue, hold);
-    this.osc({ at: t + 0.2, dur: hold, type: 'sawtooth', freq: 55, vol: 0.01, attack: 0.15, hold: Math.max(0, hold - 0.5), filter: { freq: 260 }, group: cue });
-    this.osc({ at: t + 0.2, dur: hold, type: 'sawtooth', freq: 55.7, vol: 0.008, attack: 0.15, hold: Math.max(0, hold - 0.5), filter: { freq: 240 }, group: cue });
-    this.empHum = cue;
+    this._empHum(t + 0.2, clamp(Number(game?.player?.empTime) || 2, 0.6, 2.6), 0.15);
   },
   empClear(ev, game, t) {
     // Escorts reboot: the dead hum lifts and three chirps climb into a short power swell. A reset

@@ -328,7 +328,8 @@ test('an EMP ring charges 1.2 s, then disables the escorts for 2 s unless the sh
   const game = quietSector5(); const p = game.player;
   game.boss = { id: -1 }; game.events = []; game._halcyonEmp({ x: 270, y: 200 }); game.boss = null;
   const emp = game.hazards[0];
-  assert.deepEqual([emp.kind, emp.state, emp.chargeTime, emp.r], ['emp', 'charge', 1.2, 120]);
+  // Round 3: the reference kit (threat ~0.86) meets the full 170 px ring.
+  assert.deepEqual([emp.kind, emp.state, emp.chargeTime, emp.r], ['emp', 'charge', 1.2, 170]);
   assert.equal(count(game.events, 'empCharge'), 1);
   step(game, .6); assert.ok(emp.charge > .45 && emp.charge < .55);
   const pulse = step(game, .65, { fire: true });
@@ -350,6 +351,13 @@ test('an EMP ring charges 1.2 s, then disables the escorts for 2 s unless the sh
     const out = step(g, .1);
     assert.equal(out.find(e => e.type === 'empPulse').value, false, dodge); assert.equal(g.player.empTime, 0);
   }
+});
+
+test('the EMP ring grows with the rank: 120 px at threat 0.6 or less, 170 px from 0.84', () => {
+  const g = quietSector5(); g.boss = { id: -1 };
+  const ring = threat => { g.threat = threat; g.hazards.length = 0; g._halcyonEmp({}); return g.hazards[0].r; };
+  assert.deepEqual([0, .45, .6, .72, .84, .88].map(ring), [120, 120, 120, 145, 170, 170]);
+  g.boss = null;
 });
 
 test('an EMP ring leads the ship 0.6 s: a steady drift is caught, a turn escapes', () => {

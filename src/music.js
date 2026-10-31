@@ -19,6 +19,7 @@ import { CAMPAIGN_STAGES } from './game.js';
 import { BOSS_WARNING_LEAD } from './timeline.js';
 
 const LOOKAHEAD = 0.3;
+const MUSIC_TRIM = 0.55, DENSE_TRIM = 0.89;
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const norm = r => { const x = ((r % 12) + 12) % 12; return x > 6 ? x - 12 : x; };
@@ -774,7 +775,7 @@ export class MusicDirector {
     this.glue = c.createDynamicsCompressor();
     this.glue.threshold.value = -16; this.glue.knee.value = 10; this.glue.ratio.value = 3.2;
     this.glue.attack.value = 0.008; this.glue.release.value = 0.22;
-    this.trim = c.createGain(); this.trim.gain.value = 0.55;
+    this.trim = c.createGain(); this.trim.gain.value = MUSIC_TRIM; this.trimDense = false;
     this.mix.connect(hp); hp.connect(this.glue); this.glue.connect(this.trim); this.trim.connect(out);
     this._fixed = [this.mix, this.cueBus, hp, this.glue, this.trim];
     // Shared hall reverb and a tempo-synced echo.
@@ -807,6 +808,14 @@ export class MusicDirector {
     now = Number.isFinite(now) ? now : this.ctx.currentTime;
     this.state = state;
     this._prune(now);
+    // HALCYON's eclipse protocol (stage 5+, phase 3) is the densest mix in the game: the score
+    // sits DENSE_TRIM lower there (after its glue compressor, about -1 dB), so with every level
+    // at full the limiter's input keeps its headroom.
+    const dense = Boolean(state.boss && state.stage >= 5 && state.bossPhase === 3 && state.mode === 'playing');
+    if (dense !== this.trimDense) {
+      this.trimDense = dense;
+      try { this.trim.gain.setTargetAtTime(MUSIC_TRIM * (dense ? DENSE_TRIM : 1), now, 0.6); } catch (_) {}
+    }
     const events = Array.isArray(state.events) ? state.events : [];
     for (const e of events) this._event(e, state, now);
     const want = this._pick(state);

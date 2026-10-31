@@ -458,6 +458,65 @@ test('the EMP hum runs from empPulse until the wing reboots; a lost life, the ru
   });
 });
 
+test('the EMP hum comes back for the time left after a pause or an unmute, and only while the wing is down', async () => {
+  await unlocked((engine, ctx) => {
+    engine.setScreen('play');
+    const wing = (empTime, extra = {}) => playingGame({ stage: 5, player: { ...playingGame().player, escorts: 6, empTime }, ...extra });
+    ctx.currentTime += 1;
+    engine.update(wing(2, { events: [{ type: 'empPulse', x: 270, y: 600, value: true }] }), 1 / 60);
+    const first = engine.sfx.empHum;
+    assert.ok(first && !first.stopped, 'empPulse starts the hum');
+    // A further frame with the hum running starts nothing new.
+    engine.update(wing(1.9), 1 / 60);
+    assert.equal(engine.sfx.empHum, first);
+    // Pause cuts it and clears the handle; resuming with 1.2 s left brings it back for 1.2 s.
+    engine.setScreen('pause'); engine.update(wing(1.4, { mode: 'paused' }), 0);
+    assert.equal(first.stopped, true); assert.equal(engine.sfx.empHum, null, 'stopLongCues clears empHum');
+    engine.update(wing(1.4, { mode: 'paused' }), 0);
+    assert.equal(engine.sfx.empHum, null, 'no hum while paused');
+    engine.setScreen('play');
+    ctx.currentTime += 3;
+    const resumed = sourcesDuring(ctx, () => engine.update(wing(1.2), 1 / 60));
+    const second = engine.sfx.empHum;
+    assert.ok(second && second !== first && !second.stopped, 'resume restarts the hum');
+    assert.equal(resumed.length, 2, 'only the two hum voices: no second pulse');
+    assert.ok(engine.longCues.has(second), 'the restarted hum is a long cue');
+    // Mute cuts it; unmuting with the wing still down brings it back.
+    engine.toggleMute();
+    assert.equal(second.stopped, true); assert.equal(engine.sfx.empHum, null);
+    engine.update(wing(0.9), 1 / 60);
+    assert.equal(engine.sfx.empHum, null, 'no hum while muted');
+    engine.toggleMute();
+    engine.update(wing(0.8), 1 / 60);
+    const third = engine.sfx.empHum;
+    assert.ok(third && !third.stopped, 'unmute restarts the hum');
+    // The natural reboot ends it, and a pause and resume with the wing back up stays silent.
+    engine.update(wing(0, { events: [{ type: 'empClear', x: 270, y: 600 }] }), 1 / 60);
+    assert.equal(third.stopped, true); assert.equal(engine.sfx.empHum, null);
+    engine.setScreen('pause'); engine.update(wing(0, { mode: 'paused' }), 0);
+    engine.setScreen('play'); engine.update(wing(0), 1 / 60);
+    assert.equal(engine.sfx.empHum, null, 'no hum once the wing is back');
+    endVoices(ctx);
+  });
+});
+
+test('repeated combat sits 1.5 dB lower in HALCYON phase 3 only', async () => {
+  await unlocked((engine) => {
+    engine.setScreen('play');
+    const level = (stage, phase) => {
+      engine.update(playingGame({ stage, boss: { hp: 100, maxHp: 300, phase, name: 'X' } }), 1 / 60);
+      return +engine.combatBus.gain.value.toFixed(4);
+    };
+    const full = +(0.78).toFixed(4), trimmed = +(0.78 * 0.84).toFixed(4);
+    assert.equal(level(5, 1), full); assert.equal(level(5, 2), full);
+    assert.equal(level(5, 3), trimmed, 'HALCYON phase 3 trims combat');
+    assert.equal(level(4, 3), full, 'LEVIATHAN phase 3 keeps the full ceiling');
+    assert.equal(level(5, 3), trimmed);
+    engine.update(playingGame({ stage: 5 }), 1 / 60);
+    assert.equal(+engine.combatBus.gain.value.toFixed(4), full, 'the trim lifts when the flagship is gone');
+  });
+});
+
 test('an extend replaces its own reward pickup and a lost life replaces the hit cue', async () => {
   await unlocked((engine, ctx) => {
     const played = [];

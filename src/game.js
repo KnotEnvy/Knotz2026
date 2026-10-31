@@ -115,8 +115,19 @@ const MAIN_GUN_SHOTS = new Set(["shot","lance","pierce"]);
 const FLAK_WARN = 1, FLAK_GAP = 80, FLAK_STEP = 26, FLAK_SPEED = 120, FLAK_TTL = .55;
 // Sector 5's own fire is a notch faster and denser than sector 4's (HALCYON keeps the shared rank).
 const SECTOR_FIVE_SPEED = 1.12, SECTOR_FIVE_PACE = .88;
+// The notch fades in from threat LOW_THREAT/2 and is full at SECTOR_FIVE_FULL (round 3: .85,
+// was .75), so a P25 kit (~.66) meets about 73% of it and the reference kit (~.85) all of it.
+const SECTOR_FIVE_FULL = .85;
+// Round 3, mid-threat fire density: the extra ways of a sky-ace stream (3-way) and of a
+// foundry void battery (5-way) start at these threats, so a P25 kit (~.66) meets the
+// narrower streams and the reference kit (~.85) the full ones.
+const ACE_WIDE_THREAT = .7, VOID_BATTERY_WIDE_THREAT_S5 = .75;
 const LASER_WARN = .9, LASER_ON = .8, LASER_WIDTH = 9, LASER_GAP = 56;   // half-gap of a row
 const EMP_CHARGE = 1.2, EMP_TIME = 2, EMP_RADIUS = 120, EMP_SHOW = .35, EMP_LEAD = .6;
+// Round 3: the ring grows with the rank, read at spawn: EMP_RADIUS at threat EMP_RANK_FROM or
+// less, EMP_RADIUS_FULL at EMP_RANK_FULL (the reference kit) and above. A full kit can no
+// longer drift out of it; it has to turn or roll deliberately.
+const EMP_RADIUS_FULL = 170, EMP_RANK_FROM = .6, EMP_RANK_FULL = .84;
 const HALCYON_HP = 240000, HALCYON_BAY_HP = 1800, HALCYON_SWAY = 24;
 // HALCYON's bays hold longer against a full kit, so phase 1 ("Three bays")
 // reads: up to x HALCYON_BAY_RANK more HP from threat .7 (a sector-4 kit) to
@@ -127,7 +138,12 @@ const HALCYON_BAY_RANK = 2.6, HALCYON_BAY_RANK_FROM = .7, HALCYON_BAY_RANK_FULL 
 // to HALCYON_MERCY_FLOOR at arsenal HALCYON_MERCY_LOW and below. The
 // reference kill is held by the learn windows, so only weak kits feel it.
 const HALCYON_MERCY_FLOOR = .55, HALCYON_MERCY_LOW = 30, HALCYON_MERCY_FULL = 100;
-const HALCYON_LAUNCH = 6;          // s between one bay's squadron launches (x _bossPace)
+const HALCYON_LAUNCH = 6;          // s between one bay's squadron launches (x _halcyonPace)
+// Round 3, the mid-kit HALCYON: its cooldowns run up to HALCYON_EASE_SPAWN longer for a ship that
+// arrived below the reference kit (threat at spawn, full ease at HALCYON_EASE_FROM - HALCYON_EASE_SPAN
+// or less), plus up to HALCYON_EASE_LIVE for a ship whose threat has since fallen (scatters).
+// The reference kit (threat ~.84+) meets the authored flagship.
+const HALCYON_EASE_SPAWN = .35, HALCYON_EASE_LIVE = .08, HALCYON_EASE_FROM = .84, HALCYON_EASE_SPAN = .24;
 const HALCYON_LATTICE_CYCLE = 2.9; // s between lattice frames (x _bossPace)
 const HALCYON_HANGAR = 4.2;         // s between core-hangar drone pairs, phases 2-3 (x _bossPace)
 // Act II HP curve, tuned against the power-25 reference kit (P25, 6 escorts,
@@ -1135,7 +1151,7 @@ export class Game {
   // HALCYON keeps the shared rank.
   _sectorFive(full) {
     if(this.stage!==5||this.boss)return 1;
-    return 1+(full-1)*this._clamp((this.threat-LOW_THREAT*.5)/(LOW_THREAT*2),0,1);
+    return 1+(full-1)*this._clamp((this.threat-LOW_THREAT*.5)/(SECTOR_FIVE_FULL-LOW_THREAT*.5),0,1);
   }
   // 0..1 share of the full Act II volley size at the current threat.
   _volley() { return Math.min(1,this.threat/VOLLEY_FULL); }
@@ -1439,7 +1455,8 @@ export class Game {
       if(shell){shell.fuse=Math.max(.45,(dist-130)/speed);shell.burst={count:10+Math.round(5*v),speed:125,kind:"amber",r:4.4,offset:e.seed*6};}
       e.fireRate=2.3*pace;
     } else if(e.gun==="void") {
-      this._spread(x,y,p.x,p.y,t>.65?5:3,.17,this._vel(205),"void",5.6);e.fireRate=2.1*pace;
+      // Sector 4's deck batteries widen at .65; sector 5's foundry batteries at a higher threat.
+      this._spread(x,y,p.x,p.y,t>(this.stage===5?VOID_BATTERY_WIDE_THREAT_S5:.65)?5:3,.17,this._vel(205),"void",5.6);e.fireRate=2.1*pace;
     } else if(e.gun==="broadside") {
       // A short diagonal row rolling outward from the hull's side.
       const side=Math.sign(e.ox)||1,angle=Math.PI/2-side*.5;
@@ -1717,7 +1734,7 @@ export class Game {
         const speed=this._vel(310),lead=Math.hypot(p.x-e.x,p.y-e.y)/speed;
         const tx=this._clamp(p.x+(p.vx||0)*lead,20,520),ty=p.y+this._clamp((p.vy||0)*lead,-80,80);
         const round=e.burstLeft===1&&this._voidAware()?"void":"cyan";
-        this._spread(e.x,e.y+12,tx,ty,this.threat>.6?3:1,.07,speed,round,4.4);
+        this._spread(e.x,e.y+12,tx,ty,this.threat>ACE_WIDE_THREAT?3:1,.07,speed,round,4.4);
         e.burstLeft--;e.burstClock=.09;
       }
     } else if(t==="foundry") {
@@ -1864,7 +1881,7 @@ export class Game {
   }
   _rigHalcyon(boss) {
     const rank=1+(HALCYON_BAY_RANK-1)*this._clamp((this.threat-HALCYON_BAY_RANK_FROM)/(HALCYON_BAY_RANK_FULL-HALCYON_BAY_RANK_FROM),0,1);
-    Object.assign(boss,{halcyon:true,bays:[],baysAlive:0,lattice:0,eclipse:0,latticeAt:0,latticeKind:0,
+    Object.assign(boss,{halcyon:true,easeThreat:this.threat,bays:[],baysAlive:0,lattice:0,eclipse:0,latticeAt:0,latticeKind:0,
       aimAt:0,rowAt:0,empAt:0,hangarAt:0,curtainAt:0,curtainGap:150,frame:0,launches:0});
     [[-150,24],[0,42],[150,24]].forEach(([ox,oy],i)=>this._enemy("foundryBay",boss.x+ox,boss.y+oy,
       {parent:boss,ox,oy,hp:HALCYON_BAY_HP*rank,launch:1.2+i*1.8,drop:"power",bonusDrops:1,value:3000}));
@@ -1875,7 +1892,7 @@ export class Game {
     const side=bay.ox<0?1:bay.ox>0?-1:(boss.launches%2?1:-1);
     boss.launches++;
     this._spawnSquadron("loop",side,3,{x0:bay.x,y0:bay.y+8,loopY:bay.y+230,loopR:62,stagger:.24,bonus:false});
-    bay.launch=HALCYON_LAUNCH*this._bossPace();
+    bay.launch=HALCYON_LAUNCH*this._halcyonPace();
   }
   _halcyonEnterPhase(e) {
     this._clearHazards();
@@ -1883,8 +1900,13 @@ export class Game {
     if(e.phase===2){e.latticeAt=e.age+1.6;e.aimAt=e.age+2.4;e.latticeKind=0;}
     else if(e.phase===3){e.latticeAt=e.age+2.2;e.rowAt=e.age+1.4;e.empAt=e.age+3;e.aimAt=e.age+3.6;e.curtainAt=0;}
   }
+  // HALCYON's cooldown multiplier: the shared flagship rank, eased for a mid kit (see HALCYON_EASE_*).
+  _halcyonPace() {
+    const ease=t=>this._clamp((HALCYON_EASE_FROM-t)/HALCYON_EASE_SPAN,0,1);
+    return this._bossPace()*(1+HALCYON_EASE_SPAWN*ease(this.boss?.easeThreat??this.threat)+HALCYON_EASE_LIVE*ease(this.threat));
+  }
   _halcyonFire(e,h) {
-    const p=this.player,pace=this._bossPace();
+    const p=this.player,pace=this._halcyonPace();
     if(e.phase>=2)e.lattice=Math.min(1,e.lattice+h/1.2);
     if(e.phase===3)e.eclipse=Math.min(1,e.eclipse+h/1.5);
     if(e.age<3.6)return;
@@ -1966,12 +1988,16 @@ export class Game {
     for(let x=14;x<=526;x+=26)if(Math.abs(x-g)>58)this._bullet(x,e.y+56,Math.PI/2,this._vel(140),"void",5);
     this._event("bossShot",e.x,e.y);
   }
+  _empRadius() {
+    const f=this._clamp((this.threat-EMP_RANK_FROM)/(EMP_RANK_FULL-EMP_RANK_FROM),0,1);
+    return Math.round(EMP_RADIUS+(EMP_RADIUS_FULL-EMP_RADIUS)*f);
+  }
   _halcyonEmp(e) {
     const p=this.player;
     // The ring leads the ship (where it will be in EMP_LEAD s): flying straight
     // is caught, a turn or a roll escapes.
     const emp={id:++this._hazardId,kind:"emp",x:this._clamp(p.x+(p.vx||0)*EMP_LEAD,70,470),
-      y:this._clamp(p.y+(p.vy||0)*EMP_LEAD,300,780),r:EMP_RADIUS,
+      y:this._clamp(p.y+(p.vy||0)*EMP_LEAD,300,780),r:this._empRadius(),
       charge:0,chargeTime:EMP_CHARGE,age:0,state:"charge"};
     this.hazards.push(emp);
     this.events.push({type:"empCharge",x:emp.x,y:emp.y,r:emp.r});
