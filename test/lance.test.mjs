@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game} from '../src/game.js';
+// Drill kits carry the ledger's shields; these hull-hit checks fly without them.
+// The Crown's final guard ends at learn age 30 (Act I retune).
 function arena(stage=3,phase=2,ship='kestrel'){
- const g=new Game();g.selectShip(ship);g.startDrill(stage);const b=g.boss;
- b.phase=phase;b.age=phase===1?3:phase===2?11:24;b.hp=b.maxHp*(phase===1?.9:phase===2?.5:.25);b.fireAt=999;
+ const g=new Game();g.selectShip(ship);g.startDrill(stage);const b=g.boss;g.player.shield=0;
+ b.phase=phase;b.age=phase===1?3:phase===2?11:31;b.hp=b.maxHp*(phase===1?.9:phase===2?.5:.25);b.fireAt=999;
  g._updateEnemies(0);g.events=[];g.player.invuln=0;return g;
 }
 test('Crown alone introduces a tracking, locked, then firing lane with a safe warning',()=>{

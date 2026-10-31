@@ -1,6 +1,6 @@
 // Page-level ambience around the playfield: masthead, side panels and site backdrop.
 // Everything here is presentation. It reads the game and writes the DOM only when a value changes.
-import { SECTOR_NAMES, FLAGSHIP_NAMES, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
+import { SECTOR_NAMES, FLAGSHIP_NAMES, actName, threatName, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, lightningAt, actTwoInterlude } from './timeline.js';
 import { CAMPAIGN_STAGES } from './game.js';
 
 const TAU = Math.PI * 2;
@@ -66,7 +66,7 @@ export class Ambience {
     if (screen === 'play') this.gutters = null;
     this._text('consoleState', SCREEN_STATES[screen] || 'COMMAND LINK');
     if (screen !== 'play' && screen !== 'pause') {
-      this._attr('threat', null); this._attr('flagship', null); this._attr('interlude', null);
+      this._attr('rank', null); this._attr('threat', null); this._attr('flagship', null); this._attr('interlude', null);
       this._style('consoleFlash', 'opacity', '0');
       this._setSignal(4);
     }
@@ -81,7 +81,7 @@ export class Ambience {
     const log = this.el('consoleLog');
     if (log) log.textContent = '';
     const ship = String(game?.shipId || 'kestrel').toUpperCase();
-    this._log('00:00', game?.practiceStage ? ship + ' AIRBORNE / UNRANKED DRILL' : ship + ' AIRBORNE / LONG MERIDIAN', 'cool');
+    this._log('00:00', game?.practiceStage ? ship + ' AIRBORNE / UNRANKED DRILL' : ship + ' AIRBORNE / ACT I', 'cool');
     this._applySector(game, true);
   }
 
@@ -97,6 +97,7 @@ export class Ambience {
     const interlude = interludeProgress(game);
     const boss = game.boss && game.boss.hp > 0 ? game.boss : null;
     const critical = playing && Number(p.hp) <= 1;
+    this._attr('rank', threatName(game.threat).toLowerCase());
     this._attr('threat', critical ? 'critical' : boss ? 'boss' : warning >= 0 ? 'warning' : 'calm');
     this._attr('flagship', boss ? '1' : null);
     this._attr('interlude', interlude >= 0 ? (actTwoInterlude(game) ? 'act2' : '1') : null);
@@ -134,9 +135,9 @@ export class Ambience {
     this.lastStage = stage;
     this._attr('sector', String(stage));
     const drill = Number(game?.practiceStage) || 0;
-    this._text('consoleKicker', drill ? 'FLAGSHIP DRILL / UNRANKED' : 'FLIGHT RECORD / SECTOR ' + pad(stage));
+    this._text('consoleKicker', drill ? 'FLAGSHIP DRILL / UNRANKED' : actName(stage) + ' / SECTOR ' + pad(stage));
     this._html('consoleHeading', drill ? 'Flagship<br><em>drill.</em>' : info.heading);
-    this._text('consoleCopy', drill ? 'Full weapons against ' + FLAGSHIP_NAMES[stage] + '. Learn the pattern; campaign records stay untouched.' : info.copy);
+    this._text('consoleCopy', drill ? 'Arrival kit against ' + FLAGSHIP_NAMES[stage] + '. Learn the pattern; campaign records stay untouched.' : info.copy);
     this._text('consoleTheater', 'PACIFIC FRONT / ' + pad(stage) + ' ' + SECTOR_NAMES[stage]);
     this._text('consoleWeather', info.weather);
     this._setSignal(info.signal);

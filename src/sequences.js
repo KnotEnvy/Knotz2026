@@ -4,7 +4,7 @@
 // Presentation only: never change game state from here.
 import {
   FLAGSHIP_NAMES, FLAGSHIP_CLASSES, SECTOR_NAMES, SECTOR_COORDS, SECTOR_TAGLINES,
-  BOSS_WARNING_LEAD, INTERLUDE_LENGTH, ACT_TWO_STAGE, bossWarningProgress, interludeProgress, interludeLength
+  BOSS_WARNING_LEAD, INTERLUDE_LENGTH, ACT_TWO_STAGE, actName, ACT_SUBTITLES, ACT_TAGLINES, bossWarningProgress, interludeProgress, interludeLength
 } from './timeline.js';
 import { flightTime } from './progress.js';
 import { CAMPAIGN_STAGES } from './game.js';
@@ -22,7 +22,7 @@ const INTRO_LENGTH = 2.6, ACT_TWO_INTRO_LENGTH = 3.4, NAMEPLATE_LENGTH = 3, DRIL
 const ACT_TWO_TALLY_END = 3.3, ACT_TWO_CARD_START = 3.1;
 const OF = ' / ' + String(CAMPAIGN_STAGES).padStart(2, '0');
 const sectorOf = stage => clamp(stage | 0, 1, CAMPAIGN_STAGES);
-const introLength = stage => stage >= ACT_TWO_STAGE ? ACT_TWO_INTRO_LENGTH : INTRO_LENGTH;
+const introLength = stage => stage >= ACT_TWO_STAGE ? ACT_TWO_INTRO_LENGTH : stage === 1 ? 2.8 : INTRO_LENGTH;
 const PHASE_LENGTH = 1.25, LIFE_LENGTH = 1.9, EXTEND_LENGTH = 2.2;
 const OUTRO = { victory: 2.3, gameover: 2.1, drillVictory: 1.4, drillGameover: 1.5 };
 const COMPACT_SCALE = 1.34; // phone layout: canvas text is drawn larger for legibility
@@ -367,6 +367,21 @@ export class Sequences {
 
   // ---------- sector intro ----------
 
+  // Separate word sprites keep the act gap independent of letter tracking.
+  actTitle(ctx, stage, size, color, x, y, alpha, scale = 1) {
+    const options = { family: DISPLAY, weight: 900, spacing: size === 64 ? 10 : 14 };
+    const words = ['ACT', stage >= ACT_TWO_STAGE ? 'II' : 'I'].map(word => this.label(word, size, color, options));
+    if (words.some(word => !word)) return [];
+    const widths = words.map(word => word.w - 2 * word.pad), gap = Math.round(size * .55);
+    let left = x - (widths[0] + gap + widths[1]) * scale / 2;
+    return words.map((word, i) => {
+      const cx = left + widths[i] * scale / 2;
+      blit(ctx, word, cx, y, alpha, scale);
+      left += (widths[i] + gap) * scale;
+      return { sprite: word, x: cx };
+    });
+  }
+
   drawIntro(ctx, game, t) {
     const stage = sectorOf(game.stage);
     const act2 = stage >= ACT_TWO_STAGE, L = introLength(stage);
@@ -385,7 +400,7 @@ export class Sequences {
     this.band(ctx, cy, 168, .64 * a);
     const y = cy + rise;
     blit(ctx, this.label(two(stage), 176, `rgba(${accent},.16)`, { family: DISPLAY, weight: 900, stroke: true }),
-      270 + 10 * (1 - easeOut(t / 1.4)), y + 2, a);
+      270 + 10 * (1 - easeOut(t / 1.4)), y + 2, a * (stage === 1 ? .4 + .6 * ramp(1.15, 1.4, t) : 1));
     const half = 184 * open;
     ctx.globalAlpha = a;
     line(ctx, 270 - half, y - 44, 270 + half, y - 44, 'rgba(243,187,112,.7)');
@@ -394,16 +409,26 @@ export class Sequences {
     const bx = 108 * open + 82;
     brackets(ctx, 270 - bx, y - 72, bx * 2, 146, 12, `rgba(${accent},${.55 * a})`);
     ctx.globalAlpha = a;
-    const kicker = (act2 ? 'ACT II  ·  ' : 'OPERATION LONG MERIDIAN  ·  ') + 'SECTOR ' + two(stage) + OF;
+    const kicker = (actName(stage) + '  ·  ') + 'SECTOR ' + two(stage) + OF;
     wipe(ctx, this.label(kicker, 10, act2 ? C.coral : C.gold, { spacing: 2.4 }), 270, y - 59, ramp(.12, .62, t) * 1.02, a);
+    // Fold the act title into the launch card, clear before the first enemy at 2.8 s.
+    const launch = stage === 1;
+    const beat = launch ? 1 - ramp(.95, 1.2, t) : 0;
+    if (beat > 0) {
+      this.actTitle(ctx, stage, 64, C.pale, 270, y - 8, a * beat * ramp(.15, .4, t));
+      blit(ctx, this.label(ACT_SUBTITLES[1], 11, C.gold, { spacing: 2 }), 270, y + 27, a * beat * ramp(.3, .55, t));
+      blit(ctx, this.label(ACT_TAGLINES[1], 9, C.cyan, { spacing: 2 }), 270, y + 59, a * beat * ramp(.4, .65, t));
+    }
+    const cardA = a * (launch ? ramp(1.15, 1.4, t) : 1);
     const title = this.label(SECTOR_NAMES[stage] || 'SECTOR ' + two(stage), this.compact ? 34 : 40, C.pale, { family: DISPLAY, weight: 900, spacing: 3 });
-    const reveal = this.reducedEffects ? ramp(0, .3, t) : easeOut((t - .06) / .5);
-    const edge = this.reducedEffects ? blit(ctx, title, 270, y - 8, a * reveal) : wipe(ctx, title, 270, y - 8, reveal, a);
+    const off = launch ? 1.15 : 0;
+    const reveal = this.reducedEffects ? ramp(off, .3 + off, t) : easeOut((t - .06 - off) / .5);
+    const edge = this.reducedEffects ? blit(ctx, title, 270, y - 8, cardA * reveal) : wipe(ctx, title, 270, y - 8, reveal, cardA);
     if (!this.reducedEffects && reveal > 0 && reveal < 1 && edge) line(ctx, edge, y - 30, edge, y + 14, `rgba(${accent},${.9 * (1 - reveal)})`, 2);
-    if (title) this.shimmer(ctx, title, 270, y - 8, (t - 1) / .65, a);
-    const tagA = a * ramp(.32, .72, t);
+    if (title) this.shimmer(ctx, title, 270, y - 8, (t - (launch ? 1.71 : 1)) / .65, cardA);
+    const tagA = cardA * ramp(.32 + off, .72 + off, t);
     blit(ctx, this.label(SECTOR_TAGLINES[stage] || '', 16, C.amber, { family: SERIF, weight: 400, italic: true }), 270, y + 25 + 5 * (1 - tagA), tagA);
-    const footA = a * ramp(.5, .9, t);
+    const footA = cardA * ramp(.5 + off, .9 + off, t);
     blit(ctx, this.label(SECTOR_COORDS[stage] || '', 9, C.muted, { spacing: 1.6 }), 270 - 184, y + 59, footA, 1, 'left');
     blit(ctx, this.label('OBJECTIVE / ' + (FLAGSHIP_NAMES[stage] || 'FLAGSHIP'), 9, act2 ? C.gold : C.cyan, { spacing: 1.6 }), 270 + 184, y + 59, footA, 1, 'right');
     ctx.restore();
@@ -482,7 +507,7 @@ export class Sequences {
     wipe(ctx, this.label(kicker, 10, drill ? C.cyan : C.coral, { spacing: 2.6 }), 270, cy - 34, ramp(.1, .55, age) * 1.02, a);
     blit(ctx, this.label(FLAGSHIP_CLASSES[stage] || 'FLAGSHIP', 10, C.gold, { spacing: 3.2 }), 270, cy + 30, a * ramp(.3, .7, age));
     if (drill) {
-      blit(ctx, this.label('FULL WEAPONS  ·  CAMPAIGN RECORDS PRESERVED', 9, C.muted, { spacing: 1.6 }), 270, cy + 54, a * ramp(.5, .9, age));
+      blit(ctx, this.label('ARRIVAL KIT  ·  CAMPAIGN RECORDS PRESERVED', 9, C.muted, { spacing: 1.6 }), 270, cy + 54, a * ramp(.5, .9, age));
     } else {
       // Cosmetic hull scan that echoes the HUD flagship meter filling in.
       const fill = this.reducedEffects ? 1 : easeOut((age - .25) / .9);
@@ -650,14 +675,13 @@ export class Sequences {
     diamond(ctx, 270 - half, cy - 66, 3, C.gold); diamond(ctx, 270 + half, cy - 66, 3, C.gold);
     wipe(ctx, this.label('OPERATION LONG MERIDIAN  ·  THE CROWN HAS FALLEN', 10, C.gold, { spacing: 2.6 }), 270, cy - 84, ramp(.05, .55, t) * 1.02, a);
     const punch = reduced ? 1 : 1 + .28 * (1 - easeOut(t / .32));
-    const title = this.label('ACT II', 92, C.pale, { family: DISPLAY, weight: 900, spacing: 14 });
-    blit(ctx, title, 270, cy - 18, a * ramp(0, .12, t), punch);
-    if (!reduced && t < .3) blit(ctx, this.label('ACT II', 92, '#fff6e0', { family: DISPLAY, weight: 900, spacing: 14 }), 270, cy - 18, a * (1 - t / .3), punch);
-    if (title) this.shimmer(ctx, title, 270, cy - 18, (t - .5) / .8, a);
+    const title = this.actTitle(ctx, ACT_TWO_STAGE, 92, C.pale, 270, cy - 18, a * ramp(0, .12, t), punch);
+    if (!reduced && t < .3) this.actTitle(ctx, ACT_TWO_STAGE, 92, '#fff6e0', 270, cy - 18, a * (1 - t / .3), punch);
+    for (const word of title) this.shimmer(ctx, word.sprite, word.x, cy - 18, (t - .5) / .8, a);
     const la = a * ramp(.55, .95, t);
-    blit(ctx, this.label('The Crown was only the gate.', 24, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 34 + (reduced ? 0 : 6 * (1 - la)), la);
+    blit(ctx, this.label(ACT_TAGLINES[2], 24, C.gold, { family: SERIF, weight: 400, italic: true }), 270, cy + 34 + (reduced ? 0 : 6 * (1 - la)), la);
     const na = a * ramp(1.3, 1.7, t);
-    blit(ctx, this.label('AHEAD  ·  SECTOR ' + two(ACT_TWO_STAGE) + ' — ' + SECTOR_NAMES[ACT_TWO_STAGE] + '  ·  ' + FLAGSHIP_NAMES[ACT_TWO_STAGE], 10, C.pale, { spacing: 2.2 }), 270, cy + 80, na);
+    blit(ctx, this.label('AHEAD  ·  SECTOR ' + two(ACT_TWO_STAGE) + ' — ' + ACT_SUBTITLES[2] + '  ·  ' + FLAGSHIP_NAMES[ACT_TWO_STAGE], 10, C.pale, { spacing: 2.2 }), 270, cy + 80, na);
     blit(ctx, this.label('THE REAL FLEET RIDES THE TYPHOON', 9, C.coral, { spacing: 2.6 }), 270, cy + 100, a * ramp(1.6, 2, t));
     ctx.restore();
   }

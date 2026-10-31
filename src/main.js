@@ -9,7 +9,7 @@ import { PausePanel } from './pause.js';
 import { Sequences } from './sequences.js';
 import { Cinema } from './cinema.js';
 import { Ambience } from './ambience.js';
-import { bossWarningProgress, interludeProgress, FLAGSHIP_NAMES, ACT_TWO_STAGE } from './timeline.js';
+import { bossWarningProgress, interludeProgress, FLAGSHIP_NAMES, ACT_TWO_STAGE, actName, threatName } from './timeline.js';
 import { readSettings, writeSettings } from './settings.js';
 import { readProgress, saveProgress, markEncounter, recordFlight, flightAdvice, readDrillRecords, recordDrill, flightTime, drillClearTier } from './progress.js';
 
@@ -145,7 +145,7 @@ function updateCareerDisplay(){
   for(const button of document.querySelectorAll('[data-drill]')){
     const locked=Number(button.dataset.drill)>career.bossSeen;button.disabled=locked;
     const best=drillRecords[selectedShip+'-'+button.dataset.drill];
-    button.querySelector('small').textContent=locked?'ENCOUNTER TO UNLOCK':best?'BEST '+flightTime(best.bestTime)+' / '+best.fewestHits+' HITS':'UNRANKED / FULL WEAPONS';
+    button.querySelector('small').textContent=locked?'ENCOUNTER TO UNLOCK':best?'BEST '+flightTime(best.bestTime)+' / '+best.fewestHits+' HITS':'UNRANKED / ARRIVAL KIT';
   }
 }
 function enterHangar(){if(screen==='title'||screen==='end'||screen==='pause'){clearInput();audio.ui(screen==='title'?'confirm':'back');showScreen('hangar');}}
@@ -554,9 +554,9 @@ function readoutsFromGame(dt){
   }
   const elapsed=number(game.time||game.elapsed);
   setText('timeReadout',String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0'));
-  setText('threatReadout',game.boss?'CATASTROPHIC':bossWarningProgress(game)>=0?'FLAGSHIP INBOUND':interludeProgress(game)>=0?'SECTOR CLEAR':game.stage>=ACT_TWO_STAGE?'EXTREME':game.stage>1?'SEVERE':'RISING');
+  setText('threatReadout',game.boss?'CATASTROPHIC':bossWarningProgress(game)>=0?'FLAGSHIP INBOUND':interludeProgress(game)>=0?'SECTOR CLEAR':threatName(game.threat));
   setText('bestReadout',String(number(game.bestScore||game.highScore)).padStart(8,'0'));
-  setText('frameSector',(game.practiceStage?'UNRANKED DRILL ':'SECTOR ')+String(game.stage||1).padStart(2,'0'));
+  setText('frameSector',actName(game.stage)+' / '+(game.practiceStage?'DRILL ':'SECTOR ')+String(game.stage||1).padStart(2,'0'));
   const hp=Number(game.player?.hp)||0;
   const maxHp=Math.max(1,Number(game.player?.maxHp)||4);
   setText('conditionReadout',hp<=1?'CRITICAL':hp/maxHp<=.5?'DAMAGED':'NOMINAL');

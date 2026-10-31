@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CAMPAIGN_STAGES, Game } from '../src/game.js';
+import { CAMPAIGN_STAGES, Game, STAGE_BEATS } from '../src/game.js';
 
 const start = game => {
   game.update(0, { start: true });
@@ -71,8 +71,14 @@ test('defeating a boss advances sector and replenishes resources', () => {
   game._killEnemy(game.boss);
   step(game, 240);
   assert.equal(game.stage, 2);
-  assert.equal(game.player.hp, 2);
+  assert.equal(game.player.hp, game.player.maxHp, 'an Act I sector clear repairs the hull (round 2)');
   assert.equal(game.player.bombs, 1);
+  // Entering Act II still adds a single hull point.
+  const crown = new Game(); start(crown); crown.stage = 3; crown.player.invuln = 999;
+  crown._spawnBoss(); crown.player.hp = 1; crown._killEnemy(crown.boss);
+  for (let i = 0; i < 60 * 7 && crown.stage === 3; i++) crown.update(1/60, {});
+  assert.equal(crown.stage, 4);
+  assert.equal(crown.player.hp, 2);
 });
 
 test('equal input sequences produce equal enemy and bullet state', () => {
@@ -138,7 +144,10 @@ test('sector openings use distinct authored formations', () => {
     const game = new Game(); start(game);
     game.stage = stage;
     game.player.invuln = 10;
-    step(game, 75);
+    // The opening beat lands after the sector intro card (Act I retune: 2.5 s or later).
+    step(game, 145);
+    assert.equal(game.enemies.length, 0, 'sector ' + stage + ' stays clear under its intro card');
+    step(game, 65);
     return game.enemies.map(enemy => enemy.type);
   };
   const first = opening(1), second = opening(2), third = opening(3);
@@ -148,15 +157,17 @@ test('sector openings use distinct authored formations', () => {
 });
 
 test('final sector has a planned breather before its next formation', () => {
+  // After the shield relay (14 s) only the 21 s lane sweep flies until the 22 s curtain.
   const game = new Game(); start(game);
   game.stage = 3;
   game.player.invuln = 100;
-  step(game, 1800);
-  assert.equal(game._beatIndex, 8, 'eight beats should have begun by 30 seconds');
-  step(game, 276);
-  assert.equal(game._beatIndex, 8, 'the field should have a gap through 34.6 seconds');
-  step(game, 36);
-  assert.equal(game._beatIndex, 9, 'the next formation should start at 35 seconds');
+  step(game, 900);
+  assert.equal(game._beatIndex, 4, 'four beats should have begun by 15 seconds');
+  step(game, 410);
+  assert.equal(game._beatIndex, 4, 'the field should have a gap through 21.8 seconds');
+  assert.equal(game._laneIndex, 1, 'the breather holds the sector\'s first lane sweep');
+  step(game, 18);
+  assert.equal(game._beatIndex, 5, 'the next formation should start at 22 seconds');
 });
 
 test('boss phase transitions clear old fire and announce a new pattern before shooting', () => {
@@ -164,7 +175,7 @@ test('boss phase transitions clear old fire and announce a new pattern before sh
   game.stage = 2;
   game._spawnBoss();
   const boss = game.boss;
-  boss.age = 10;
+  boss.age = 12;  // Aurelia's phase two unlocks at learn age 12 (Act I retune)
   boss.hp = boss.maxHp * .6;
   game.bullets.push({x: 40, y: 500, vx: 0, vy: 0, r: 5, kind: 'red', grazed: false});
   game.update(1/60, {});
@@ -277,17 +288,26 @@ test('capped score resources and early relays no longer generate surplus bombs',
   assert.equal(game.player.bombs, 2, 'a full rack should not snowball reserve bombs');
   assert.ok(game.score > 160000, 'a capped milestone may still give points');
 
+  // Act I bombs are authored: only each later sector's closing relay carries
+  // one, and a relay carrier carries nothing the beat does not author.
   game.stage = 2; game.stageTime = 41;
   game._spawnWave('relay');
-  assert.equal(game.enemies.find(e => e.type === 'carrier').drop, 'shield');
+  assert.equal(game.enemies.find(e => e.type === 'carrier').drop, null);
   game.enemies.length = 0;
-  game.stageTime = 67;
-  game._spawnWave('relay');
+  game._spawnWave('relay', { heavy: ['bomb'] });
   assert.equal(game.enemies.find(e => e.type === 'carrier').drop, 'bomb');
-  game.enemies.length = 0;
-  game.stage = 3; game.stageTime = 43;
-  game._spawnWave('relay');
-  assert.equal(game.enemies.find(e => e.type === 'carrier').drop, 'shield');
+  const bombs = stage => STAGE_BEATS[stage].filter(([, , drops]) => [].concat(drops?.heavy || [], drops?.lead || []).includes('bomb'));
+  assert.equal(bombs(1).length, 0, 'sector 1 sorties carry their starting bombs only');
+  for (const stage of [2, 3]) {
+    assert.equal(bombs(stage).length, 1, 'one authored bomb in sector ' + stage);
+    assert.ok(bombs(stage)[0][0] >= STAGE_BEATS[stage].at(-1)[0] - 9, 'in the closing beats');
+  }
+  // Sector 2's rides the closing relay's carrier; sector 3's rides the closing
+  // flank's lead, which dies before the Crown arrives (a relay carrier spawned
+  // at 79 s never could).
+  assert.deepEqual(bombs(2)[0][2], { heavy: ['bomb'] });
+  assert.equal(bombs(3)[0][1], 'flank');
+  assert.equal(bombs(3)[0][2].lead, 'bomb');
 });
 
 test('Vesper final phase alternates its counter-tide at a half-second cadence', () => {
@@ -297,9 +317,11 @@ test('Vesper final phase alternates its counter-tide at a half-second cadence', 
   boss.phase = 3;
   boss.age = 20;
   boss.fireAt = 20;
+  game.threat = .15;  // about Vesper's arrival-ledger rank
   game._updateEnemies(1/120);
-  assert.ok(boss.fireAt - boss.age > .5 && boss.fireAt - boss.age < .53,
-    'the first boss alone should give a half-second between final-phase waves');
+  // Act I retune: Vesper teaches, 0.6 s base cadence x 1.5/(1+0.6t) (round 2).
+  assert.ok(boss.fireAt - boss.age > .8 && boss.fireAt - boss.age < .85,
+    'the first boss gives a long beat between final-phase waves: ' + (boss.fireAt - boss.age).toFixed(3));
 
   const volley = () => {
     const before = game.bullets.length;
@@ -343,9 +365,10 @@ test('Aurelia final phase alternates wing spirals without a pressure spike', () 
   boss.phase = 3;
   boss.age = 20;
   boss.fireAt = 20;
+  game.threat = .4;  // about Aurelia's arrival-ledger rank
   game._updateEnemies(1/120);
-  assert.ok(boss.fireAt - boss.age > .47 && boss.fireAt - boss.age < .49,
-    'Aurelia phase three should leave a half-second dodge interval');
+  assert.ok(boss.fireAt - boss.age > .59 && boss.fireAt - boss.age < .62,
+    'Aurelia phase three should leave a 0.6 s dodge interval: ' + (boss.fireAt - boss.age).toFixed(3));
   const volley = () => {
     const before = game.bullets.length;
     game._bossFire(boss);
@@ -374,20 +397,22 @@ test('a three-sector clear keeps growing power through collected flagship spoils
       assert.equal(game.pickups.length, 0, 'the interlude collects every flagship spoil');
     }
   }
-  // Sortie power 2, one power spoil per flagship plus ladder bonuses (escort, sidewinder).
+  // Sortie power 2, then the authored Act I spoils: Vesper power + shield,
+  // Aurelia power + sidewinder.
   assert.equal(game.player.level, 4);
   assert.equal(game.player.power, game.player.level);
-  assert.equal(game.player.escorts, 2);
+  assert.equal(game.player.shield, 1);
   assert.equal(game.player.sidewinder, 1);
   assert.equal(game.stats.powerPeak, 4);
   game.player.x = game.pickups[0].x; game.player.y = game.pickups[0].y;
   for (const item of [...game.pickups]) { item.x = game.player.x; item.y = game.player.y; }
   game._collide();
-  assert.equal(game.player.level, 5, 'the final flagship drops power too');
+  assert.equal(game.player.level, 8, 'the Crown spoils carry four power across the Act II gate');
+  assert.equal(game.player.sidewinder, 2);
   assert.equal(game.player.signature, 1);
   for (let i = 0; i < 8; i++) game.pickups.push({x: game.player.x, y: game.player.y, r: 16, type: 'power', age: 0, vy: 0});
   game._collide();
-  assert.equal(game.player.level, 13, 'no sector or final-boss cap holds power back');
+  assert.equal(game.player.level, 16, 'no sector or final-boss cap holds power back');
 });
 
 test('score no longer buys power, and pickups raise power without a cap', () => {

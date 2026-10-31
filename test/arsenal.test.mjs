@@ -249,8 +249,9 @@ test('salvage on screen during a sector-clear interlude homes in and is collecte
   assert.equal(game.pickups.length, 0);
   assert.equal(game.stats.salvageLost, 0);
   assert.ok(recovered.length >= 4);
-  assert.equal(p.escorts, 4, 'scattered escort pair plus the Vesper ladder bonus escort');
+  assert.equal(p.escorts, 2, 'the scattered escort pair comes back');
   assert.equal(p.sidewinder, 1);
+  assert.equal(p.shield, 1, 'Vesper\'s Act I spoils carry a shield');
   assert.equal(p.level, 1 + 7 + 1, 'kept power plus the flagship power spoil');
 });
 
@@ -331,11 +332,12 @@ test('live player shots stay within the 650 budget, dropping the oldest small sh
 });
 
 test('sector drills start with a loadout matching the sector', () => {
-  const expected = [null, [6, 2, 1, 0], [8, 4, 1, 1], [10, 4, 2, 2]];
+  // Act I drills start on the kit ledger's arrival rows (docs/design/act-two.md, Part 3).
+  const expected = [null, [8, 2, 1, 1, 1], [14, 4, 2, 2, 2], [20, 6, 3, 3, 3]];
   for (const stage of [1, 2, 3]) for (const ship of ['kestrel', 'wraith']) {
     const game = new Game(); game.selectShip(ship); game.startDrill(stage);
     const p = game.player;
-    assert.deepEqual([p.level, p.escorts, p.sidewinder, p.signature], expected[stage]);
+    assert.deepEqual([p.level, p.escorts, p.sidewinder, p.signature, p.shield], expected[stage]);
     assert.equal(p.escortSlots.length, p.escorts);
     assert.equal(p.orbitals.length, ship === 'wraith' ? p.signature : 0);
     assert.equal(game.stats.powerPeak, p.level);

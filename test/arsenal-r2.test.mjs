@@ -59,8 +59,10 @@ const duel = (ship, stage, loadout) => {
   assert.equal(game.mode, 'victory');
   return { time: boss.age, starts, guards, ends, boss };
 };
-const DRILL_VESPER = { level: 6, escorts: 2, sidewinder: 1, signature: 0 };
+// Act I retune: the Vesper drill kit is the ledger's arrival row.
+const DRILL_VESPER = { level: 8, escorts: 2, sidewinder: 1, signature: 1 };
 const MAXED = { level: 15, escorts: 6, sidewinder: 4, signature: 4 };
+const REFERENCE = { level: 25, escorts: 6, sidewinder: 4, signature: 4 };
 
 test('sorties start at power 2; scatters and respawns still leave a bare level-1 ship', () => {
   const game = sortie(); const p = game.player;
@@ -90,10 +92,11 @@ test('selectShip resets the airframe to a bare sortie loadout', () => {
 
 test('guarded damage speeds the boss clock: a maxed arsenal kills Vesper far sooner than the drill kit', () => {
   for (const ship of SHIPS) {
-    const drill = duel(ship, 1, DRILL_VESPER), maxed = duel(ship, 1, MAXED);
+    const drill = duel(ship, 1, DRILL_VESPER), maxed = duel(ship, 1, MAXED), reference = duel(ship, 1, REFERENCE);
     assert.ok(drill.time > 19 && drill.time < 22.5, ship + ' drill kit keeps the authored pace: ' + drill.time.toFixed(2));
-    assert.ok(maxed.time > 12 && maxed.time < 15, ship + ' maxed arsenal kills Vesper in 12-15 s: ' + maxed.time.toFixed(2));
-    assert.ok(drill.time - maxed.time > 5, ship + ' power is rewarded');
+    assert.ok(maxed.time > 14 && maxed.time < 18, ship + ' a P15 full kit kills Vesper in 14-18 s: ' + maxed.time.toFixed(2));
+    assert.ok(reference.time > 12 && reference.time < 15.5, ship + ' the P25 reference kit kills Vesper in 12-15.5 s: ' + reference.time.toFixed(2));
+    assert.ok(drill.time - maxed.time > 3 && maxed.time > reference.time, ship + ' power is rewarded');
     assert.deepEqual(maxed.guards, [1, 2, 3], 'every phase still raises its guard cue');
     assert.deepEqual(maxed.ends, [1, 2, 3], 'and ends it');
   }
@@ -146,24 +149,27 @@ test('a bomb pickup with a full bay (4) becomes +1 power', () => {
   assert.ok(game.events.some(e => e.type === 'powerUp' && e.value === 3));
 });
 
-test('the sector-1 opening ramps an engaged pilot to power 4, power 6 and an escort pair quickly', () => {
+test('the sector-1 ramp follows the Act I ledger: slower, authored growth', () => {
+  // docs/design/act-two.md, Part 3: power 4 no earlier than ~12 s, the first
+  // escort pair no earlier than ~25 s (round 3 had 9 s and 8-14 s).
   for (const ship of SHIPS) {
     const game = sortie(ship), at = {};
-    for (let f = 0; f < 60 * 26; f++) {
+    for (let f = 0; f < 60 * 50; f++) {
       game.player.invuln = 99; game.update(1/60, pilot(game));
       const p = game.player;
       if (p.level >= 4) at.p4 ??= game.time;
       if (p.level >= 6) at.p6 ??= game.time;
       if (p.escorts >= 2) at.escort ??= game.time;
     }
-    assert.ok(at.p4 <= 10.5, `${ship} power 4 at ${at.p4}`);
-    assert.ok(at.p6 <= 25, `${ship} power 6 at ${at.p6}`);
-    assert.ok(at.escort <= 20, `${ship} first escort pair at ${at.escort}`);
+    assert.ok(at.p4 >= 12 && at.p4 <= 17, `${ship} power 4 at ${at.p4}`);
+    assert.ok(at.p6 <= 47, `${ship} power 6 at ${at.p6}`);
+    assert.ok(at.escort >= 25 && at.escort <= 34, `${ship} first escort pair at ${at.escort}`);
   }
 });
 
 test('wiping a whole formation drops one equipment item (never power); one escapee spoils it', () => {
-  const wipe = quiet(); wipe.stage = 2; wipe.stageTime = 30;  // sector-1 drifts carry authored power
+  // Act II rules (sector 4's drift); Act I wipes are flavour (test/act-one.test.mjs).
+  const wipe = quiet(); wipe.stage = 4; wipe.stageTime = 30;
   wipe._spawnStageBeat('drift');
   const squad = wipe.enemies.filter(e => e.squad);
   assert.equal(squad.length, 3);
@@ -177,7 +183,7 @@ test('wiping a whole formation drops one equipment item (never power); one escap
   assert.notEqual(wipe.pickups[0].type, 'power', 'and it is equipment, never power');
   assert.equal(wipe.stats.squadronBonuses, 1);
 
-  const spoiled = quiet(); spoiled.stage = 2; spoiled.stageTime = 30;
+  const spoiled = quiet(); spoiled.stage = 4; spoiled.stageTime = 30;
   spoiled._spawnStageBeat('drift');
   const [runner, ...rest] = spoiled.enemies;
   runner.y = 1000; spoiled._cleanup();
@@ -283,7 +289,7 @@ test('two seeded sorties with live beats, bullets and real scatters replay ident
       const game = sortie(ship);
       kit(game, { level: 9, escorts: 4, sidewinder: 2, signature: 3, reflector: 2, shield: 0 });
       const log = [];
-      for (let i = 0; i < 60 * 45 && game.mode === 'playing'; i++) {
+      for (let i = 0; i < 60 * 58 && game.mode === 'playing'; i++) {
         // Sweeps the field without dodging, so fire lands and salvage is chased.
         const input = { fire: i % 300 < 270, left: i % 240 < 60, right: i % 240 >= 120 && i % 240 < 180, focus: i % 200 < 40, roll: i % 420 === 0 };
         game.update(1/60, input);

@@ -7,9 +7,10 @@ test('flagship drills use sector weapons, end after one boss and preserve campai
   for(const stage of [1,2,3]){
     const g=new Game();g.selectShip('manta');g.best=23000;g.startDrill(stage);
     assert.equal(g.mode,'playing');assert.equal(g.practiceStage,stage);assert.ok(g.boss);
-    assert.equal(g.player.level,[0,6,8,10][stage]);assert.equal(g.player.power,g.player.level);
-    assert.equal(g.player.escorts,[0,2,4,4][stage]);assert.equal(g.player.sidewinder,[0,1,1,2][stage]);
-    assert.equal(g.player.signature,[0,0,1,2][stage]);assert.equal(g.player.shield,2);
+    // Act I drills start on the kit ledger's arrival rows; Manta adds its +2 shield (cap 3).
+    assert.equal(g.player.level,[0,8,14,20][stage]);assert.equal(g.player.power,g.player.level);
+    assert.equal(g.player.escorts,[0,2,4,6][stage]);assert.equal(g.player.sidewinder,[0,1,2,3][stage]);
+    assert.equal(g.player.signature,[0,1,2,3][stage]);assert.equal(g.player.shield,3);
     const lives=g.player.lives;g._awardScore(999999);
     assert.equal(g.best,23000);assert.equal(g.player.lives,lives,'practice does not farm score extends');
     g._killEnemy(g.boss);g._advanceStage();
@@ -21,7 +22,7 @@ test('flagship drills use sector weapons, end after one boss and preserve campai
 });
 test('defeated drill cannot promote a practice score into the campaign record',()=>{
   const g=new Game();g.best=4000;g.startDrill(2);g._awardScore(80000);
-  g.player.hp=1;g.player.lives=1;g.player.invuln=0;g._hurtPlayer(270,750);
+  g.player.shield=0;g.player.hp=1;g.player.lives=1;g.player.invuln=0;g._hurtPlayer(270,750);
   assert.equal(g.mode,'gameover');assert.equal(g.summary.practiceStage,2);assert.equal(g.best,4000);
 });
 test('career records are per-airframe, monotonic, persisted and ignore unranked drills',()=>{

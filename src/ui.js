@@ -505,7 +505,7 @@ export class HUD {
     text(ctx, "2 0 2 6", W / 2, 487, 84, COLORS.pale, 800, "center");
     rule(ctx, 99, 547, 441, 547, COLORS.gold, 2);
     text(ctx, "AN AERIAL SYMPHONY OF FIRE", W / 2, 571, 12, COLORS.gold, 700, "center", 2.3);
-    text(ctx, "THREE SECTORS  /  THREE FLAGSHIPS  /  ONE FLIGHT", W / 2, 613, 10, COLORS.muted, 700, "center", 1.2);
+    text(ctx, "TWO ACTS  /  FOUR FLAGSHIPS  /  ONE FLIGHT", W / 2, 613, 10, COLORS.muted, 700, "center", 1.2);
     panel(ctx, 53, 639, 434, 181, .86);
     text(ctx, "FLIGHT MANUAL", 77, 659, 11, COLORS.cyan, 800, "left", 2);
     rule(ctx, 77, 673, 463, 673);

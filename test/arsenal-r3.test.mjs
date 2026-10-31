@@ -46,11 +46,16 @@ const pilot = game => {
   return { fire: true, pointerActive: true, pointerX: tx, pointerY: ty };
 };
 
-// Arrival targets for an engaged no-hit pilot (docs/design/act-two.md, round 3).
-const ARRIVAL = [[12, 16], [22, 32], [35, 50]];
-const NAMES = ['Vesper', 'Aurelia', 'the Crown'];
+// Arrival targets for an engaged no-hit pilot: the Act I kit ledger
+// (docs/design/act-two.md, Part 3). Power may sit up to 3 above a row (Manta's
+// shield overflow puts it at the top); equipment lands exactly on the row.
+// Round 3 pinned Vesper 12-16, Aurelia 22-32 and the Crown 35-50.
+const ARRIVAL = [[7, 9], [13, 19], [19, 25], [24, 30]];
+const LEDGER = [[2, 1, 1], [4, 2, 2], [6, 3, 3], [6, 4, 4]];   // escorts, sidewinder, signature
+const SHIELD = [[0, 1], [1, 2], [2, 3], [3, 3]];               // non-Manta bank
+const NAMES = ['Vesper', 'Aurelia', 'the Crown', 'sector 4'];
 
-test('the engaged no-hit pilot arrives at each flagship inside the round-3 power band, on every ship', () => {
+test('the engaged no-hit pilot arrives at each flagship on the Act I kit ledger, on every ship', () => {
   for (const ship of SHIPS) {
     const game = sortie(ship), arrivals = [], ramp = {};
     let bonusEvents = 0, actTwo = 0;
@@ -67,19 +72,23 @@ test('the engaged no-hit pilot arrives at each flagship inside the round-3 power
         if (p.level >= 6) ramp.p6 ??= game.time;
         if (p.escorts >= 2) ramp.escort ??= game.time;
       }
-      if (game.boss && !hadBoss) arrivals.push(p.level);
+      if (game.boss && !hadBoss) arrivals.push({ ...p });
     }
     assert.equal(game.stage, 4, ship + ' clears Act I and flies on into sector 4');
     assert.equal(actTwo, 1, 'the ACT II card plays once, after the Crown');
     assert.equal(arrivals.length, 3);
-    arrivals.forEach((level, i) => {
-      const [lo, hi] = ARRIVAL[i];
-      assert.ok(level >= lo && level <= hi, `${ship} reaches ${NAMES[i]} at power ${level} (target ${lo}-${hi})`);
+    arrivals.push({ ...game.player });  // sector-4 start, after the Crown spoils
+    arrivals.forEach((kit, i) => {
+      const [lo, hi] = ARRIVAL[i], where = `${ship} at ${NAMES[i]}`;
+      assert.ok(kit.level >= lo && kit.level <= hi, `${where}: power ${kit.level} (target ${lo}-${hi})`);
+      assert.deepEqual([kit.escorts, kit.sidewinder, kit.signature], LEDGER[i], where + ': equipment row');
+      const [slo, shi] = ship === 'manta' ? [3, 3] : SHIELD[i];
+      assert.ok(kit.shield >= slo && kit.shield <= shi, `${where}: shield ${kit.shield}`);
     });
-    // "Insanely powerful right away" survives the curve change.
-    assert.ok(ramp.p4 <= 10.5, `${ship} power 4 at ${ramp.p4?.toFixed(1)} s`);
-    assert.ok(ramp.p6 <= 25, `${ship} power 6 at ${ramp.p6?.toFixed(1)} s`);
-    assert.ok(ramp.escort <= 20, `${ship} first escort pair at ${ramp.escort?.toFixed(1)} s`);
+    // Slower, authored growth (round 3: power 4 at 9 s, escorts at 8-14 s).
+    assert.ok(ramp.p4 >= 12 && ramp.p4 <= 17, `${ship} power 4 at ${ramp.p4?.toFixed(1)} s`);
+    assert.ok(ramp.p6 <= 47, `${ship} power 6 at ${ramp.p6?.toFixed(1)} s`);
+    assert.ok(ramp.escort >= 25 && ramp.escort <= 34, `${ship} first escort pair at ${ramp.escort?.toFixed(1)} s`);
     assert.equal(game.stats.squadronBonuses, bonusEvents, 'every payout is counted once');
     assert.ok(bonusEvents >= 15, ship + ' still earns squadron bonuses all campaign: ' + bonusEvents);
   }
@@ -153,6 +162,9 @@ test('missile and torpedo burst cues are gated per target; damage, splash and RN
   const duel = gated => {
     const game = new Game(); game.selectShip('manta'); game.startDrill(3);
     kit(game, { level: 25, escorts: 6, sidewinder: 4, signature: 6 });
+    // A deep pool keeps the duel off the guard floors, so only burst cues
+    // (not contact armour cues) are measured.
+    game.boss.hp = game.boss.maxHp = 1e6;
     if (!gated) Object.defineProperty(game.boss, 'burstCooldown', { get: () => 0, set() {} });
     let cues = 0, hpLog = [];
     for (let f = 0; f < 60 * 10; f++) {
@@ -165,7 +177,8 @@ test('missile and torpedo burst cues are gated per target; damage, splash and RN
   };
   const gated = duel(true), open = duel(false);
   assert.ok(gated.cues <= 1 / .085 + .5, 'gated burst cues per second: ' + gated.cues.toFixed(1));
-  assert.ok(gated.cues >= 3, 'bursts still read: ' + gated.cues.toFixed(1));
+  // Off the guard floor a P25 Manta lands ~2.8 gated burst cues/s (same as before the Act I retune).
+  assert.ok(gated.cues >= 2, 'bursts still read: ' + gated.cues.toFixed(1));
   assert.ok(open.cues > gated.cues, 'the ungated run floods more cues: ' + open.cues.toFixed(1));
   assert.deepEqual(gated.hpLog, open.hpLog, 'boss damage is identical tick for tick');
   assert.equal(gated.seed, open.seed, 'the seeded random stream is untouched');

@@ -40,28 +40,28 @@ const FLAK_SCREEN_TIME = .3;       // s (~230 px): Kestrel flak eats bullets onl
 const PARTICLE_CAP = 380;          // non-critical particles are dropped at the cap
 const PARTICLE_HARD_CAP = 520;     // critical feedback (phase, scatter, bomb...) may overflow to here
 const CRITICAL_PARTICLES = new Set(["boss","phase","ring","bomb","scatter","damage","shield","power","pickup","roll","explode"]);
-// 1942 squadron bonus: wiping every craft of one formation wave drops this many
-// equipment items (never power, so the bonus cannot compound the main gun).
+// 1942 squadron bonus (Act II): wiping every craft of one formation wave drops
+// this many equipment items (never power, so the bonus cannot compound the
+// main gun). Act I wipes pay points and flavour (ACT_ONE_SQUAD_*).
 const SQUADRON_BONUS_DROPS = 1;
-// Random drop weights. Power dominates so the main gun visibly grows; the
-// equipment share keeps a sector-1 run collecting a full kit.
+// Act II random drop weights (Act I rolls ACT_ONE_FLAVOUR instead).
 const DROP_WEIGHTS = [["power",50],["escort",12],["sidewinder",12],["signature",9],["shield",9],["reflector",8]];
 const EQUIPMENT_WEIGHTS = DROP_WEIGHTS.filter(([type])=>type!=="power");
-// Carriers, minibosses and bosses add bonus items from a fixed ladder, so every
-// run sees escorts, a sidewinder rack and a signature level in sector 1.
-// Sector 1 awards the six starter rungs (3 carriers, the miniboss, Vesper);
-// after that the ladder cycles equipment only. Power past sector 1 comes from
-// authored drops, flagship spoils and overflow conversions.
+// Act II bonus ladder (LEVIATHAN's turrets, its spoils, sector-4 drills).
+// Act I pays its kit from the authored ledger (STAGE_BEATS, ACT_ONE_SPOILS)
+// instead, and a campaign enters Act II on the equipment cycle. A fresh
+// ladder (drill 4) opens on the six starter rungs.
 const BONUS_LADDER = ["escort","sidewinder","signature","power","reflector","shield"];
 const BONUS_CYCLE = ["sidewinder","escort","signature","reflector","shield"];
-// Chance that an ordinary kill rolls the weighted table (round 3: x0.7).
+// Act II: chance that an ordinary kill rolls the weighted table (round 3: x0.7).
 // Formation scouts and wings never roll; they pay out as a squadron bonus.
 // Act II: interceptors pay out through the squadron bonus; hulls and turrets
 // carry authored drops; scavengers return what they stole; mines and enemy
 // torpedoes never drop.
 const DROP_CHANCE = {scout:.025,wing:.03,bomber:.18,ace:.1,turret:.18,carrier:1,mini:1,
   interceptor:0,gunboat:.16,hull:0,hullTurret:.08,scavenger:0,mine:0,torpedoEnemy:0};
-// Bonus items on top of the authored drop: carriers/minis drop 2-3 in total.
+// Act II bonus items on top of an authored drop (no Act II carriers or minis
+// fly today; Act I carriers and minis carry only their authored drops).
 const BONUS_DROPS = {carrier:1,mini:2};
 const BIG_TARGETS = new Set(["boss","bomber","turret","carrier","mini","hull","hullTurret","gunboat"]);
 // Sector-4 enemy types. Surface craft (hulls, their turrets, gunboats) sit
@@ -114,10 +114,92 @@ const VOLLEY_FULL = .75;
 const RESCUE_THREAT = .5;
 const BURST_CUE_COOLDOWN = .085;  // per target: missile/torpedo burst cues (not damage)
 const SMALL_SHOTS = new Set(["shot","lance","escort","flak","orbital","reflect"]);
+// ---- Act I (sectors 1-3): docs/design/act-two.md, Part 3 -----------------
+// The kit ledger: an engaged no-hit collector reaches each flagship with
+//   Vesper  P7-9   E2  M1 *1 S0-1;  Aurelia P13-16 E4 M2 *2 S1-2;
+//   Crown   P19-22 E6  M3 *3 S2-3;  sector 4 (after the Crown spoils) P24-27 E6 M4 *4 S3,
+// the power-25 reference kit Act II is tuned against. Most of it is authored
+// on STAGE_BEATS (formation leads, carriers, turrets, minis) and flagship
+// spoils; random rolls and squadron wipes are flavour.
+export function actOf(stage) { return stage>=ACT_TWO_STAGE?2:1; }
+// Act I HP by sector, tuned against the ledger kit at that point: popcorn
+// (scout, wing) dies to one or two volleys, heavies take sustained fire.
+// Replaces the old flat 1+(stage-1)*.22 curve (still used by the Act I craft
+// that sector 4 borrows for its scavenger curtain).
+const ACT_ONE_HP = {scout:[18,36,60],wing:[26,50,84],ace:[50,85,150],bomber:[85,250,600],
+  turret:[115,420,760],carrier:[150,650,1100],mini:[450,2000,3200]};
+// Act I generated drops are flavour: heavies (and the odd loner) roll a small
+// table, a squadron wipe always pays points and sometimes a reflector. Bombs
+// are authored (sector 2's closing relay carrier, sector 3's closing flank
+// lead), because a full bay converts them to power. HP is the authored value
+// for a kit on its entitlement; ACT_ONE_MERCY softens it for a short kit.
+const ACT_ONE_DROP_CHANCE = {scout:.008,wing:.01,bomber:.08,ace:.04,turret:.06,carrier:0,mini:0};
+const ACT_ONE_FLAVOUR = [["reflector",60],["power",40]];
+const ACT_ONE_SQUAD_FLAVOUR = [["reflector",1]];
+const ACT_ONE_SQUAD_ITEM = .3;     // chance a wipe also drops an item
+const ACT_ONE_SQUAD_POINTS = 150;  // per craft wiped
+// Flagship spoils (collected in the interlude). The Crown's spoils carry the
+// kit across the Act II gate: +4 power, the 4th sidewinder and signature.
+const ACT_ONE_SPOILS = [null,["power","shield"],["power","sidewinder"],
+  ["power","power","power","power","sidewinder","signature"]];
+// Act I reads the threat rank too, more gently than Act II: cooldowns x
+// ACT_ONE_PACE_BASE/(1+ACT_ONE_PACE_K*t) (1.45 bare or stripped, ~1.2 at
+// Vesper's ledger rank, ~0.92 at Aurelia's, ~0.8 at the Crown's), bullets
+// +12% at t=1, smaller volleys below ACT_ONE_SMALL and bigger ones past
+// each type's gate (late in sector 3 for a ledger kit).
+const ACT_ONE_PACE_BASE = 1.45, ACT_ONE_PACE_K = 1.3, ACT_ONE_SPEED = .12;
+// Authored per-sector cadence on top of the rank (was 1-(stage-1)*.08): the
+// Act I ramp toward sector 4.
+const ACT_ONE_STAGE_PACE = [0, 1.15, 1.1, 1];
+// Act I flagships lean on the rank like LEVIATHAN does, more gently: x1.5
+// slower for a stripped ship, ~1.36 for Vesper's arrival kit, ~1.1 at the
+// Crown's (round 2: was 1.25 base; flagship hits were the campaign's biggest cost).
+const ACT_ONE_BOSS_PACE_BASE = 1.5, ACT_ONE_BOSS_PACE_K = .6;
+// Act I flagship salvo cadence per phase (s, before the rank). Vesper teaches
+// (was .78/.58/.52); Aurelia and the Crown keep their pressure (was .78/.58/.48
+// and .78/.58/.42) over longer fights.
+const BOSS_CADENCE = [null,[.9,.68,.6],[.78,.58,.5],[.8,.6,.52]];
+// The Crown's final phase: a CROWN_FINAL_FAN-bullet magenta fan every salvo
+// and an amber counter-fan every CROWN_FINAL_COUNTER_EVERY salvos (round 1
+// fired both every salvo: 16+16, was 19+19). Density target: peak live enemy
+// bullets about 150 or fewer in the Crown fight, near sector 4's 118-137.
+const CROWN_FINAL_FAN = 16, CROWN_FINAL_COUNTER_EVERY = 2;
+const ACT_ONE_GATES = {ace:.4,carrier:.45,wing:.5,turret:.5,mini:.5,bomber:.55,scout:.6};
+// Below this a ship is bare or stripped (or early in sector 1): volleys shrink
+// a size (wing 5->3, bomber 7->5, turret 5->3, carrier 9->7, mini 12->9).
+const ACT_ONE_SMALL = .12;
+// Act I recovery: a comeback for a scattered or stripped pilot, never a
+// bonus for a clean one. A sector owes the pilot its entry row (below; escorts
+// in pairs) plus every authored item and rescue power of the beats flown so
+// far. Rescue and recovery leads (STAGE_BEATS `rescue` / `recover`) top up
+// whatever is missing: salvage that expired, a carrier that escaped, a pickup
+// that fell off the bottom. What the pilot holds counts the kit plus
+// everything still in play (live salvage and pickups, drops still riding
+// enemies), so a clean collector, always at or above the ledger, never sees a
+// recovery token. Each lead pays at most one equipment token (escort, then
+// signature, then sidewinder; Wraith takes its orbitals first) and, when power
+// is more than ACT_ONE_RECOVER_SLACK levels short, one power token worth a
+// level per ACT_ONE_RECOVER_STEP levels of shortfall past the slack (up to
+// ACT_ONE_RECOVER_MAX). Act I flagship phase breaks are opportunities too.
+const ACT_ONE_ENTRY = [null,
+  {power:2,escort:0,sidewinder:0,signature:0},     // launch
+  {power:9,escort:1,sidewinder:1,signature:1},     // after Vesper's spoils
+  {power:16,escort:2,sidewinder:3,signature:2}];   // after Aurelia's spoils
+const ACT_ONE_RECOVER_SLACK = 3, ACT_ONE_RECOVER_STEP = 2, ACT_ONE_RECOVER_MAX = 4;
+const ACT_ONE_RECOVER_ORDER = ["escort","signature","sidewinder"];
+const ACT_ONE_RECOVER_ORDER_WRAITH = ["signature","escort","sidewinder"];
+// Act I mercy: a kit short of its entitlement meets softer craft. Each beat's
+// craft (and each flagship, on arrival) spawn with HP x max(ACT_ONE_MERCY_FLOOR,
+// 1 - ACT_ONE_MERCY_PER_LEVEL x shortfall), the shortfall counted in arsenal
+// levels (power, 1 per escort, 1.5 per sidewinder or signature level) against
+// what the pilot holds or can still catch. A clean collector is never short,
+// so it meets the authored HP; flagships still hold their learn windows.
+const ACT_ONE_MERCY_PER_LEVEL = .045, ACT_ONE_MERCY_FLOOR = .4;
 const DRILL_LOADOUTS = [null,
-  {level:6,escorts:2,sidewinder:1,signature:0},    // Vesper
-  {level:8,escorts:4,sidewinder:1,signature:1},    // Aurelia
-  {level:10,escorts:4,sidewinder:2,signature:2},   // The Crown
+  // Act I drills start on the ledger's arrival rows (Manta adds its +2 shield, capped).
+  {level:8,escorts:2,sidewinder:1,signature:1,shield:1},    // Vesper
+  {level:14,escorts:4,sidewinder:2,signature:2,shield:2},   // Aurelia
+  {level:20,escorts:6,sidewinder:3,signature:3,shield:3},   // The Crown
   {level:25,escorts:6,sidewinder:4,signature:4,shield:3}  // LEVIATHAN: the power-25 reference kit
 ];
 // Visual growth of main-gun shots past the stream ceiling: logarithmic with no
@@ -140,40 +222,109 @@ const BOSS_LEARN_AGES = { phase2: 10, phase3: 18, defeat: 22 };
 // speeds that clock: the absorbed rate above BOSS_GUARD_PAR (share of max HP
 // per second, smoothed) adds BOSS_GUARD_K seconds of learn age per max HP.
 // A phase still lasts at least BOSS_PHASE_MIN of its authored window.
-const BOSS_LEARN_END = [0, BOSS_LEARN_AGES.phase2, BOSS_LEARN_AGES.phase3, BOSS_LEARN_AGES.defeat];
-const BOSS_LEARN_START = [0, 0, BOSS_LEARN_AGES.phase2, BOSS_LEARN_AGES.phase3];
-// LEVIATHAN plays longer phases: deck guns until learn age 24, broadside
-// until 46, the monsoon engine until 68 (then the desperation curtain ends).
-const LEVIATHAN_LEARN_END = [0, 24, 46, 68];
-const LEVIATHAN_LEARN_START = [0, 0, 24, 46];
+// Learn windows per flagship: [_, phase 2, phase 3, defeat]. Vesper keeps the
+// authored 10/18/22; Aurelia and the Crown play longer fights (Act I ramp),
+// and LEVIATHAN plays 24/46/68 (deck guns, broadside, monsoon engine).
+const BOSS_LEARN_BY_STAGE = [null,
+  [0, BOSS_LEARN_AGES.phase2, BOSS_LEARN_AGES.phase3, BOSS_LEARN_AGES.defeat],
+  [0, 12, 21, 25],
+  [0, 13, 25, 30],
+  [0, 24, 46, 68]];
 const BOSS_PHASE_MIN = .55;
 const BOSS_GUARD_K = 2.6;
 // LEVIATHAN's HP pool is ~56x Vesper's, so its absorbed share per second is
 // small; K is scaled so surplus firepower still buys learn age.
-const BOSS_GUARD_K_BY_STAGE = [0, BOSS_GUARD_K, BOSS_GUARD_K, BOSS_GUARD_K, 20];
-// Par = share of max HP per second the sector's reference kit deals.
+// Aurelia and the Crown carry more HP per arrival-kit second, so their K is
+// doubled to keep rewarding surplus firepower (a P25 kit still kills faster).
+const BOSS_GUARD_K_BY_STAGE = [0, BOSS_GUARD_K, 5.2, 5.2, 20];
+// Par = share of max HP per second the sector's arrival-ledger kit deals, so
+// that kit keeps the authored pacing and only surplus firepower buys time.
 // LEVIATHAN: the power-25 reference kit (~2,300 DPS on 145,000 HP).
-const BOSS_GUARD_PAR = [0, .22, .19, .17, .016];
+const BOSS_GUARD_PAR = [0, .19, .14, .15, .016];
+// Flagship HP, tuned against the arrival-ledger kit (Act I) and the
+// power-25 reference kit (LEVIATHAN).
+const BOSS_HP = [0, 3800, 9000, 10500, LEVIATHAN_HP];
 const BOSS_GUARD_SMOOTH = .4;      // seconds; absorbed-rate smoothing window
+// Lane sweeps. Act I: each sector's first sweep follows its first shield
+// (sector 2's comes from Vesper's spoils).
 const LANE_BEATS = [null,
-  [[10,150],[29,390],[47,175]],
-  [[9,385],[27,155],[44,365],[61,185]],
-  [[8,160],[25,380],[42,180],[59,360],[74,155]],
+  [[19.5,150],[32,390],[49,175]],
+  [[9,385],[23,155],[41,365],[59,185]],
+  [[21,380],[39.5,180],[53.5,360],[67.5,155],[77.5,375]],
   [[19,150],[43,385],[71,165],[84,375],[90,170]]
 ];
 // Each sector has its own cadence. The gaps before the closing acts let old
 // fire leave the screen before the next formation arrives.
-const STAGE_BEATS = [null,
-  [[.6,"split"],[4.7,"drift"],[7.5,"wing"],[12,"bomber"],[16.3,"drift"],[20,"ace"],
-   [24.2,"flank"],[29.5,"turret"],[34,"drift"],[37,"mini"],[42,"split"],
-   [46.5,"wing"],[51,"flank"],[56,"cross"]],
-  [[.7,"wing"],[4.8,"drift"],[8,"flank"],[11,"turret"],[15,"ace"],[19,"mini"],
-   [23,"drift"],[28.5,"pincer"],[33,"bomber"],[37,"flank"],[41,"relay"],
-   [45,"wing"],[49,"mini"],[53,"drift"],[59,"pincer"],[63,"turret"],[67,"relay"]],
-  [[.7,"curtain"],[5,"drift"],[9,"pincer"],[13,"ace"],[17,"relay"],[21,"mini"],
-   [25,"curtain"],[29,"flank"],[35,"wing"],[39,"pincer"],[43,"relay"],
-   [47,"mini"],[51,"drift"],[57,"curtain"],[62,"flank"],[66,"ace"],
-   [70,"turret"],[74,"pincer"],[78,"relay"]],
+// Act I beats are [time, pattern, drops]. The drops are the authored kit
+// ledger (docs/design/act-two.md, Part 3): `lead` is carried by the
+// formation lead, `heavy` by the carrier, mini or centre turret, and
+// `rescue` makes the lead carry power while threat < RESCUE_THREAT.
+// `recover` makes the lead a recovery lead (see _actOneRecovery): it pays
+// only a kit that has fallen below its entitlement, so a clean collector
+// never sees it. Rescue leads recover equipment too.
+// Drop -> attack is timed at collection, not spawn: a lead's drop reaches an
+// engaged collector ~4-6 s after its beat, a heavy's ~5-11 s, so each key
+// drop rides a beat early enough to be in hand about 2 s before the attack
+// that shows it off starts firing (~1.5 s after that attack's beat; a lane
+// sweep needs ~5 s to reach the ship). Openings land after the intro card
+// (2.5 s or later). A `wraith` entry overrides the beat's drops for Wraith
+// (Act I only): its low-power rails screen little, so its orbitals come
+// earlier in sectors 1 and 2. Same items per sector, same ledger.
+// Exported read-only for tests (the authored drop schedule).
+export const STAGE_BEATS = [null,
+  // Sector 1, THE SHALLOWS: teach the loop. P2 -> P8, one escort pair,
+  // sidewinder, signature, one shield.
+  [[2.8,"split",{rescue:1}],[7,"drift"],
+   [10,"wing",{lead:"power"}],                     // power 4 at ~14 s
+   [14.5,"bomber",{lead:"shield"}],                // shield (~20 s) -> the 19.5 s lane sweep (lands ~24 s)
+   [21.5,"drift",{lead:"escort"}],                 // escort pair (~26 s) ->
+   [24.5,"wing",{rescue:1}],
+   [29,"flank"],                                   //   side entries the wing covers ->
+   [33,"split",{recover:1}],                       //   a wider formation
+   [37.5,"turret",{lead:"sidewinder",heavy:["power"],   // sidewinder (~43 s) ->
+     wraith:{lead:"signature"}}],                  //   (Wraith: its orbitals here, then the aces' streams)
+   [41.5,"mini",{heavy:["power"]}],
+   [46.5,"ace",{recover:1}],                       //   weaving aces it cleans up ->
+   [50.5,"drift",{lead:"signature",                //   mixed altitudes; signature (~55.5 s) ->
+     wraith:{lead:"sidewinder"}}],                 //   (Wraith: the sidewinder, then mixed loners)
+   [52.5,"cross",{heavy:["power"]}],
+   [57.5,"bomber",{recover:1}]],                   //   denser aimed streams (then Vesper)
+  // Sector 2, STORM WALL: pressure the kit. P9 -> P15, escort pair,
+  // sidewinder, signature (Vesper's spoils bring the second shield).
+  [[2.6,"wing",{heavy:["power"],                   // Vesper's shield meets the 9 s lane sweep
+     wraith:{heavy:["signature"]}}],               //   (Wraith: its second orbital, ~8 s)
+   [6.5,"drift",{rescue:1}],
+   [10.5,"turret",{heavy:["signature"],            // power past 8 -> heavies; signature (~16.5 s) ->
+     wraith:{heavy:["power"]}}],
+   [15,"mini",{heavy:["power"]}],                  //   heavy plus popcorn ->
+   [20.5,"ace",{recover:1}],                       //   denser aimed streams
+   [24,"bomber",{lead:"escort"}],                  // escort pair (~30 s) ->
+   [28.5,"relay",{lead:"power"}],                  //   a curtain with a moving gap ->
+   [33.5,"flank"],[37.5,"pincer",{rescue:1}],      //   flanks, then pincers
+   [42.5,"drift",{lead:"sidewinder",recover:1}],   // sidewinder (~48 s) ->
+   [45.5,"mini",{heavy:["power"]}],
+   [51,"pincer",{recover:1}],                      //   weaving aces ->
+   [55,"wing",{recover:1}],                        //   mixed altitudes
+   [60,"relay",{heavy:["bomb"]}],[64.5,"turret",{recover:1}],[68.5,"flank",{recover:1}]],
+  // Sector 3, THE CROWN: a real test, one notch below sector 4. P16 -> P20
+  // (plus the closing bomb, a power level for a full bay),
+  // the third escort pair, signature, shield and a reflector.
+  [[2.6,"curtain"],
+   [7,"pincer",{rescue:1}],                        // Aurelia's sidewinder -> weaving aces
+   [11,"drift",{lead:"shield"}],                   // shield (~16 s) -> the 21 s lane sweep ->
+   [14,"relay",{recover:1}],
+   [22,"curtain",{lead:"signature"}],              //   a curtain with a moving gap; signature (~27 s) ->
+   [26.5,"mini"],
+   [32,"ace",{recover:1}],                         //   denser aimed streams ->
+   [36,"wing",{lead:"escort",heavy:["power"]}],    //   streams plus formation; the full wing (~41 s) ->
+   [41,"relay",{recover:1}],
+   [46,"flank"],                                   //   flanks, then wide pincers
+   [50,"pincer",{lead:"reflector",rescue:1}],      // reflector (~56 s) ->
+   [55.5,"mini",{heavy:["power"]}],
+   [61,"curtain",{recover:1}],                     //   a dense wave where reflection pays
+   [65.5,"drift",{recover:1}],[69,"ace"],[72.5,"turret"],
+   [75.5,"flank",{lead:"bomb",recover:1}],         // the closing bomb (~77.5 s), before the Crown
+   [79,"relay"]],
   // Sector 4, IRON MONSOON (~95 s). 1: squadrons to melt (2.5-12 s; the first
   // waits out the 3.4 s intro card, and the four stay ~2.3 s apart so a weak
   // ship can wipe each and catch its rescue drop). 2: the
@@ -213,6 +364,7 @@ export class Game {
     this._sidewinderClock=0; this._signatureClock=0; this._escortVolley=0; this._bonusIndex=0;
     this._squads=new Map(); this._squadId=0;
     this._pickupId=0; this._scavengerCall=0; this._scavengerFlank=false; this.threat=0;
+    this._hpScale=1;
     this._syncArsenal();
   }
   selectShip(id) {
@@ -231,6 +383,8 @@ export class Game {
     return true;
   }
   get highScore() { return this.best; }
+  // 1 for sectors 1-3, 2 from ACT_TWO_STAGE on.
+  get act() { return actOf(this.stage); }
   get bestScore() { return this.best; }
   get progress() { return this.boss ? Math.max(0,1-this.boss.hp/this.boss.maxHp) :
     Math.min(1,this.stageTime/this.stageGoal[this.stage]); }
@@ -328,11 +482,13 @@ export class Game {
     // Drills start with a loadout matching the sector a campaign pilot would bring.
     const p=this.player,kit=DRILL_LOADOUTS[stage];
     p.level=p.power=kit.level;p.escorts=kit.escorts;p.sidewinder=kit.sidewinder;p.signature=kit.signature;
-    p.drones=0;p.shield=p.maxShield=kit.shield??(p.shipId==="manta"?2:0);
+    // Manta brings its +2 shield bonus to the Act I drills (capped at 3).
+    const manta=p.shipId==="manta";
+    p.drones=0;p.shield=p.maxShield=stage<ACT_TWO_STAGE&&manta?Math.min(SHIELD_CAP,kit.shield+2):kit.shield;
     this._syncEscortSlots();for(const slot of p.escortSlots){slot.x=p.x+slot.side*(42+slot.rank*30);slot.y=p.y+14;}
     this._syncOrbitals();this._syncArsenal();
     p.invuln=2;this.stats.powerPeak=p.level;
-    if(stage>=ACT_TWO_STAGE)this.threat=this._threatTarget();
+    this.threat=this._threatTarget();
     this.events=[];this._spawnBoss();return true;
   }
   update(dt,input={}) {
@@ -385,7 +541,7 @@ export class Game {
     else if (!this.boss) {
       const beats=STAGE_BEATS[this.stage];
       while(this._beatIndex<beats.length&&this.stageTime>=beats[this._beatIndex][0]) {
-        this._spawnStageBeat(beats[this._beatIndex][1]);
+        this._spawnStageBeat(beats[this._beatIndex][1],this._beatDrops(beats[this._beatIndex][2]));
         this._beatIndex++;
       }
       const lanes=LANE_BEATS[this.stage];
@@ -394,10 +550,11 @@ export class Game {
         this._laneIndex++;
       }
     }
-    if(this.stage>=ACT_TWO_STAGE) {
+    // The threat rank runs in every sector (Act I reads it more gently).
+    {
       const want=this._threatTarget(),rate=want>this.threat?THREAT_RISE:THREAT_FALL;
       this.threat+=this._clamp(want-this.threat,-rate*h,rate*h);
-    } else this.threat=0;
+    }
     // Act II: a scatter mid-sector calls scavengers in after the salvage.
     if(this._scavengerCall&&this.time>=this._scavengerCall) {
       this._scavengerCall=0;
@@ -669,7 +826,10 @@ export class Game {
     const specs={scout:[22,15,150,160],wing:[30,17,155,220],bomber:[72,25,98,470],
       ace:[50,20,170,400],turret:[90,22,94,420],carrier:[125,27,75,600],mini:[250,34,54,1200]};
     if(ACT_TWO_TYPES.has(type))return this._actTwoEnemy(type,x,y,o);
-    const [baseHp,r,vy,value]=specs[type],hp=baseHp*(1+(this.stage-1)*.22);
+    // Act I: HP tuned against the ledger kit per sector. Sector 4 borrows
+    // Act I craft for its scavenger curtain and keeps the old flat curve.
+    const [baseHp,r,vy,value]=specs[type];
+    const hp=this.stage<ACT_TWO_STAGE?ACT_ONE_HP[type][this.stage-1]*this._hpScale:baseHp*(1+(this.stage-1)*.22);
     const e={id:++this._id,type,x,y,baseX:x,r,hp,maxHp:hp,age:0,vy:o.vy??vy,
       vx:o.vx||0,turnAt:o.turnAt||999,turnVx:o.turnVx||0,amp:o.amp||0,freq:o.freq||1.4,phase:o.phase||0,
       fireAt:o.fireAt??this._range(.9,2.1),fireRate:o.fireRate||2.4,
@@ -679,19 +839,30 @@ export class Game {
   }
   // A formation wave whose craft all fall to the player earns a bonus fan.
   _newSquad() { const id=++this._squadId;this._squads.set(id,{total:0,killed:0});return id; }
-  _spawnStageBeat(pattern) {
+  // drops: the beat's authored ledger drops (Act I), see STAGE_BEATS.
+  _spawnStageBeat(pattern,drops) {
+    // Act I mercy: the beat's craft spawn softer for a kit below its entitlement.
+    if(this.stage<ACT_TWO_STAGE)this._hpScale=this._actOneMercy();
     if(this.stage>=ACT_TWO_STAGE&&pattern!=="curtain"&&pattern!=="drift"&&pattern!=="flank") this._spawnActTwoBeat(pattern);
-    else if(pattern==="drift") this._spawnDrift();
-    else if(pattern==="flank") this._spawnFlank();
-    else this._spawnWave(pattern);
+    else if(pattern==="drift") this._spawnDrift(drops);
+    else if(pattern==="flank") this._spawnFlank(drops);
+    else this._spawnWave(pattern,drops);
+    this._hpScale=1;
     this._event("wave",270,0,pattern);
   }
-  _spawnWave(pattern) {
+  // Authored drops ride on a formation's lead (or its rescue power) and on
+  // its heavy (carrier, mini, centre turret).
+  _authorDrops(lead,heavy,drops) {
+    if(!drops)return;
+    if(lead&&drops.lead)lead.drop=drops.lead;
+    if(lead&&drops.rescue)lead.rescue=true;
+    if(lead&&drops.recover)lead.recover=true;
+    if(heavy&&drops.heavy)heavy.drop=drops.heavy.length===1?drops.heavy[0]:[...drops.heavy];
+  }
+  _spawnWave(pattern,drops) {
     this.wave++;
-    const w=this.wave,s=this.stage;
-    // Sector 1 is the power warm-up: every split's lead wing, the bomber pair's
-    // lead and every drift's centre scout carry a guaranteed power (6 levels).
-    const warmup=s===1;
+    const s=this.stage;
+    let lead=null,heavy=null;
     if(pattern==="split") {
       // Split spearhead: two readable lanes that close toward the centre.
       const squad=this._newSquad();
@@ -700,67 +871,78 @@ export class Game {
         this._enemy("scout",x,-25-Math.abs(i-(7+s)/2)*32,
           {amp:(x<270?1:-1)*27,phase:i*.28,fireAt:1.35+i*.065,squad});
       }
-      this._enemy("wing",100,-115,{vx:55,amp:20,fireAt:1.65,squad,drop:warmup?"power":null});
+      lead=this._enemy("wing",100,-115,{vx:55,amp:20,fireAt:1.65,squad});
       this._enemy("wing",440,-115,{vx:-55,amp:-20,fireAt:1.65,squad});
     } else if(pattern==="wing") {
-      const squad=this._newSquad();
+      const squad=this._newSquad(),centre=Math.floor((6+s)/2);
       for(let i=0;i<6+s;i++) {
         const x=70+i*(400/(5+s));
-        this._enemy("wing",x,-28-Math.abs(i-(5+s)/2)*24,
+        const e=this._enemy("wing",x,-28-Math.abs(i-(5+s)/2)*24,
           {vx:(270-x)*.11,amp:22,phase:i*.54,fireAt:1.4,squad});
+        if(i===centre)lead=e;
       }
-      this._enemy("carrier",270,-125,{drop:"power",fireAt:1.75});
+      heavy=this._enemy("carrier",270,-125,{fireAt:1.75});
     } else if(pattern==="bomber") {
       const squad=this._newSquad();
-      this._enemy("bomber",132,-42,{amp:42,fireRate:2.05,fireAt:1.35,squad,drop:warmup?"power":null});
-      this._enemy("bomber",408,-88,{amp:-42,phase:2,fireRate:2.05,fireAt:1.6,squad});
+      lead=this._enemy("bomber",132,-42,{amp:42,fireRate:2.05,fireAt:1.35,squad});
+      heavy=this._enemy("bomber",408,-88,{amp:-42,phase:2,fireRate:2.05,fireAt:1.6,squad});
       for(let i=0;i<5+s;i++)
         this._enemy("scout",58+i*(424/(4+s)),-80-i*21,{amp:i%2?32:-32,phase:i*.7,fireAt:1.55,squad});
     } else if(pattern==="ace") {
       const squad=this._newSquad();
-      this._enemy("ace",80,-42,{vx:90,turnAt:2.2,turnVx:-145,amp:24,fireRate:1.38,drop:w===4?"bomb":null,squad});
+      lead=this._enemy("ace",80,-42,{vx:90,turnAt:2.2,turnVx:-145,amp:24,fireRate:1.38,squad});
       this._enemy("ace",460,-76,{vx:-90,turnAt:2.2,turnVx:145,amp:-24,phase:2,fireRate:1.38,squad});
       for(let i=0;i<5+s;i++)
         this._enemy("wing",65+i*(410/(4+s)),-90-i*24,{fireAt:1.6,squad});
     } else if(pattern==="turret") {
-      for(let i=0;i<3;i++)
-        this._enemy("turret",95+i*175,-45-i*48,{fireRate:1.9,drop:i===1?"power":null});
-      for(let i=0;i<6+s;i++)
-        this._enemy("scout",45+i*(450/(5+s)),-138-i*26,{amp:55,phase:i*.48});
+      for(let i=0;i<3;i++) {
+        const e=this._enemy("turret",95+i*175,-45-i*48,{fireRate:1.9});
+        if(i===1)heavy=e;
+      }
+      for(let i=0;i<6+s;i++) {
+        const e=this._enemy("scout",45+i*(450/(5+s)),-138-i*26,{amp:55,phase:i*.48});
+        if(!i)lead=e;
+      }
     } else if(pattern==="mini") {
-      this._enemy("mini",this._range(170,370),-85,{fireRate:1.35,drop:"power"});
+      heavy=this._enemy("mini",this._range(170,370),-85,{fireRate:1.35});
       for(let i=0;i<6+s;i++)
         this._enemy("scout",50+i*(440/(5+s)),-45-i*27,{amp:i%2?33:-33,fireAt:1.6});
     } else if(pattern==="cross") {
       const squad=this._newSquad();
       for(let i=0;i<9+s;i++) {
         const side=i%2?1:-1;
-        this._enemy("wing",side>0?485:55,-22-i*31,
+        const e=this._enemy("wing",side>0?485:55,-22-i*31,
           {vx:-side*95,turnAt:2,turnVx:side*135,amp:side*23,fireAt:1.55+i*.08,squad});
+        if(!i)lead=e;
       }
-      this._enemy("carrier",270,-205,{drop:"shield"});
+      heavy=this._enemy("carrier",270,-205,{});
     } else if(pattern==="pincer") {
       // The second pass comes from the sides, leaving a readable centre lane.
       for(const side of [-1,1])
-        for(let i=0;i<3;i++) this._enemy("ace",side<0?-25:565,-30-i*70,
-          {vx:-side*(94+i*9),vy:105,turnAt:2.5,turnVx:side*125,
-           fireAt:1.55+i*.2,fireRate:2.15,drop:i===1&&side<0?"shield":null});
+        for(let i=0;i<3;i++) {
+          const e=this._enemy("ace",side<0?-25:565,-30-i*70,
+            {vx:-side*(94+i*9),vy:105,turnAt:2.5,turnVx:side*125,fireAt:1.55+i*.2,fireRate:2.15});
+          if(i===1&&side<0)lead=e;
+        }
     } else if(pattern==="relay") {
       // Alternating columns create a moving gap instead of a solid wall.
       for(let i=0;i<6;i++) {
         const side=i%2?-1:1;
-        this._enemy("wing",side>0?425:115,-30-i*59,
+        const e=this._enemy("wing",side>0?425:115,-30-i*59,
           {vx:-side*38,amp:side*26,fireAt:1.45+i*.13,fireRate:2.75});
+        if(!i)lead=e;
       }
-      // Only each sector's closing relay carries a bomb; earlier relays repair.
-      const lastRelay=this.stage===2?this.stageTime>=60:this.stageTime>=70;
-      this._enemy("carrier",270,-440,{drop:lastRelay?"bomb":"shield",fireAt:2.3,fireRate:3.2});
+      heavy=this._enemy("carrier",270,-440,{fireAt:2.3,fireRate:3.2});
     } else if(pattern==="curtain") {
       // Staggered lanes announce the last sector without sealing all exits.
-      for(let i=0;i<7;i++) this._enemy("wing",55+i*72,-28-i*57,
-        {amp:i%2?18:-18,fireAt:1.35+i*.12,fireRate:2.65});
-      this._enemy("turret",270,-500,{fireAt:2.2,fireRate:2.8});
+      for(let i=0;i<7;i++) {
+        const e=this._enemy("wing",55+i*72,-28-i*57,
+          {amp:i%2?18:-18,fireAt:1.35+i*.12,fireRate:2.65});
+        if(i===3)lead=e;
+      }
+      heavy=this._enemy("turret",270,-500,{fireAt:2.2,fireRate:2.8});
     }
+    this._authorDrops(lead,heavy,drops);
   }
   _spawnLaneSweep(gap) {
     // Two slow rows announce the danger at mid-field before reaching the
@@ -776,19 +958,20 @@ export class Game {
     }
     this.events.push({type:"lane",x:gap,y:-40,value:next,speed,rows:[{x:gap,y:-40},{x:next,y:-165}]});
   }
-  _spawnDrift() {
+  _spawnDrift(drops) {
     const left=this._range(75,175),right=540-left,squad=this._newSquad();
-    const warmup=this.stage===1;
     this._enemy("scout",left,-26,{amp:24,phase:this._rand()*3,fireAt:99,squad});
-    this._enemy("scout",270,-72,{amp:this._range(-22,22),fireAt:1.85,fireRate:3.6,squad,drop:warmup?"power":null});
+    const lead=this._enemy("scout",270,-72,{amp:this._range(-22,22),fireAt:1.85,fireRate:3.6,squad});
     this._enemy("scout",right,-46,{amp:-24,phase:this._rand()*3,fireAt:99,squad});
+    this._authorDrops(lead,null,drops);
   }
-  _spawnFlank() {
+  _spawnFlank(drops) {
     const y=310+this._range(-30,35);
-    this._enemy("ace",-28,y,{vy:92,vx:126,turnAt:2.5,turnVx:-165,
+    const lead=this._enemy("ace",-28,y,{vy:92,vx:126,turnAt:2.5,turnVx:-165,
       amp:10,fireAt:1.65,fireRate:3.5});
     this._enemy("ace",568,y+35,{vy:92,vx:-126,turnAt:2.5,turnVx:165,
       amp:-10,fireAt:1.85,fireRate:3.5});
+    this._authorDrops(lead,null,drops);
     this._event("flank",270,y,0);
   }
   _spawnBoss() {
@@ -796,7 +979,8 @@ export class Game {
     for(const e of this.enemies)if(!e.dead&&e.carrying)this.stats.salvageLost+=e.carrying.value||1;
     this.enemies=[];this.bullets.length=0;this._scavengerCall=0;
     const names=["","VESPER","AURELIA","THE CROWN","LEVIATHAN"];
-    const hp=[0,2600,4700,5800,LEVIATHAN_HP][this.stage];
+    // Act I mercy: a flagship meets a short kit with less HP (never in drills).
+    const hp=(BOSS_HP[this.stage]??LEVIATHAN_HP)*(this.stage<ACT_TWO_STAGE&&!this.practiceStage?this._actOneMercy(true):1);
     const leviathan=this.stage===4;
     // w/h are the collision half-extents (an ellipse); LEVIATHAN is far wider.
     this.boss={id:++this._id,type:"boss",name:names[this.stage],
@@ -1250,6 +1434,12 @@ export class Game {
           this._particle(e.x,e.y,0,0,.65,10,"magenta","ring");
           this._event("bossPhase",e.x,e.y,phase);
           if(e.leviathan)this._leviathanEnterPhase(e);
+          // Act I: a phase break is a recovery opportunity for a kit below
+          // the sector's entitlement (a clean collector gets nothing).
+          else if(this.stage<ACT_TWO_STAGE) {
+            const tokens=this._actOneRecovery(e,[]);
+            if(tokens.length)this._dropMany(e.x,e.y+40,tokens);
+          }
         }
         if(e.phase===3&&e.guard&&this._bossUnlocked(e)) {
           e.guard=false;e.guardUntil=0;
@@ -1274,7 +1464,7 @@ export class Game {
         if(e.leviathan)this._leviathanFire(e,h);
         else if(e.age>2.8&&e.age>=e.fireAt) {
           this._bossFire(e);
-          e.fireAt=e.age+(e.phase===3 ? (this.stage===1 ? 0.52 : this.stage===2 ? 0.48 : 0.42) : e.phase===2 ? 0.58 : 0.78);
+          e.fireAt=e.age+BOSS_CADENCE[this.stage][e.phase-1]*ACT_ONE_BOSS_PACE_BASE/(1+ACT_ONE_BOSS_PACE_K*this.threat);
         }
       } else if(ACT_TWO_TYPES.has(e.type)) this._updateActTwoEnemy(e,h,p);
       else {
@@ -1283,7 +1473,7 @@ export class Game {
         e.angle=Math.atan2(e.vx+(e.age>e.turnAt?e.turnVx:0)+e.amp*e.freq*Math.cos(e.age*e.freq+e.phase),e.vy)*.35;
         if(e.age>=e.fireAt&&e.y>20&&e.y<680) {
           this._enemyFire(e,p);
-          e.fireAt=e.age+e.fireRate*(1-(this.stage-1)*.08);
+          e.fireAt=e.age+e.fireRate*(this.stage<ACT_TWO_STAGE?ACT_ONE_STAGE_PACE[this.stage]*this._actOnePace():1-(this.stage-1)*.08);
         }
       }
     }
@@ -1301,17 +1491,72 @@ export class Game {
     if(!l.cancelled&&boss.age>=l.firesAt&&!l.fired){l.fired=true;this._event('lanceFire',l.x,l.y);}
     l.active=!l.cancelled&&boss.age>=l.firesAt&&boss.age<l.endsAt;
   }
+  // Act I sources read the threat rank: cooldowns (_actOnePace), bullet
+  // speed (+12% at threat 1) and, past each type's gate, a bigger volley.
+  // Sector 4's borrowed Act I craft keep their authored fire.
+  _actOnePace() { return ACT_ONE_PACE_BASE/(1+ACT_ONE_PACE_K*this.threat); }
+  // A beat's drops for the current ship (STAGE_BEATS `wraith` overrides).
+  _beatDrops(drops) { return drops?.wraith&&this.player.shipId==="wraith"?{...drops,...drops.wraith}:drops; }
+  // Act I entitlement: the sector's entry row plus every authored item (and
+  // rescue power) of the beats flown so far.
+  _actOneOwed(wholeSector=false) {
+    const owed={...ACT_ONE_ENTRY[this.stage]},beats=STAGE_BEATS[this.stage];
+    for(let i=0;i<(wholeSector?beats.length:this._beatIndex)&&i<beats.length;i++) {
+      const d=this._beatDrops(beats[i][2]);if(!d)continue;
+      for(const type of [].concat(d.lead||[],d.heavy||[]))if(type in owed)owed[type]++;
+      if(d.rescue)owed.power++;
+    }
+    return owed;
+  }
+  // What the pilot holds or can still catch: the kit, live salvage and
+  // pickups, drops still riding enemies, and a kill's pending fan.
+  _actOneHeld(pending=[]) {
+    const p=this.player,held={power:p.level,escort:p.escorts/2,sidewinder:p.sidewinder,signature:p.signature};
+    const add=(type,n)=>{if(type in held)held[type]+=n;};
+    for(const item of this.pickups)if(!item.dead)add(item.type,Math.max(1,Math.floor(item.value||1)));
+    for(const e of this.enemies) {
+      if(e.dead)continue;
+      if(e.drop)for(const type of [].concat(e.drop))add(type,1);
+      if(e.rescue&&this.threat<RESCUE_THREAT)add("power",1);
+    }
+    for(const entry of pending)add(entry.type||entry,entry.value||1);
+    return held;
+  }
+  // Act I mercy factor (HP scale) for a kit short of its entitlement, in
+  // arsenal levels; 1 for a kit at or above the ledger.
+  _actOneMercy(wholeSector=false) {
+    if(!ACT_ONE_ENTRY[this.stage])return 1;
+    const owed=this._actOneOwed(wholeSector),held=this._actOneHeld();
+    const level=k=>k.power+2*k.escort+1.5*k.sidewinder+1.5*k.signature;
+    return Math.max(ACT_ONE_MERCY_FLOOR,1-ACT_ONE_MERCY_PER_LEVEL*Math.max(0,level(owed)-level(held)));
+  }
+  // The recovery tokens a rescue or recovery lead adds to its kill's fan.
+  _actOneRecovery(e,pending) {
+    if(this.practiceStage||!ACT_ONE_ENTRY[this.stage])return [];
+    const owed=this._actOneOwed(),held=this._actOneHeld(pending),out=[];
+    const order=this.player.shipId==="wraith"?ACT_ONE_RECOVER_ORDER_WRAITH:ACT_ONE_RECOVER_ORDER;
+    const type=order.find(t=>held[t]<owed[t]);
+    if(type)out.push({type,recovery:true});
+    const short=owed.power-held.power;
+    if(short>ACT_ONE_RECOVER_SLACK)out.push({type:"power",value:Math.min(ACT_ONE_RECOVER_MAX,Math.ceil((short-ACT_ONE_RECOVER_SLACK)/ACT_ONE_RECOVER_STEP)),recovery:true});
+    return out;
+  }
   _enemyFire(e,p) {
-    const speed=160+this.stage*18;
-    if(e.type==="scout") this._aimed(e.x,e.y+14,p.x,p.y,speed,"red",4.5);
-    else if(e.type==="wing") this._spread(e.x,e.y+15,p.x,p.y,5,.115,speed+5,"amber",4.5);
-    else if(e.type==="bomber") this._spread(e.x,e.y+20,p.x,p.y,7,.12,speed-20,"rose",5);
-    else if(e.type==="ace") this._spread(e.x,e.y+20,p.x,p.y,3,.1,speed+75,"cyan",4);
-    else if(e.type==="turret") this._spread(e.x,e.y+15,p.x,p.y,5,.22,speed-35,"magenta",5);
-    else if(e.type==="carrier") this._radial(e.x,e.y,9,speed-35,e.age*.7,"amber",5);
+    const actOne=this.stage<ACT_TWO_STAGE,t=actOne?this.threat:0;
+    const speed=(160+this.stage*18)*(1+ACT_ONE_SPEED*t);
+    const big=actOne&&t>=(ACT_ONE_GATES[e.type]??9),small=actOne&&t<ACT_ONE_SMALL;
+    if(e.type==="scout") {
+      if(big)this._spread(e.x,e.y+14,p.x,p.y,2,.09,speed,"red",4.5);
+      else this._aimed(e.x,e.y+14,p.x,p.y,speed,"red",4.5);
+    }
+    else if(e.type==="wing") this._spread(e.x,e.y+15,p.x,p.y,big?7:small?3:5,big?.1:small?.14:.115,speed+5,"amber",4.5);
+    else if(e.type==="bomber") this._spread(e.x,e.y+20,p.x,p.y,big?9:small?5:7,big?.105:.12,speed-20,"rose",5);
+    else if(e.type==="ace") this._spread(e.x,e.y+20,p.x,p.y,big?5:3,big?.085:.1,speed+75,"cyan",4);
+    else if(e.type==="turret") this._spread(e.x,e.y+15,p.x,p.y,big?7:small?3:5,big?.18:.22,speed-35,"magenta",5);
+    else if(e.type==="carrier") this._radial(e.x,e.y,big?12:small?7:9,speed-35,e.age*.7,"amber",5);
     else if(e.type==="mini") {
-      this._radial(e.x,e.y,12,speed-15,e.age*.5,"magenta",5);
-      this._spread(e.x,e.y+20,p.x,p.y,3,.12,speed+25,"red",5);
+      this._radial(e.x,e.y,big?16:small?9:12,speed-15,e.age*.5,"magenta",5);
+      this._spread(e.x,e.y+20,p.x,p.y,big?5:3,.12,speed+25,"red",5);
     }
   }
   _bossFire(e) {
@@ -1359,15 +1604,17 @@ export class Game {
       // The Crown compresses mirrored curtains into a rotating final crossfire.
       const angle=e.age*.28;
       if(phase===1) {
-        this._radial(e.x,e.y+38,23,speed,Math.sin(e.age*.5)*.13,"amber",4.8,Math.PI*.08,Math.PI*.92);
+        this._radial(e.x,e.y+38,19,speed,Math.sin(e.age*.5)*.13,"amber",4.8,Math.PI*.08,Math.PI*.92);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,7,.13,speed+75,"red",5);
       } else if(phase===2) {
         this._radial(e.x-60,e.y+24,14,speed,angle,"magenta",4.5);
         this._radial(e.x+60,e.y+24,14,speed,-angle,"cyan",4.5);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,5,.11,speed+82,"red",5);
       } else {
-        this._radial(e.x,e.y+38,19,speed+20,sway,"magenta",4.6,Math.PI*.06,Math.PI*.94);
-        this._radial(e.x,e.y+38,19,speed-28,-sway+.05,"amber",4.4,Math.PI*.06,Math.PI*.94);
+        // The final crossfire: a magenta fan every salvo, the slower amber
+        // counter-fan on alternate salvos (CROWN_FINAL_*).
+        this._radial(e.x,e.y+38,CROWN_FINAL_FAN,speed+20,sway,"magenta",4.6,Math.PI*.06,Math.PI*.94);
+        if(salvo%CROWN_FINAL_COUNTER_EVERY===0)this._radial(e.x,e.y+38,CROWN_FINAL_FAN,speed-28,-sway+.05,"amber",4.4,Math.PI*.06,Math.PI*.94);
         if(salvo%2===0)this._spread(e.x,e.y+48,p.x,p.y,7,.105,speed+95,"cyan",4.5);
       }
     }
@@ -1377,9 +1624,10 @@ export class Game {
   }
   // Effective learn age: real age plus the time bought by guarded damage.
   _bossLearnAge(e) { return e.age+(e.learnShift||0); }
-  _bossLearnEnd(e) { return (e.leviathan?LEVIATHAN_LEARN_END:BOSS_LEARN_END)[e.phase]; }
+  _bossLearn() { return BOSS_LEARN_BY_STAGE[this.stage]??BOSS_LEARN_BY_STAGE[BOSS_LEARN_BY_STAGE.length-1]; }
+  _bossLearnEnd(e) { return this._bossLearn()[e.phase]; }
   _bossPhaseMin(e) {
-    const start=(e.leviathan?LEVIATHAN_LEARN_START:BOSS_LEARN_START)[e.phase];
+    const start=e.phase>1?this._bossLearn()[e.phase-1]:0;
     return BOSS_PHASE_MIN*(this._bossLearnEnd(e)-start);
   }
   _bossUnlocked(e) {
@@ -1536,8 +1784,17 @@ export class Game {
     return type;
   }
   // Several items from one kill fan out sideways so each is readable.
+  // Entries are a type, or {type,value,recovery} for an Act I recovery token
+  // (a power token may be worth 2-4 levels; the drop event carries
+  // recovery:true and amount).
   _dropMany(x,y,types) {
-    types.forEach((type,i)=>this._drop(x,y,type,(i-(types.length-1)/2)*70));
+    types.forEach((entry,i)=>{
+      const item=this._drop(x,y,entry.type||entry,(i-(types.length-1)/2)*70);
+      if(entry.recovery) {
+        item.recovery=true;if(entry.value>1)item.value=entry.value;
+        Object.assign(this.events[this.events.length-1],{recovery:true,amount:entry.value||1});
+      }
+    });
   }
   _updatePickups(h) {
     const p=this.player,interlude=this._transition>0;
@@ -1961,8 +2218,9 @@ export class Game {
           this._burst(other.x,other.y,8,"amber",120,"explode");
         }
       }
-      // Flagship spoils: collected automatically during the interlude.
-      this._dropMany(e.x,e.y,["power",this._bonusDropType()]);
+      // Flagship spoils: collected automatically during the interlude. Act I
+      // spoils are authored on the ledger; Act II pays power plus a ladder item.
+      this._dropMany(e.x,e.y,this.stage<ACT_TWO_STAGE?ACT_ONE_SPOILS[this.stage]:["power",this._bonusDropType()]);
       this._event("bossDown",e.x,e.y,this.stage);
       // LEVIATHAN's last pose, so presentation can sink the hull after boss is null.
       if(e.leviathan)Object.assign(this.events[this.events.length-1],
@@ -1980,26 +2238,41 @@ export class Game {
       this._burst(e.x,e.y,e.type==="mini"?32:e.type==="bomber"||e.type==="carrier"?16:8,
         e.type==="ace"?"cyan":"amber",e.type==="mini"?220:130,"explode");
       this.shake=Math.max(this.shake,e.type==="mini"?7:e.type==="bomber"?4:2);
-      // Authored drops stay; carriers and minibosses add ladder bonuses
-      // (2-3 items total); ordinary kills roll the weighted table.
-      const drops=[];
+      // Authored drops stay. Act II carriers and minibosses add ladder
+      // bonuses; Act I heavies carry only what their beat authors. Ordinary
+      // kills roll a table.
+      const drops=[],actOne=this.stage<ACT_TWO_STAGE;
       // Formation scouts and wings pay out through the squadron bonus instead
-      // of the random table; heavies and loners still roll it.
+      // of the random table; heavies and loners still roll it. Act I rolls a
+      // smaller flavour table at lower rates: the ledger is authored.
       const formation=e.squad&&FORMATION_TYPES.has(e.type);
+      const rescued=e.rescue&&this.threat<RESCUE_THREAT;
       if(e.drop)drops.push(...[].concat(e.drop));
-      else if(e.rescue&&this.threat<RESCUE_THREAT)drops.push("power");
-      else if(!formation&&this._rand()<(DROP_CHANCE[e.type]??.035)){const type=this._randomDropType();if(type)drops.push(type);}
-      for(let i=0;i<(BONUS_DROPS[e.type]||e.bonusDrops||0);i++)drops.push(this._bonusDropType());
+      // Act I: a rescue lead pays its power on top of an authored drop.
+      if(rescued&&(actOne||!e.drop))drops.push("power");
+      else if(!e.drop&&!rescued&&!formation&&this._rand()<((actOne?ACT_ONE_DROP_CHANCE:DROP_CHANCE)[e.type]??.035)) {
+        const type=actOne?this._rollTable(ACT_ONE_FLAVOUR):this._randomDropType();if(type)drops.push(type);
+      }
+      if(!actOne)for(let i=0;i<(BONUS_DROPS[e.type]||e.bonusDrops||0);i++)drops.push(this._bonusDropType());
+      // Act I recovery: a rescue or recovery lead tops up a kit that has
+      // fallen below its entitlement (never a clean collector's).
+      const recovery=actOne&&(e.rescue||e.recover)?this._actOneRecovery(e,drops):[];
       // Squadron wipe: the last kill of an intact formation adds a weighted
-      // equipment item (no power) to this kill's fan.
+      // equipment item (no power) to this kill's fan. Act I: the wipe pays
+      // points, and sometimes a reflector.
       const squad=e.squad&&this._squads.get(e.squad);
-      let wiped=0;
+      let wiped=0,bonusDrops=SQUADRON_BONUS_DROPS,points=0;
       if(squad&&++squad.killed>=squad.total) {
         this._squads.delete(e.squad);wiped=squad.total;this.stats.squadronBonuses++;
-        for(let i=0;i<SQUADRON_BONUS_DROPS;i++)drops.push(this._randomDropType(true));
+        if(actOne) {
+          points=ACT_ONE_SQUAD_POINTS*wiped;this._awardScore(points);
+          bonusDrops=this._rand()<ACT_ONE_SQUAD_ITEM?1:0;
+          if(bonusDrops)drops.push(this._rollTable(ACT_ONE_SQUAD_FLAVOUR));
+        } else for(let i=0;i<SQUADRON_BONUS_DROPS;i++)drops.push(this._randomDropType(true));
       }
+      if(recovery.length)drops.push(...recovery);
       if(drops.length)this._dropMany(e.x,e.y,drops);
-      if(wiped)this.events.push({type:"squadronBonus",x:e.x,y:e.y,value:wiped,drops:SQUADRON_BONUS_DROPS});
+      if(wiped)this.events.push({type:"squadronBonus",x:e.x,y:e.y,value:wiped,drops:bonusDrops,points});
       this._event("enemyDown",e.x,e.y,e.type);
       if(ACT_TWO_TYPES.has(e.type))this._actTwoKill(e);
     }
@@ -2047,9 +2320,16 @@ export class Game {
     for(const item of this.pickups)if(item.salvage&&!item.dead)this.stats.salvageLost+=item.value||1;
     this.pickups.length=0;this._squads.clear();this._scavengerCall=0;this._transitionLength=INTERLUDE;
     this.stage++;this.stageTime=0;this.wave=0;this._beatIndex=0;this._laneIndex=0;
+    // Each sector opens on a short power trip: the rank climbs back from 0.
+    this.threat=0;
+    // Act I pays its kit from the ledger; Act II's bonus ladder opens on its
+    // equipment cycle (the starter rungs belonged to the old sector 1).
+    if(this.stage===ACT_TWO_STAGE)this._bonusIndex=Math.max(this._bonusIndex,BONUS_LADDER.length);
     this._awardScore(0);
     this.enemies.length=0;this.bullets.length=0;
-    this.player.hp=Math.min(this.player.maxHp,this.player.hp+1);
+    // Act I sector clears repair the hull (round 2: the campaign has to be
+    // winnable for an average pilot); entering Act II still adds one point.
+    this.player.hp=this.stage<ACT_TWO_STAGE?this.player.maxHp:Math.min(this.player.maxHp,this.player.hp+1);
     this.player.bombs=Math.min(MAX_BOMBS,this.player.bombs+1);
     this.player.invuln=3;this.flash=.7;
     this._event("stage",270,170,this.stage);
@@ -2062,7 +2342,7 @@ export class Game {
       Math.min(10,accuracy*12)+Math.min(8,p.lives*2)-
       Math.min(24,s.hitsTaken*.65)-s.livesLost*2;
     const grade=merit>=84?"S":merit>=68?"A":merit>=50?"B":merit>=32?"C":"D";
-    this.summary={outcome,shipId:this.shipId,score:this.score,grade,stage:this.stage,livesRemaining:p.lives,
+    this.summary={outcome,shipId:this.shipId,score:this.score,grade,stage:this.stage,act:actOf(this.stage),livesRemaining:p.lives,
       practiceStage:this.practiceStage,bombsRemaining:p.bombs,
       time:this.time,kills:s.kills,grazes:s.grazes,shotsFired:s.shotsFired,
       shotsHit:s.shotsHit,accuracy,pickups:s.pickups,powerPeak:s.powerPeak,arsenalPeak:s.arsenalPeak,

@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game} from '../src/game.js';
 
+// Drill kits carry the ledger's shields; hull-hit checks fly without them.
 function arena(stage=2,phase=2){
-  const g=new Game();g.startDrill(stage);g.boss.phase=phase;g.boss.age=phase===1?3:phase===2?11:19;
+  const g=new Game();g.startDrill(stage);g.player.shield=0;g.boss.phase=phase;g.boss.age=phase===1?3:phase===2?11:19;
   g.boss.hp=g.boss.maxHp*(phase===1?.9:phase===2?.5:.25);g.boss.fireAt=999;g._updateEnemies(0);g.events=[];
   return g;
 }
@@ -51,7 +52,9 @@ test('a centered firing plan leaves the optional reactors intact for every airfr
     // Bare main gun at the old drill power: flank-covering arsenal pieces
     // (escorts, Kestrel flak) can legitimately reach the side reactors.
     const g=new Game();g.selectShip(ship);g.startDrill(2);const phases=new Set();
-    Object.assign(g.player,{level:4,power:4,escorts:0,sidewinder:0,signature:0});g._syncEscortSlots();g._syncOrbitals();
+    // The pilot never dodges, so spare lives keep it flying to the end: this
+    // pins the firing line, not survival against the final phase.
+    Object.assign(g.player,{level:4,power:4,escorts:0,sidewinder:0,signature:0,lives:9});g._syncEscortSlots();g._syncOrbitals();
     for(let frame=0;frame<60*75&&g.mode==='playing';frame++){
       g.update(1/60,{fire:true,focus});if(g.boss)phases.add(g.boss.phase);
     }

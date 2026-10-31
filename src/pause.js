@@ -2,7 +2,7 @@ import { CAMPAIGN_STAGES } from './game.js';
 // Pause / holding-pattern screen presentation.
 // main.js calls these hooks; keep the exported API stable.
 import { SHIPS, SPECIAL_LABELS, shipShape } from './ships.js';
-import { SECTOR_NAMES, FLAGSHIP_NAMES, interludeProgress } from './timeline.js';
+import { SECTOR_NAMES, FLAGSHIP_NAMES, actName, interludeProgress } from './timeline.js';
 
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -346,7 +346,7 @@ export class PausePanel {
     setData(this.root, 'kind', intel.kind);
 
     // Header.
-    setText($('holdSector'), drill ? 'FLAGSHIP DRILL' : 'SECTOR ' + pad(stage, 2));
+    setText($('holdSector'), actName(stage) + ' · ' + (drill ? 'DRILL' : 'SECTOR ' + pad(stage, 2)));
     setText($('holdSectorName'), drill ? FLAGSHIP_NAMES[drill] + ' / UNRANKED' : SECTOR_NAMES[stage]);
     setText($('holdClock'), clock(game.time) + ' IN FLIGHT');
     setText($('holdLine'), flavorFor(game, critical, intel));

@@ -2,7 +2,7 @@
 
 **Play now: https://knotenvy.github.io/Knotz2026/**
 
-A playable, original vertical scrolling shooter. Choose one of three aircraft and fight through three Pacific sectors. Authored aircraft and environment art combine with procedural lighting, weather, effects, music and sound. The public build contains the game shell, runtime modules, five local raster game assets and the brand icon and share-card images under `assets/brand/`.
+A playable, original vertical scrolling shooter. Choose one of three aircraft and fight through four Pacific sectors in two acts. Act I / Operation Long Meridian runs through the Shallows, Storm Wall and the Crown. Act II / Iron Monsoon pits you against LEVIATHAN in the typhoon. Equipment builds across Act I, and enemy pressure follows your carried arsenal in both acts. Authored aircraft and environment art combine with procedural lighting, weather, effects, music and sound. The public build contains the game shell, runtime modules, five local raster game assets and the brand icon and share-card images under `assets/brand/`.
 
 ## Run locally
 
@@ -113,7 +113,7 @@ For a music-free listening check, set MUSIC 0, EFFECTS 80 and AMBIENCE 60. Compa
 
 ### Flagship drills and career
 
-Vesper practice is available immediately in the hangar. Aurelia and Crown drills unlock after encountering them during a campaign. Drills start with sector-appropriate weapons and standard damage; they end after that flagship. Optional goals progress from securing a clear, to keeping all three lives, to a no-hit run. Result feedback distinguishes these outcomes without changing difficulty. Drills are explicitly unranked: practice score cannot change the campaign high score, earn career mastery or advance campaign records. Retry repeats the drill; Launch Sortie from the hangar starts the campaign.
+Vesper practice is available immediately in the hangar. Aurelia, Crown and LEVIATHAN drills unlock after encountering them during a campaign. Drills start with the arrival kit for that flagship and standard damage; they end after that flagship. Optional goals progress from securing a clear, to keeping all three lives, to a no-hit run. Result feedback distinguishes these outcomes without changing difficulty. Drills are explicitly unranked: practice score cannot change the campaign high score, earn career mastery or advance campaign records. Retry repeats the drill; Launch Sortie from the hangar starts the campaign.
 
 Each airframe retains its best campaign score, sectors cleared, grazes, conversions, flights and victories locally. The flight record shows accuracy, hits taken, flight time, graze/conversion counts, a personal-best comparison and advice based on the run. Completed drills save separate fastest-time and fewest-hit benchmarks per airframe and flagship in `2026-drills`. These practice benchmarks never count toward campaign mastery or score. Career data uses `2026-career`; saves merge prior bests and new flights from other open tabs. Unavailable or corrupt storage falls back to a playable fresh career. Keyboard/touch buttons and D-pad menu navigation can enter drills. Enter on the selected aircraft launches a campaign; the departure bar also stays visible while the hangar scrolls. Global mute is available from pause in landscape.
 
