@@ -9,7 +9,7 @@ const MAX_ESCORTS = 6;
 const SHOT_BUDGET = 650;           // live player shots; oldest small shots go first
 const BULLET_CAP = 700;            // enemy bullets, sectors 1-3
 // Act II (sectors 4+): docs/design/act-two.md, "Sector 4 build contract".
-export const CAMPAIGN_STAGES = 5;  // last playable sector; victory follows its flagship
+export const CAMPAIGN_STAGES = 6;  // last playable sector; victory follows its flagship (THE SOVEREIGN ends Act II)
 export const ACT_TWO_STAGE = 4;
 export const ACT_TWO_BULLET_CAP = 900;
 const INTERLUDE = 3.5;             // sector-clear interlude (timeline INTERLUDE_LENGTH)
@@ -62,30 +62,37 @@ const DROP_CHANCE = {scout:.025,wing:.03,bomber:.18,ace:.1,turret:.18,carrier:1,
   interceptor:0,gunboat:.16,hull:0,hullTurret:.08,scavenger:0,mine:0,torpedoEnemy:0,
   // Sector 5: boxes pay through the squadron bonus; foundries and bays carry
   // authored drops; drones are popcorn.
-  boxBomber:0,tailGunner:.06,skyAce:.1,foundry:0,foundryBay:0,drone:0};
+  boxBomber:0,tailGunner:.06,skyAce:.1,foundry:0,foundryBay:0,drone:0,
+  // Sector 6: echoes pay through the squadron bonus; the station and the
+  // SOVEREIGN's escorts carry authored drops; tethers carry stolen salvage.
+  echo:0,satellite:.1,station:0,stationTurret:.06,mirrorEscort:0,tether:0};
 // Act II bonus items on top of an authored drop (no Act II carriers or minis
 // fly today; Act I carriers and minis carry only their authored drops).
 const BONUS_DROPS = {carrier:1,mini:2};
 const BIG_TARGETS = new Set(["boss","bomber","turret","carrier","mini","hull","hullTurret","gunboat",
-  "boxBomber","foundry","foundryBay"]);
+  "boxBomber","foundry","foundryBay","station","stationTurret","satellite","mirrorEscort"]);
 // Sector-4 enemy types. Surface craft (hulls, their turrets, gunboats) sit
 // below the air layer: body contact never hurts the player.
 const ACT_TWO_TYPES = new Set(["interceptor","gunboat","hull","hullTurret","scavenger","mine","torpedoEnemy",
-  "boxBomber","tailGunner","skyAce","foundry","foundryBay","drone"]);
+  "boxBomber","tailGunner","skyAce","foundry","foundryBay","drone",
+  "echo","satellite","station","stationTurret","mirrorEscort","tether"]);
 const SURFACE_TYPES = new Set(["gunboat","hull","hullTurret"]);
 // Never hurt on contact: surface ships, and sector 5's foundries (they fly
 // above the player's layer), their bays and the bombers' gunners (the bomber
 // body is the contact hazard).
-const NO_CONTACT_TYPES = new Set([...SURFACE_TYPES,"foundry","foundryBay","tailGunner"]);
+// Sector 6: the Meridian Gate flies above the player like the foundry; tether
+// nodes are salvage on its way up, never a contact hazard.
+const NO_CONTACT_TYPES = new Set([...SURFACE_TYPES,"foundry","foundryBay","tailGunner","station","stationTurret","tether"]);
 // Child guns and bays ride a parent: a shot over a live child hits it first.
-const CHILD_TYPES = new Set(["hullTurret","foundryBay","tailGunner"]);
+const CHILD_TYPES = new Set(["hullTurret","foundryBay","tailGunner","stationTurret","mirrorEscort"]);
 // Heavies a stripped ship (threat < LOW_THREAT) damages x1.5: hull turrets
 // (sector 4), and sector 5's bays, gunners, bombers, aces and foundries.
-const WEAK_KIT_TYPES = new Set([...CHILD_TYPES,"boxBomber","skyAce","foundry"]);
+const WEAK_KIT_TYPES = new Set([...CHILD_TYPES,"boxBomber","skyAce","foundry","satellite","station"]);
 const SECTOR_FIVE_TYPES = new Set(["boxBomber","tailGunner","skyAce","foundry","foundryBay","drone"]);
 // Fliers that are gone once they climb out of the top.
-const ESCAPE_TYPES = new Set(["interceptor","scavenger","torpedoEnemy","boxBomber","skyAce","drone"]);
-const FORMATION_TYPES = new Set(["scout","wing","interceptor"]);
+const ESCAPE_TYPES = new Set(["interceptor","scavenger","torpedoEnemy","boxBomber","skyAce","drone","echo"]);
+const FORMATION_TYPES = new Set(["scout","wing","interceptor","echo"]);
+const SECTOR_SIX_TYPES = new Set(["echo","satellite","station","stationTurret","mirrorEscort","tether"]);
 // ---- Sector 5, SKYFORGE (docs/design/act-two.md, "Sector 5 build contract"
 // and "Simulation notes (sector 5)"). Tuned against the sector-5 reference
 // kit: what the no-hit ledger collector carries out of LEVIATHAN (P43, E6,
@@ -93,13 +100,13 @@ const FORMATION_TYPES = new Set(["scout","wing","interceptor"]);
 // Act II HP scale per sector (sector 4 stays 1; later sectors fall back to +35%
 // each). Popcorn keeps the gentler POPCORN_HP_SCALE, so it still melts to the
 // reference kit and a stripped ship can still wipe squadrons and catch rescue drops.
-const ACT_TWO_HP_SCALE = [1,1,1,1,1,2.2];
-const POPCORN_HP_SCALE = [1,1,1,1,1,1.35];
+const ACT_TWO_HP_SCALE = [1,1,1,1,1,2.2,3.1];
+const POPCORN_HP_SCALE = [1,1,1,1,1,1.35,1.6];
 // Heavies reach the full scale at HEAVY_FULL_THREAT (the reference kit, ~0.84+)
 // on an eased ramp from LOW_THREAT (x^HEAVY_EASE), so a P25 kit (~0.68) meets
 // x1.84 rather than round 1's x2.09.
 const HEAVY_FULL_THREAT = .84, HEAVY_EASE = 1.6;
-const POPCORN_TYPES = new Set(["interceptor","scavenger","mine","torpedoEnemy","drone"]);
+const POPCORN_TYPES = new Set(["interceptor","scavenger","mine","torpedoEnemy","drone","echo"]);
 const BOX_BOMBER_HP = 1600, TAIL_GUNNER_HP = 420, SKY_ACE_HP = 1000, DRONE_HP = 30;
 const FOUNDRY_CLASSES = {
   small:{hp:9000,w:112,h:62,vy:34,value:14000,bayHp:1100,turretHp:1400},
@@ -146,6 +153,53 @@ const HALCYON_LAUNCH = 6;          // s between one bay's squadron launches (x _
 const HALCYON_EASE_SPAWN = .35, HALCYON_EASE_LIVE = .08, HALCYON_EASE_FROM = .84, HALCYON_EASE_SPAN = .24;
 const HALCYON_LATTICE_CYCLE = 2.9; // s between lattice frames (x _bossPace)
 const HALCYON_HANGAR = 4.2;         // s between core-hangar drone pairs, phases 2-3 (x _bossPace)
+// ---- Sector 6, ZERO MERIDIAN (docs/design/act-two.md, "Sector 6 build contract"
+// and "Simulation notes (sector 6)"). Tuned against the sector-6 reference kit:
+// what the no-hit ledger collector carries out of HALCYON (P62, E6, M24, *22, S3).
+// Sector 6 pays rescue power a notch higher again, and has its own notch.
+const RESCUE_THREAT_S6 = .65;
+// The sector's elite tier: a kit at SECTOR_SIX_ELITE or above (the reference
+// kit sits at ~.88; a P25 kit ~.69, a real arrival ~.55-.65) meets return
+// sweeps on the satellites, two-volley echoes, six-echo wings, an extra curtain
+// row with studs every fourth slot, five-ace wings, a four-bomber climbing box
+// and the station's 5-way void spreads.
+const SECTOR_SIX_ELITE = .8;
+const SECTOR_SIX_SPEED = 1.14, SECTOR_SIX_PACE = .8, SECTOR_SIX_FULL = .85;
+// Echoes replay the player's recorded path ECHO_DELAY s late (PATH_HZ samples
+// per second, one per sim tick), mirrored and ECHO_OFFSET px up-field.
+const PATH_HZ = 120, ECHO_DELAY = 2.5, PATH_SIZE = 360;
+const ECHO_HP = 40, ECHO_OFFSET = 410, ECHO_LIFE = 6.5, ECHO_ENTER = .8, ECHO_FIRE = 1.6;
+const ECHO_RAIL_WARN = .55, ECHO_RAIL_ON = .2;
+// Satellite lances: a slow orbital crossing that sweeps a rotating laser. Each
+// sweep warns SAT_WARN s on its start line, then turns (SAT_SWEEP_LOW rad/s at
+// threat .6 or less, SAT_SWEEP from .84) across SAT_SPAN px at the ship's
+// altitude. The start line sits SAT_LEAD px beside the ship, so the ship can
+// slip behind it during the warning or outrun the sweep; a clear run of
+// SAT_GAP_MIN px always stays open (a test pins it).
+const SATELLITE_HP = 6000, SATELLITE_SPEED = 30, SAT_CYCLE = 3.6, SAT_WARN = .9, SAT_SWEEP = .72, SAT_SWEEP_LOW = .46, SAT_SPAN = 280, SAT_LEAD = 80;
+const SAT_LASER_WIDTH = 8, SAT_LASER_LEN = 1100, SAT_GAP_MIN = 110;
+// Shard rounds: destructible enemy bullets (any player shot breaks one).
+const SHARD_R = 5.4, SHARD_SPEED = 140, SHARD_CELL = 24;
+// The Meridian Gate: an armored orbital station (a hull in the air).
+const STATION_CLASS = {hp:15000,w:176,h:74,vy:44,holdY:205,hold:15,leaveVy:32,value:42000,turretHp:1700};
+const STATION_ARMOR = .35;
+// THE SOVEREIGN (stage 6): mirror escorts armor the core (x LEVIATHAN_ARMOR),
+// tethers carry phase-2 salvage up to the hull in TETHER_TIME s.
+const SOVEREIGN_HP = 300000, SOVEREIGN_ESCORT_HP = 2000, SOVEREIGN_SWAY = 28;
+// Campaign mercy (never in drills): HP x SOVEREIGN_MERCY_FLOOR at arsenal
+// SOVEREIGN_MERCY_LOW or less, full from SOVEREIGN_MERCY_FULL (a reference
+// arrival carries ~140-170). Mid-kit pace: cooldowns up to x(1 + EASE_SPAWN)
+// for a ship that arrived below the reference kit, plus EASE_LIVE once it is
+// stripped (the HALCYON_EASE_* thresholds).
+const SOVEREIGN_MERCY_FLOOR = .62, SOVEREIGN_MERCY_LOW = 30, SOVEREIGN_MERCY_FULL = 130;
+const SOVEREIGN_EASE_SPAWN = .2, SOVEREIGN_EASE_LIVE = .2;
+const SOVEREIGN_ECHO_CYCLE = 10;   // s between the SOVEREIGN's echo pairs (x the shared flagship rank)
+// THE SOVEREIGN's rank (boss.rank, 0..1, read at spawn): 0 at threat
+// SOVEREIGN_RANK_FROM or less, 1 from SOVEREIGN_RANK_FULL (the reference kit).
+// It brings the void layers in (the answer to a maxed kit), quickens the escorts
+// and the phase-2 clock and thickens phase 3, on a ramp so no arrival meets a cliff.
+const SOVEREIGN_RANK_FROM = .45, SOVEREIGN_RANK_FULL = .84, SOVEREIGN_RANK_HP = .3;
+const TETHER_TIME = 2.9, TETHER_HP = 60, SOVEREIGN_WEAPONS_MAX = 4;
 // Act II HP curve, tuned against the power-25 reference kit (P25, 6 escorts,
 // sidewinder 4, signature 4; raw flagship DPS 1,820-2,110):
 //   popcorn (interceptor, scavenger, torpedo, mine) dies to a single volley;
@@ -156,7 +210,10 @@ const ACT_TWO_SPECS = {interceptor:[55,14,0,260],gunboat:[900,21,52,900],
   hullTurret:[1100,16,0,1500],scavenger:[45,11,0,450],mine:[120,13,50,180],torpedoEnemy:[42,9,0,160],
   // Sector 5 (base HP; x ACT_TWO_HP_SCALE[5] like everything in the sector).
   boxBomber:[BOX_BOMBER_HP,30,0,1400],tailGunner:[TAIL_GUNNER_HP,10,0,500],skyAce:[SKY_ACE_HP,16,0,900],
-  foundryBay:[900,18,0,1800],drone:[DRONE_HP,9,0,120]};
+  foundryBay:[900,18,0,1800],drone:[DRONE_HP,9,0,120],
+  // Sector 6 (base HP; x the sector-6 scale, popcorn for echoes; tethers never scale).
+  echo:[ECHO_HP,14,0,320],satellite:[SATELLITE_HP,22,0,2400],stationTurret:[STATION_CLASS.turretHp,17,0,1600],
+  mirrorEscort:[SOVEREIGN_ESCORT_HP,20,0,3000],tether:[TETHER_HP,11,0,600]};
 const HULL_CLASSES = {
   destroyer:{hp:5600,w:46,h:132,vy:40,value:9000,turretHp:1100},
   cruiser:{hp:9000,w:62,h:176,vy:38,value:20000,turretHp:1600}
@@ -284,7 +341,8 @@ const DRILL_LOADOUTS = [null,
   {level:14,escorts:4,sidewinder:2,signature:2,shield:2},   // Aurelia
   {level:20,escorts:6,sidewinder:3,signature:3,shield:3},   // The Crown
   {level:25,escorts:6,sidewinder:4,signature:4,shield:3},  // LEVIATHAN: the power-25 reference kit
-  {level:43,escorts:6,sidewinder:12,signature:12,shield:3} // HALCYON: the sector-5 reference kit
+  {level:43,escorts:6,sidewinder:12,signature:12,shield:3}, // HALCYON: the sector-5 reference kit
+  {level:62,escorts:6,sidewinder:24,signature:22,shield:3}  // THE SOVEREIGN: the sector-6 reference kit
 ];
 // Visual growth of main-gun shots past the stream ceiling: logarithmic with no
 // hard stop. +0.9 px at power 13, +1.8 at 20, +2.5 at 30, +3.3 at 50, +4.1 at 80.
@@ -314,22 +372,23 @@ const BOSS_LEARN_BY_STAGE = [null,
   [0, 12, 21, 25],
   [0, 13, 25, 30],
   [0, 24, 46, 68],
-  [0, 24, 48, 74]];
+  [0, 24, 48, 74],
+  [0, 30, 60, 92]];
 const BOSS_PHASE_MIN = .55;
 const BOSS_GUARD_K = 2.6;
 // LEVIATHAN's HP pool is ~56x Vesper's, so its absorbed share per second is
 // small; K is scaled so surplus firepower still buys learn age.
 // Aurelia and the Crown carry more HP per arrival-kit second, so their K is
 // doubled to keep rewarding surplus firepower (a P25 kit still kills faster).
-const BOSS_GUARD_K_BY_STAGE = [0, BOSS_GUARD_K, 5.2, 5.2, 20, 20];
+const BOSS_GUARD_K_BY_STAGE = [0, BOSS_GUARD_K, 5.2, 5.2, 20, 20, 20];
 // Par = share of max HP per second the sector's arrival-ledger kit deals, so
 // that kit keeps the authored pacing and only surplus firepower buys time.
 // LEVIATHAN: the power-25 reference kit (~2,300 DPS on 145,000 HP).
 // HALCYON: the sector-5 reference kit (~4,200 DPS on 240,000 HP).
-const BOSS_GUARD_PAR = [0, .19, .14, .15, .016, .017];
+const BOSS_GUARD_PAR = [0, .19, .14, .15, .016, .017, .016];
 // Flagship HP, tuned against the arrival-ledger kit (Act I) and the
 // power-25 reference kit (LEVIATHAN).
-const BOSS_HP = [0, 3800, 9000, 10500, LEVIATHAN_HP, HALCYON_HP];
+const BOSS_HP = [0, 3800, 9000, 10500, LEVIATHAN_HP, HALCYON_HP, SOVEREIGN_HP];
 const BOSS_GUARD_SMOOTH = .4;      // seconds; absorbed-rate smoothing window
 // Lane sweeps. Act I: each sector's first sweep follows its first shield
 // (sector 2's comes from Vesper's spoils).
@@ -338,7 +397,8 @@ const LANE_BEATS = [null,
   [[9,385],[23,155],[41,365],[59,185]],
   [[21,380],[39.5,180],[53.5,360],[67.5,155],[77.5,375]],
   [[19,150],[43,385],[71,165],[84,375],[90,170]],
-  []   // sector 5: flak bands (hazards) replace the lane sweeps
+  [],  // sector 5: flak bands (hazards) replace the lane sweeps
+  []   // sector 6: satellite lances and shard curtains
 ];
 // Each sector has its own cadence. The gaps before the closing acts let old
 // fire leave the screen before the next formation arrives.
@@ -391,6 +451,45 @@ const SECTOR_FIVE_BEATS = [
   [89.5,"pincerLoop"],
   [92.5,"riseBoth",{lead:"power"}],                // power before HALCYON
   [95.5,"flakPair"]
+];
+// Sector 6, ZERO MERIDIAN (~105 s). Drops are timed at collection, about 2 s
+// or more before the attack each answers ("Simulation notes (sector 6)").
+const SECTOR_SIX_BEATS = [
+  [2.5,"loopL",{lead:"power"}],
+  [4.9,"loopR"],
+  [7.2,"sweepL",{lead:"sidewinder"}],              // sidewinder (~10 s) -> the 14 s echo pair (homing finds them)
+  [9.5,"riseR"],
+  [14,"echoPair"],                                 // "that's my flight path"
+  [15.5,"sweepR",{lead:"shield"}],                 // shield (~18 s) -> the 24 s satellite lances
+  [18.5,"riseL"],
+  [21,"loopR"],
+  [24,"satellites",{lead:"power"}],                // two lances crossing, with drifting popcorn
+  [27.5,"echoPair"],
+  [29,"sweepR",{lead:"power"}],                    // power (~32 s) -> the 34 s shard curtain (carve it)
+  [31,"riseL"],
+  [34,"shardCurtain"],
+  [38,"echoPair",{lead:"signature"}],              // signature (~41 s) -> the 48 s echo wing
+  [40.5,"riseR"],
+  [43.5,"loopL"],
+  [44.5,"satellite"],
+  [48,"echoWing",{rescue:1}],                      // an echo wing plus sky aces
+  [49.5,"acePair"],
+  [53,"sweepL",{lead:"shield"}],                   // shield (~55 s) -> the Gate's mixes
+  [56.5,"riseR"],
+  [60,"gate",{heavy:["power","power"],turrets:["power","signature","power","shield","power","sidewinder"]}],
+  [64,"satellite"],
+  [66.5,"echoPair"],
+  [69,"shardCurtainShort"],
+  [72,"sweepR"],
+  [75,"riseBoth"],
+  [78.5,"echoWing",{lead:"reflector"}],            // reflector (~81 s, 6 s) -> the gauntlet's ace pair streams
+  [82,"pincerLoop"],                               // the remix gauntlet: each Act II threat returns once
+  [84,"remixAces"],                                // a sky-ace pair (never the elite wing)
+  [86.5,"remixBox"],                               // a climbing three-bomber box
+  [90,"flakPair"],
+  [94.5,"riseBoth",{lead:"power"}],                // power before THE SOVEREIGN
+  [97,"echoPair"],
+  [99.5,"shardCurtainShort"]
 ];
 export const STAGE_BEATS = [null,
   // Sector 1, THE SHALLOWS: teach the loop. P2 -> P8, one escort pair,
@@ -467,7 +566,12 @@ export const STAGE_BEATS = [null,
   // first box climbs from below. 3: a flak corridor with drifting drones.
   // 4: foundry 1. 5: a sky-ace wing with flak bands. 6: the peak, two boxes
   // over foundry 2. 7: a breather, then the pincer through a flak gauntlet.
-  SECTOR_FIVE_BEATS
+  SECTOR_FIVE_BEATS,
+  // Sector 6, ZERO MERIDIAN (~105 s): 1: squadrons over the curve of the
+  // Earth. 2: the first echo pair. 3: satellite lances with drifting popcorn.
+  // 4: the first shard curtain. 5: an echo wing with sky aces. 6: the Meridian
+  // Gate. 7: a breather, then the remix gauntlet before THE SOVEREIGN.
+  SECTOR_SIX_BEATS
 ];
 export class Game {
   constructor() { this.width = 540; this.height = 900; this.best = 0; this.shipId="kestrel"; this.reset(); }
@@ -475,7 +579,7 @@ export class Game {
     this.mode = "title"; this.practiceStage=0; this.time = 0; this.stage = 1; this.stageTime = 0;
     this.scroll = 0; this.score = 0; this.combo = 1; this.graze = 0; this._nextExtend = 0;
     this.shake = 0; this.flash = 0; this.wave = 0; this.wakeConversions = 0;
-    this.stageGoal = [0, 62, 73, 82, 95, 100];
+    this.stageGoal = [0, 62, 73, 82, 95, 100, 105];
     this.shipId=SHIP_DEFS[this.shipId] ? this.shipId : "kestrel";
     this.selectedShip=SHIP_DEFS[this.shipId];
     this.player = {x:270,y:750,r:this.shipId==="manta"?9:7,hp:4,maxHp:4,lives:3,bombs:2,power:SORTIE_POWER,level:SORTIE_POWER,
@@ -497,6 +601,9 @@ export class Game {
     this._pickupId=0; this._scavengerCall=0; this._scavengerFlank=false; this.threat=0;
     this._hpScale=1;
     this._hazardId=0; this._flakQueue=[]; this._cue={}; this._droneSerial=0;
+    // Sector 6: the recorded player path (echoes replay it) and shard breaks.
+    this.path={x:new Float64Array(PATH_SIZE),y:new Float64Array(PATH_SIZE),head:0,count:0,size:PATH_SIZE,hz:PATH_HZ};
+    this._shardBroken=0;
     this._syncArsenal();
   }
   selectShip(id) {
@@ -658,6 +765,7 @@ export class Game {
     this._comboClock-=h;
     if (this._comboClock<=0&&this.combo>1) this.combo=Math.max(1,this.combo-h*.9);
     this._movePlayer(h,input);
+    if(this.stage===6)this._recordPath();
     this._fireClock-=h;this._missileClock=Math.max(0,this._missileClock-h);
     this._sidewinderClock=Math.max(0,this._sidewinderClock-h);this._signatureClock=Math.max(0,this._signatureClock-h);
     const firing=!!input.fire&&this._transition<=0;
@@ -1116,14 +1224,17 @@ export class Game {
     // A scavenger still carrying salvage when the flagship arrives takes it along.
     for(const e of this.enemies)if(!e.dead&&e.carrying)this.stats.salvageLost+=e.carrying.value||1;
     this.enemies=[];this.bullets.length=0;this._scavengerCall=0;this._clearHazards();
-    const names=["","VESPER","AURELIA","THE CROWN","LEVIATHAN","HALCYON"];
+    const names=["","VESPER","AURELIA","THE CROWN","LEVIATHAN","HALCYON","THE SOVEREIGN"];
     // Act I mercy: a flagship meets a short kit with less HP (never in drills).
     const hp=(BOSS_HP[this.stage]??LEVIATHAN_HP)*(this.stage<ACT_TWO_STAGE&&!this.practiceStage?this._actOneMercy(true):
-      this.stage===5&&!this.practiceStage?this._halcyonMercy():1);
-    const leviathan=this.stage===4,halcyon=this.stage===5;
+      this.stage===5&&!this.practiceStage?this._halcyonMercy():this.stage===6&&!this.practiceStage?this._sovereignMercy():1)*
+      // THE SOVEREIGN is rank-scaled like the sector's heavies: up to +30% HP for a ranked arrival.
+      (this.stage===6?1+SOVEREIGN_RANK_HP*this._sovereignRank():1);
+    const leviathan=this.stage===4,halcyon=this.stage===5,sovereign=this.stage===6;
     // w/h are the collision half-extents (an ellipse); LEVIATHAN and HALCYON are far wider.
     this.boss={id:++this._id,type:"boss",name:names[this.stage],
-      x:270,y:leviathan?-210:halcyon?-190:-145,r:leviathan?80:70,w:leviathan?210:halcyon?220:98,h:leviathan?80:halcyon?70:55,
+      x:270,y:leviathan?-210:halcyon?-190:sovereign?-200:-145,r:leviathan?80:sovereign?75:70,
+      w:leviathan?210:halcyon?220:sovereign?200:98,h:leviathan?80:halcyon?70:sovereign?80:55,
       hp,maxHp:hp,age:0,phase:1,fireAt:4.1,
       flash:0,angle:0,guard:false,guardUntil:0,learnShift:0,phaseStart:0,guardAbsorb:0,absorbRate:0,
       seed:this._rand(),value:12000*this.stage};
@@ -1131,6 +1242,7 @@ export class Game {
     this.enemies.push(this.boss);
     if(leviathan)this._rigLeviathan(this.boss);
     if(halcyon)this._rigHalcyon(this.boss);
+    if(sovereign)this._rigSovereign(this.boss);
     this.flash=.45;this.shake=5;this._event("bossEnter",270,285,this.stage);
   }
 
@@ -1144,8 +1256,8 @@ export class Game {
   // Cooldown multiplier and bullet speed for Act II sources at the current threat.
   // A bare ship (threat 0) sees fire 1.8x slower than authored; the
   // reference kit (~0.69) about 1.35x faster; a Crown-arrival kit (~0.86) 1.6x.
-  _pace() { const t=this.threat;return 1.8/(1+1.61*t+.66*t*t)*this._sectorFive(SECTOR_FIVE_PACE); }
-  _vel(speed) { const t=this.threat;return speed*(1+.1*t+.05*t*t)*this._sectorFive(SECTOR_FIVE_SPEED); }
+  _pace() { const t=this.threat;return 1.8/(1+1.61*t+.66*t*t)*this._sectorFive(SECTOR_FIVE_PACE)*this._sectorSix(SECTOR_SIX_PACE); }
+  _vel(speed) { const t=this.threat;return speed*(1+.1*t+.05*t*t)*this._sectorFive(SECTOR_FIVE_SPEED)*this._sectorSix(SECTOR_SIX_SPEED); }
   // Sector 5's notch over sector 4 (faster, denser fire) for a kitted ship;
   // it fades out below LOW_THREAT, so a stripped ship meets sector 4's curve.
   // HALCYON keeps the shared rank.
@@ -1153,6 +1265,13 @@ export class Game {
     if(this.stage!==5||this.boss)return 1;
     return 1+(full-1)*this._clamp((this.threat-LOW_THREAT*.5)/(SECTOR_FIVE_FULL-LOW_THREAT*.5),0,1);
   }
+  // Sector 6's notch (the same shape as sector 5's; THE SOVEREIGN keeps the shared rank).
+  _sectorSix(full) {
+    if(this.stage!==6||this.boss)return 1;
+    return 1+(full-1)*this._clamp((this.threat-LOW_THREAT*.5)/(SECTOR_SIX_FULL-LOW_THREAT*.5),0,1);
+  }
+  // Rescue leads pay power below this threat (higher in each later Act II sector).
+  _rescueThreat() { return this.stage===6?RESCUE_THREAT_S6:this.stage===5?RESCUE_THREAT_S5:RESCUE_THREAT; }
   // 0..1 share of the full Act II volley size at the current threat.
   _volley() { return Math.min(1,this.threat/VOLLEY_FULL); }
   // Void rounds are the counter to a maxed loadout: when the ship flies
@@ -1186,9 +1305,11 @@ export class Game {
     } else if(type==="foundry") {
       const c=FOUNDRY_CLASSES[o.foundryClass]||FOUNDRY_CLASSES.small;
       ({hp,vy,value}=c);r=c.w;
+    } else if(type==="station") {
+      ({hp,vy,value}=STATION_CLASS);r=STATION_CLASS.w;
     } else [hp,r,vy,value]=ACT_TWO_SPECS[type];
     if(o.hp)hp=o.hp;
-    hp*=this._actTwoScale(type);
+    if(!o.noScale)hp*=this._actTwoScale(type);
     const e={id:++this._id,type,x,y,baseX:x,r,hp,maxHp:hp,age:-(o.delay||0),vx:o.vx||0,vy:o.vy??vy,
       turnAt:999,turnVx:0,amp:o.amp||0,freq:o.freq||1.4,phase:o.phase||0,
       fireAt:o.fireAt??1.2,fireRate:o.fireRate||2,flash:0,angle:o.angle??0,
@@ -1233,6 +1354,27 @@ export class Game {
         bays:[],baysAlive:0,turrets:[],turretsAlive:0});
     } else if(type==="drone") {
       Object.assign(e,{dive:!!o.dive,drift:!!o.drift,fireAt:o.fireAt??.75,fired:false});
+    } else if(type==="echo") {
+      // e.trail: the path sample being replayed; e.mirror: -1 mirrored about
+      // the centre line, 1 a straight copy; e.style: the copied weapon family.
+      Object.assign(e,{style:o.style||this.player.weaponType,mirror:o.mirror??-1,ox:o.ox||0,oy:o.oy??ECHO_OFFSET,lag:o.lag??ECHO_DELAY,
+        trail:-1,leaveAt:o.leaveAt??ECHO_LIFE,x0:x,y0:y,hidden:true,phasing:true,fireAt:o.fireAt??ECHO_ENTER+.1,fireRate:o.fireRate??ECHO_FIRE,
+        laserId:0,railX:null,railWarn:0});
+    } else if(type==="satellite") {
+      Object.assign(e,{dir:o.dir||1,laserId:0,sweep:0,fireAt:o.fireAt??1.4,fireRate:o.fireRate??SAT_CYCLE,anchored:false});
+    } else if(type==="station") {
+      Object.assign(e,{w:STATION_CLASS.w,h:STATION_CLASS.h,turrets:[],turretsAlive:0,state:"enter",holdUntil:0});
+    } else if(type==="stationTurret") {
+      Object.assign(e,{parentId:o.parent.id,ox:o.ox,oy:o.oy,gun:o.gun,aim:Math.PI/2,burstLeft:0,burstClock:0,
+        x:o.parent.x+o.ox,y:o.parent.y+o.oy});
+      o.parent.turrets.push(e.id);o.parent.turretsAlive++;
+    } else if(type==="mirrorEscort") {
+      Object.assign(e,{parentId:o.parent.id,slot:o.slot,side:o.side,rank:o.rank,ox:o.ox,oy:o.oy,style:o.style,
+        x:o.parent.x+o.ox,y:o.parent.y+o.oy});
+      o.parent.escorts.push(e.id);o.parent.escortsAlive++;
+    } else if(type==="tether") {
+      // A phase-2 salvage tether: e.carrying is the salvage record, e.progress 0..1 up the line.
+      Object.assign(e,{parentId:o.parent.id,carrying:o.carrying,progress:0,x0:x,y0:y,bow:o.bow||0,ox:o.ox||0});
     }
     if(o.tag)e.tag=o.tag;
     if(o.squad){e.squad=o.squad;const squad=this._squads.get(o.squad);if(squad)squad.total++;}
@@ -1247,6 +1389,7 @@ export class Game {
   }
   _spawnActTwoBeat(pattern,drops) {
     if(this.stage===5&&this._spawnSectorFiveBeat(pattern,drops))return;
+    if(this.stage===6&&this._spawnSectorSixBeat(pattern,drops))return;
     if(pattern==="loopL")this._spawnSquadron("loop",1);
     else if(pattern==="loopR")this._spawnSquadron("loop",-1);
     else if(pattern==="riseL")this._spawnSquadron("rise",1);
@@ -1361,6 +1504,7 @@ export class Game {
   _updateActTwoEnemy(e,h,p) {
     if(e.dead)return;
     if(SECTOR_FIVE_TYPES.has(e.type)){this._updateSectorFiveEnemy(e,h,p);return;}
+    if(SECTOR_SIX_TYPES.has(e.type)){this._updateSectorSixEnemy(e,h,p);return;}
     const ready=e.y>12&&e.y<Math.min(640,p.y-140);
     if(e.type==="interceptor") {
       const [x,y,vx,vy]=this._interceptorPath(e);
@@ -1692,6 +1836,8 @@ export class Game {
     const parent=this._enemyById(t.parentId);if(!parent)return;
     if(t.type==="foundryBay"&&parent.baysAlive>0)parent.baysAlive--;
     else if(t.type==="tailGunner"&&parent.gunnersAlive>0)parent.gunnersAlive--;
+    else if(t.type==="stationTurret"&&parent.turretsAlive>0)parent.turretsAlive--;
+    else if(t.type==="mirrorEscort"&&parent.escortsAlive>0)parent.escortsAlive--;
   }
   _updateSectorFiveEnemy(e,h,p) {
     const t=e.type;
@@ -1837,6 +1983,12 @@ export class Game {
     this.hazards.push(bar);return bar;
   }
   _laserTouches(bar,p) {
+    if(bar.rotating) {
+      // A rotating beam is a ray from its pivot along `angle`.
+      const dx=p.x-bar.pivotX,dy=p.y-bar.pivotY,c=Math.cos(bar.angle),sn=Math.sin(bar.angle);
+      const along=dx*c+dy*sn;
+      return along>0&&along<bar.len&&Math.abs(dx*sn-dy*c)<bar.width+p.r;
+    }
     const along=bar.orient==="h"?p.x:p.y,across=bar.orient==="h"?p.y:p.x;
     return Math.abs(across-bar.pos)<bar.width+p.r&&along>bar.from-p.r&&along<bar.to+p.r;
   }
@@ -1860,10 +2012,12 @@ export class Game {
         if(hz.state==="mark"&&hz.age>=hz.warn)this._burstFlakBand(hz);
         else if(hz.state==="burst"&&hz.age>=hz.warn+.5)keep=false;
       } else if(hz.kind==="laser") {
-        if(hz.state==="off")keep=false;
+        if(hz.rotating&&hz.state==="fire")hz.angle=hz.angle0+hz.sweep*Math.min(hz.on,hz.age-hz.warn);
+        if(hz.state==="off"||(hz.ownerId&&this._ownerGone(hz.ownerId)))keep=false;
         else if(hz.state==="warn"&&hz.age>=hz.warn) {
           hz.state="fire";
-          if(hz.lead)this.events.push({type:"laserFire",x:hz.orient==="v"?hz.pos:270,y:hz.orient==="h"?hz.pos:450,count:hz.count||1,value:hz.void});
+          if(hz.lead)this.events.push({type:"laserFire",x:hz.orient==="v"?hz.pos:hz.rotating?hz.pivotX:270,y:hz.orient==="h"?hz.pos:hz.rotating?hz.pivotY:450,count:hz.count||1,value:hz.void,
+            ...(hz.rotating?{rotating:true}:hz.mirror?{mirror:true}:{})});
         } else if(hz.state==="fire"&&hz.age>=hz.warn+hz.on)hz.state="off";
       } else if(hz.kind==="emp") {
         hz.charge=Math.min(1,hz.age/hz.chargeTime);
@@ -2002,6 +2156,482 @@ export class Game {
     this.hazards.push(emp);
     this.events.push({type:"empCharge",x:emp.x,y:emp.y,r:emp.r});
   }
+  // ---- Sector 6, ZERO MERIDIAN --------------------------------------------
+  // The recorded player path: one sample per sim tick into a ring buffer
+  // (game.path; head is the next slot to write). Echoes replay it.
+  _recordPath() {
+    const P=this.path,p=this.player;
+    P.x[P.head]=p.x;P.y[P.head]=p.y;P.head=(P.head+1)%P.size;if(P.count<P.size)P.count++;
+  }
+  // Ring index of the sample `back` ticks ago (the oldest kept if the path is shorter).
+  _pathIndex(back) {
+    const P=this.path;if(!P.count)return -1;
+    return ((P.head-1-Math.min(back,P.count-1))%P.size+P.size)%P.size;
+  }
+  _spawnSectorSixBeat(pattern,drops) {
+    const p=this.player,lead=drops?.lead,rescue=!!drops?.rescue;
+    if(pattern==="echoPair")this._spawnEchoes([[-1,0,ECHO_OFFSET],[1,0,ECHO_OFFSET+60]],lead,rescue);
+    else if(pattern==="echoWing")this._spawnEchoes([[-1,-70,380],[-1,70,380],[1,-120,470],[1,120,470],
+      ...(this.threat>=SECTOR_SIX_ELITE?[[-1,0,520],[1,0,300]]:[])],lead,rescue,.3);
+    else if(pattern==="satellites"){this._spawnSatellite(1,215,lead,0);this._spawnSatellite(-1,265,null,1.8);this._spawnDroneDrift(6);}
+    else if(pattern==="satellite")this._spawnSatellite(p.x<270?-1:1,240,lead,0);
+    else if(pattern==="shardCurtain")this._spawnShardCurtain(this.threat>=SECTOR_SIX_ELITE?6:5);
+    else if(pattern==="shardCurtainShort")this._spawnShardCurtain(this.threat>=SECTOR_SIX_ELITE?4:3);
+    else if(pattern==="gate")this._spawnStation(drops);
+    // The remix gauntlet's pair and box stay as authored at every rank.
+    else if(pattern==="remixAces")this._spawnAces([150,390],lead);
+    else if(pattern==="remixBox")this._spawnBox(true,p.x,3,lead);
+    // Elite tier: the ace pairs fly as wings, the climbing box as four.
+    else if(pattern==="acePair"&&this.threat>=SECTOR_SIX_ELITE)this._spawnAces([80,175,270,365,460],lead,.3,rescue);
+    else if(pattern==="boxClimb"&&this.threat>=SECTOR_SIX_ELITE)this._spawnBox(true,p.x,4,lead);
+    else return this._spawnSectorFiveBeat(pattern,drops);
+    return true;
+  }
+  // specs: [mirror, x offset, y offset up-field, replay lag s] per echo. The lead carries the beat's drop.
+  _spawnEchoes(specs,lead=null,rescue=false,stagger=.25,o={}) {
+    const squad=o.bonus===false?0:this._newSquad(),style=this.player.weaponType,out=[];
+    specs.forEach(([mirror,ox,oy,lag],i)=>{
+      const [tx,ty]=this._echoTarget({mirror,ox,oy,lag});
+      const e=this._enemy("echo",o.x0??tx,o.y0??-30,{style,mirror,ox,oy,lag,squad,delay:i*stagger,
+        fireAt:ECHO_ENTER+.1+i*.15,rescue:(rescue||o.rescue)&&i===0});
+      if(i===0)this._tagDrop(e,lead);
+      out.push(e);
+    });
+    this._event("echoSpawn",out[0].x,out[0].y,style);this.events[this.events.length-1].count=out.length;
+    return out;
+  }
+  // Where an echo's replay puts it: the path ECHO_DELAY s ago, mirrored and up-field.
+  _echoTarget(e) {
+    const p=this.player,i=this._pathIndex(Math.round((e.lag??ECHO_DELAY)*PATH_HZ));
+    const px=i<0?p.x:this.path.x[i],py=i<0?p.y:this.path.y[i];
+    return [this._clamp(270+e.mirror*(px-270)+e.ox,36,504),Math.max(70,py-e.oy),i];
+  }
+  _updateEcho(e,h,p) {
+    e.hidden=e.age<0;if(e.hidden)return;
+    const ox=e.x,oy=e.y;
+    if(e.age<e.leaveAt) {
+      const [tx,ty,i]=this._echoTarget(e);e.trail=i;
+      const k=Math.min(1,e.age/ECHO_ENTER),ease=1-(1-k)**3;
+      e.x=e.x0+(tx-e.x0)*ease;e.y=e.y0+(ty-e.y0)*ease;
+      // A ghost while it materialises: shots and the ship pass through it.
+      e.phasing=k<1;
+    } else {e.y-=340*h;e.trail=-1;}
+    e.vx=(e.x-ox)/h;e.vy=(e.y-oy)/h;
+    if(Math.hypot(e.vx,e.vy)>8)e.angle=Math.atan2(-e.vx,e.vy);
+    if(e.age<e.leaveAt&&e.age>=e.fireAt&&e.y>30&&e.y<p.y-140) {
+      this._echoFire(e,p);
+      // Elite tier: a second volley 0.22 s later, then the cooldown.
+      if(!this.boss&&this.threat>=SECTOR_SIX_ELITE&&!e.volley){e.volley=1;e.fireAt=e.age+.22;}
+      else {e.volley=0;e.fireAt=e.age+e.fireRate*this._pace();}
+    }
+  }
+  // A weak copy of the player's main-gun family. An echo knows the flight it
+  // copies: it leads its aim to where the ship will be.
+  _echoFire(e,p) {
+    const speed=this._vel(240),lead=Math.hypot(p.x-e.x,p.y-e.y)/speed;
+    const tx=this._clamp(p.x+(p.vx||0)*lead,20,520),ty=p.y+this._clamp((p.vy||0)*lead,-80,80);
+    if(e.style==="spread") {
+      const n=this.threat>.7&&!this.boss?5:3,a=Math.atan2(ty-e.y-12,tx-e.x);
+      for(let i=0;i<n;i++){const b=this._bullet(e.x,e.y+12,a+(i-(n-1)/2)*.13,speed,"mirror",4.4);if(b)b.fragile=true;}
+    }
+    else if(e.style==="missile")this._mirrorMissile(e.x,e.y+12,Math.atan2(ty-e.y,tx-e.x),this._vel(160),1.6);
+    else {
+      const bar=this._mirrorRail(this._clamp(p.x+(p.vx||0)*ECHO_RAIL_WARN*.6,24,516),e.y+14,ECHO_RAIL_WARN,ECHO_RAIL_ON,e.id);
+      e.railX=bar.pos;
+    }
+    this._eventCoalesced("echoFire",e.x,e.y,e.style);
+  }
+  // A Wraith-style rail: a telegraphed vertical line (a short `laser` hazard, mirror: true).
+  _mirrorRail(x,top,warn,on,ownerId=0,frame=0) {
+    const bar=this._laserBar(frame||++this._hazardId,"v",this._clamp(x,24,516),top,900,{warn,on});
+    bar.width=6;bar.mirror=true;bar.ownerId=ownerId;
+    if(!frame) {
+      bar.lead=true;bar.count=1;
+      this.events.push({type:"laserWarn",x:bar.pos,y:450,orient:"v",pos:bar.pos,value:false,mirror:true,count:1,
+        bars:[{orient:"v",pos:bar.pos,from:bar.from,to:bar.to}]});
+    }
+    return bar;
+  }
+  // A Manta-style mirror missile: a fragile round that turns gently toward the ship.
+  _mirrorMissile(x,y,angle,speed,homing=1.8) {
+    const b=this._bullet(x,y,angle,speed,"mirror",6);
+    if(b){b.style="missile";b.fragile=true;b.homing=homing;b.turn=1.25;}
+    return b;
+  }
+  _steerBullet(b,h) {
+    b.homing-=h;const p=this.player;
+    const speed=Math.hypot(b.vx,b.vy),a=Math.atan2(b.vy,b.vx);
+    let diff=Math.atan2(p.y-b.y,p.x-b.x)-a;diff=Math.atan2(Math.sin(diff),Math.cos(diff));
+    const na=a+this._clamp(diff,-b.turn*h,b.turn*h);
+    b.vx=Math.cos(na)*speed;b.vy=Math.sin(na)*speed;
+  }
+  _shard(x,y,angle,speed) {
+    const b=this._bullet(x,y,angle,speed,"shard",SHARD_R);if(b)b.fragile=true;return b;
+  }
+  // Any player shot that touches a fragile round (shard, mirror missile) breaks
+  // it; the shot is spent unless it pierces. Shards are binned by column.
+  _breakFragile() {
+    let cols=null;
+    for(const b of this.bullets) {
+      if(b.dead||!b.fragile)continue;
+      const c=Math.floor(b.x/SHARD_CELL);if(c<-1||c>23)continue;
+      ((cols||=[])[c+1]||=[]).push(b);
+    }
+    if(!cols)return;
+    let broke=0;
+    for(const shot of this.shots) {
+      if(shot.dead)continue;
+      const c=Math.floor(shot.x/SHARD_CELL)+1,reach=shot.hitR||shot.r;
+      let spent=false;
+      for(let k=c-1;k<=c+1&&!spent;k++) {
+        const list=cols[k];if(!list)continue;
+        for(const b of list) {
+          if(b.dead)continue;
+          const dx=b.x-shot.x,dy=b.y-shot.y,r=reach+b.r;
+          if(dx*dx+dy*dy>=r*r)continue;
+          b.dead=true;broke++;this._particle(b.x,b.y,0,0,.2,4,"white","spark");
+          if(!this._pierces(shot)){shot.dead=true;spent=true;break;}
+        }
+      }
+    }
+    if(!broke)return;
+    this._shardBroken+=broke;this._awardScore(10*broke);
+    if(this._cueReady("shardBreak",.1)){this._event("shardBreak",this.player.x,this.player.y-120,this._shardBroken);this._shardBroken=0;}
+  }
+  // A shard curtain: rows of shards from the top edge with void studs (never
+  // shootable), no gap of its own: the pilot carves a lane with any weapon.
+  _spawnShardCurtain(rows) {
+    // Void studs every fifth slot (every fourth in the elite tier).
+    const studs=[],speed=this._vel(SHARD_SPEED),every=this.threat>=SECTOR_SIX_ELITE?4:5;
+    for(let r=0;r<rows;r++) {
+      const y=-24-r*70,shift=r%2?13:0,stud=this._range(0,5)|0;
+      for(let x=14+shift,k=0;x<=526;x+=27,k++) {
+        if((k+stud)%every===0){this._bullet(x,y,Math.PI/2,speed,"void",5);studs.push(x);}
+        else this._shard(x,y,Math.PI/2,speed);
+      }
+    }
+    this.events.push({type:"shardCurtain",x:270,y:0,value:rows,speed});
+  }
+  _spawnSatellite(dir,y,lead,delay) {
+    const e=this._enemy("satellite",dir>0?-30:570,y,{dir,vx:dir*SATELLITE_SPEED,vy:0,delay,fireAt:1.2});
+    e.baseY=y;this._tagDrop(e,lead);
+    this.events.push({type:"satelliteEnter",x:dir>0?0:540,y,value:dir,delay});
+    return e;
+  }
+  _updateSatellite(e,h,p) {
+    e.hidden=e.age<0;if(e.hidden)return;
+    const laser=e.laserId?this.hazards.find(hz=>hz.id===e.laserId):null;
+    if(laser&&laser.state!=="off")e.anchored=true;
+    else {
+      // Elite tier: the beam sweeps straight back once (a return pass, same warning).
+      if(laser&&e.returnPass&&this.threat>=SECTOR_SIX_ELITE&&!this.boss)this._satelliteReturn(e,laser);
+      else {e.anchored=false;e.laserId=0;e.returnPass=false;}
+    }
+    // Fast onto the field, then the slow crossing.
+    const entering=e.dir>0?e.x<70:e.x>470;
+    if(!e.anchored){e.x+=e.vx*(entering?3:1)*h;e.y=e.baseY+Math.sin(e.age*.9)*6;}
+    e.angle=Math.atan2(-e.vx,0);
+    if(!e.anchored&&e.age>=e.fireAt&&e.x>50&&e.x<490&&Math.abs(p.x-e.x)<240&&p.y-e.y>260) {
+      this._satelliteSweep(e,p);e.fireAt=e.age+e.fireRate*this._pace();
+    }
+  }
+  // One rotating sweep. At the ship's altitude the beam starts SAT_LEAD px to
+  // one side of the ship and turns across it toward the roomier side, covering
+  // at most SAT_SPAN px, so an open run of SAT_GAP_MIN px or more always lies
+  // ahead of it (and behind the start line while it only warns).
+  _satelliteSweep(e,p) {
+    // edge: how close this airframe can fly to the field's side (as in _movePlayer).
+    const pivotX=e.x,pivotY=e.y+14,dy=p.y-pivotY,edge=p.shipId==="wraith"?62:p.shipId==="manta"?52:46;
+    const sd=p.x>270?-1:1;             // screen direction of the sweep at the ship's altitude
+    const startX=this._clamp(p.x-sd*SAT_LEAD,edge,540-edge);
+    // The clear gap (beam edge plus a ship radius to the field edge) stays SAT_GAP_MIN or more.
+    const clear=SAT_GAP_MIN+SAT_LASER_WIDTH+9,limit=sd>0?540-edge-clear:edge+clear;
+    let endX=startX+sd*SAT_SPAN;
+    endX=sd>0?Math.min(endX,limit):Math.max(endX,limit);
+    // The turn rate grows with the rank: SAT_SWEEP_LOW at threat .6 or less, SAT_SWEEP from .84.
+    const rate=SAT_SWEEP_LOW+(SAT_SWEEP-SAT_SWEEP_LOW)*this._clamp((this.threat-.6)/.24,0,1);
+    let a0=Math.atan2(dy,startX-pivotX),a1=Math.atan2(dy,endX-pivotX);
+    // The wedge widens below the ship: hold the gap 80 px lower too.
+    const yl=Math.min(860,p.y+80);
+    const xl=pivotX+(yl-pivotY)*Math.cos(a1)/Math.sin(a1);
+    if(sd>0?xl>limit:xl<limit)a1=Math.atan2(yl-pivotY,limit-pivotX);
+    // A short sweep turns slower rather than overshoot its end (the beam lives 0.5 s or more).
+    const on=Math.max(.5,Math.abs(a1-a0)/rate),sweep=(a1-a0)/on;
+    const bar={id:++this._hazardId,kind:"laser",rotating:true,orient:"r",pos:0,from:0,to:SAT_LASER_LEN,len:SAT_LASER_LEN,
+      width:SAT_LASER_WIDTH,warn:SAT_WARN,on,age:0,state:"warn",void:false,frame:this._hazardId,
+      pivotX,pivotY,angle:a0,angle0:a0,angle1:a0+sweep*on,sweep,ownerId:e.id,lead:true,count:1,
+      span:[Math.min(startX,endX),Math.max(startX,endX)],spanY:p.y};
+    this.hazards.push(bar);e.laserId=bar.id;e.sweep=sweep;e.anchored=true;e.returnPass=true;
+    this.events.push({type:"laserWarn",x:pivotX,y:pivotY,orient:"r",pos:a0,value:false,count:1,rotating:true,
+      angle:a0,pivotX,pivotY,sweep,on,bars:[{orient:"r",pos:a0,from:0,to:SAT_LASER_LEN}]});
+  }
+  // The return pass: from where the last sweep ended, back across at the same rate.
+  _satelliteReturn(e,last) {
+    const a0=last.angle1,sweep=-last.sweep,on=last.on;
+    const bar={...last,id:++this._hazardId,frame:this._hazardId,age:0,state:"warn",angle:a0,angle0:a0,angle1:a0+sweep*on,sweep,
+      span:[...last.span],returnPass:true};
+    this.hazards.push(bar);e.laserId=bar.id;e.sweep=sweep;e.anchored=true;e.returnPass=false;
+    this.events.push({type:"laserWarn",x:bar.pivotX,y:bar.pivotY,orient:"r",pos:a0,value:false,count:1,rotating:true,
+      angle:a0,pivotX:bar.pivotX,pivotY:bar.pivotY,sweep,on,returnPass:true,bars:[{orient:"r",pos:a0,from:0,to:SAT_LASER_LEN}]});
+  }
+  _spawnStation(drops) {
+    const c=STATION_CLASS,st=this._enemy("station",270,-c.h-16,{});
+    if(drops?.heavy)this._tagDrop(st,drops.heavy.length===1?drops.heavy[0]:[...drops.heavy]);
+    [[-140,4,"mix"],[-72,36,"shard"],[0,-28,"void"],[72,36,"shard"],[140,4,"mix"],[0,52,"void"]].forEach(([ox,oy,gun],i)=>{
+      const t=this._enemy("stationTurret",270+ox,st.y+oy,{parent:st,ox,oy,gun,fireAt:1+i*.33,
+        fireRate:gun==="mix"?2.8:gun==="void"?3:2});
+      this._tagDrop(t,drops?.turrets?.[i]);
+    });
+    this._event("stationEnter",270,0,6);
+    return st;
+  }
+  _updateStation(e,h) {
+    const c=STATION_CLASS;
+    if(e.state==="enter"){e.y+=c.vy*h;if(e.y>=c.holdY){e.y=c.holdY;e.state="hold";e.holdUntil=e.age+c.hold;}}
+    else if(e.state==="hold"){if(e.age>=e.holdUntil)e.state="leave";}
+    else e.y+=c.leaveVy*h;
+    e.x=270+Math.sin(e.age*.35)*10;
+  }
+  _stationTurretFire(e,p) {
+    const v=this._volley();
+    if(e.gun==="shard")this._spreadShards(e.x,e.y+8,p.x,p.y,7+Math.round(2*v),.12,this._vel(150));
+    else if(e.gun==="void")this._spread(e.x,e.y+8,p.x,p.y,this.threat>=SECTOR_SIX_ELITE?5:3,.16,this._vel(195),"void",5.6);
+    else {
+      const n=12+Math.round(2*v),off=e.age*.6;
+      for(let i=0;i<n;i++){const a=off+i/n*Math.PI*2;if(i%3===0)this._bullet(e.x,e.y,a,this._vel(125),"void",5);else this._shard(e.x,e.y,a,this._vel(125));}
+    }
+  }
+  // A shard wall fanned around `angle` (not aimed): something to carve through.
+  _radialShards(x,y,count,speed,angle,step) {
+    for(let i=0;i<count;i++)this._shard(x,y,angle+(i-(count-1)/2)*step,speed);
+  }
+  _spreadShards(x,y,tx,ty,count,step,speed) {
+    const a=Math.atan2(ty-y,tx-x);
+    for(let i=0;i<count;i++)this._shard(x,y,a+(i-(count-1)/2)*step,speed);
+  }
+  _updateSectorSixEnemy(e,h,p) {
+    const t=e.type;
+    if(t==="echo")this._updateEcho(e,h,p);
+    else if(t==="satellite")this._updateSatellite(e,h,p);
+    else if(t==="station")this._updateStation(e,h);
+    else if(t==="stationTurret") {
+      const parent=this._enemyById(e.parentId);
+      if(!parent||parent.dead){this._loseChild(e,parent);return;}
+      e.x=parent.x+e.ox;e.y=parent.y+e.oy;
+      this._slewAim(e,p,h,2.6);
+      if(e.age>=e.fireAt&&e.y>30&&e.y<Math.min(640,p.y-140)) {
+        this._stationTurretFire(e,p);e.fireAt=e.age+e.fireRate*this._pace();
+      }
+    } else if(t==="mirrorEscort") {
+      const parent=this._enemyById(e.parentId);
+      if(!parent||parent.dead){this._loseChild(e,parent);return;}
+      e.x=parent.x+e.ox+Math.sin(e.age*1.7+e.slot)*6;e.y=parent.y+e.oy+Math.cos(e.age*1.3+e.slot)*4;e.angle=parent.angle||0;
+      if(parent.age>=3.6&&e.age>=e.fireAt&&e.y<p.y-140) {
+        this._mirrorEscortFire(e,p);e.fireAt=e.age+e.fireRate*this._sovereignPace();
+      }
+    } else if(t==="tether")this._updateTether(e,h);
+  }
+  // A light copy of the player's escort weapon (cannon pairs, rockets, rails).
+  _mirrorEscortFire(e,p) {
+    if(e.style==="kestrel")for(const dx of [-4,4])this._bullet(e.x+dx,e.y+10,Math.PI/2+e.side*.04,this._vel(240),"mirror",4.2);
+    else if(e.style==="manta")this._aimed(e.x,e.y+10,p.x,p.y,this._vel(205),"mirror",5);
+    else for(let i=0;i<2;i++)this._bullet(e.x,e.y+10+i*16,Math.PI/2,this._vel(320),"mirror",4);
+  }
+
+  // ---- THE SOVEREIGN (stage 6): reflection, theft, ballet -----------------
+  _sovereignMercy() {
+    const f=(this.player.arsenal-SOVEREIGN_MERCY_LOW)/(SOVEREIGN_MERCY_FULL-SOVEREIGN_MERCY_LOW);
+    return SOVEREIGN_MERCY_FLOOR+(1-SOVEREIGN_MERCY_FLOOR)*this._clamp(Number.isFinite(f)?f:0,0,1);
+  }
+  _sovereignPace() {
+    const ease=t=>this._clamp((HALCYON_EASE_FROM-t)/HALCYON_EASE_SPAN,0,1);
+    return this._bossPace()*(1+SOVEREIGN_EASE_SPAWN*ease(this.boss?.easeThreat??this.threat)+SOVEREIGN_EASE_LIVE*ease(this.threat));
+  }
+  _sovereignRank() { return this._clamp((this.threat-SOVEREIGN_RANK_FROM)/(SOVEREIGN_RANK_FULL-SOVEREIGN_RANK_FROM),0,1); }
+  // Power band of the copied weapon: 0 below power 20, 1 below 40, 2 from 40.
+  _mirrorBand() { const l=this.player.level;return l>=40?2:l>=20?1:0; }
+  _rigSovereign(boss) {
+    const p=this.player,n=Math.min(MAX_ESCORTS,p.escorts);
+    Object.assign(boss,{sovereign:true,easeThreat:this.threat,style:p.weaponType,ship:p.shipId,escorts:[],escortsAlive:0,
+      rank:this._sovereignRank(),
+      weapons:[],grown:0,mirror:0,ballet:0,mirrorAt:0,echoAt:5,aimAt:0,shardAt:0,ringAt:0,rowAt:0,curtainAt:0,curtainGap:150,
+      echoes:0});
+    for(let i=0;i<n;i++) {
+      const side=i%2?1:-1,row=Math.floor(i/2);
+      this._enemy("mirrorEscort",boss.x+side*(118+row*36),boss.y+26+row*26,{parent:boss,slot:i,side,rank:row,
+        ox:side*(118+row*36),oy:26+row*26,style:p.shipId,hp:SOVEREIGN_ESCORT_HP,fireAt:4+i*.4,fireRate:1.9-.75*this._sovereignRank(),
+        drop:"power",bonusDrops:1,value:3000});
+    }
+    this._event("mirrorCopy",boss.x,boss.y,boss.style);
+    Object.assign(this.events[this.events.length-1],{escorts:n,band:this._mirrorBand(),ship:p.shipId});
+  }
+  _sovereignEnterPhase(e) {
+    this._clearHazards();
+    if(e.phase===2){e.mirrorAt=e.age+2.4;e.aimAt=e.age+1.6;e.shardAt=e.age+3;}
+    else if(e.phase===3){e.ringAt=e.age+1.2;e.rowAt=e.age+2.2;e.mirrorAt=e.age+3.4;e.curtainAt=0;}
+    this._event("sovereignPhase",e.x,e.y,e.phase);
+  }
+  // Theft: phase 2 sends a hit's salvage up tethers instead of letting it float.
+  _theft() { const b=this.boss;return !!(b&&b.sovereign&&!b.dead&&b.phase===2); }
+  _sovereignFire(e,h) {
+    const p=this.player,pace=this._sovereignPace();
+    e.mirror=Math.min(1,e.mirror+h/1.4);
+    if(e.phase===3)e.ballet=Math.min(1,e.ballet+h/1.5);
+    if(e.age<3.6)return;
+    const desperate=e.phase===3&&e.guard;
+    // Echo pairs (its language): one carries rescue power for a stripped ship.
+    if(!desperate&&e.age>=e.echoAt) {
+      e.echoes++;
+      // The rescue echo is a close shadow (0.5 s behind, straight above the ship), so
+      // any gun finds it; its partner replays the full 2.5 s, mirrored.
+      this._spawnEchoes([[1,0,300,.5],[-1,-40,400]],null,true,.3,{bonus:false,x0:e.x,y0:e.y+30});
+      // A stripped ship meets them more often: its rescue power rides the straight copy.
+      const rebuild=.4+.6*this._clamp(this.threat/RESCUE_THREAT_S6,0,1);
+      e.echoAt=e.age+SOVEREIGN_ECHO_CYCLE*rebuild*this._bossPace()*(e.phase===3?1.3:1);
+    }
+    if(e.phase===1) {
+      if(e.age>=e.mirrorAt){this._sovereignMirror(e);e.mirrorAt=e.age+this._mirrorCycle(e)*pace;}
+      // The core joins in once the escorts fall; a ranked arrival meets it from the
+      // start, as void rounds from rank 0.5.
+      if((e.rank>0||!e.escortsAlive)&&e.age>=e.aimAt) {
+        this._mixedSpread(e.x,e.y+50,e.rank>=.75?5:3,e.rank>=.5);
+        e.aimAt=e.age+(e.escortsAlive?3.8-1.6*e.rank:2.6)*pace;this._event("bossShot",e.x,e.y);
+      }
+    } else if(e.phase===2) {
+      // One volley clock, so the layers take turns instead of converging:
+      // the copied gun, then crossing shard walls from the wings, then an aimed spread.
+      if(e.age>=e.mirrorAt) {
+        const k=e.volley2=(e.volley2||0)+1;
+        if(k%3===1)this._sovereignMirror(e);
+        else if(k%3===2)for(const side of [-1,1])this._radialShards(e.x+side*150,e.y+20,7,this._vel(150),Math.PI/2+side*.42,.12);
+        else {this._mixedSpread(e.x,e.y+50,e.rank>=.75?5:3,e.rank>=.5);this._event("bossShot",e.x,e.y);}
+        e.mirrorAt=e.age+(1.1-.35*e.rank)*pace;
+      }
+      this._sovereignGrown(e,pace);
+    } else {
+      // The ballet: void rings, shard rows and the mirrored main gun in layers;
+      // on the final guard floor the desperation curtain (shard rows, drifting gaps).
+      if(e.age>=e.ringAt) {
+        // Void and red alternate against a void-aware ship (two void to one red
+        // from rank 0.75); every other ship meets void and red half and half.
+        const n=desperate?12:12+2*Math.round(2*e.rank),off=e.age*.37,third=e.rank>=.75&&this._voidAware();
+        for(let i=0;i<n;i++){const red=!desperate&&(third?i%3===1:i%2===1);this._bullet(e.x,e.y+30,off+i/n*Math.PI*2,this._vel(105),red?"red":"void",red?4.8:5.2);}
+        e.ringAt=e.age+(desperate?3.8:2.6)*pace;this._event("bossShot",e.x,e.y);
+      }
+      if(!desperate) {
+        if(e.age>=e.rowAt){this._sovereignShardRow(e,null);e.rowAt=e.age+(2.2-.6*e.rank)*pace;}
+        if(e.age>=e.mirrorAt){this._sovereignMirror(e);e.mirrorAt=e.age+this._mirrorCycle(e)*1.3*pace;}
+        this._sovereignGrown(e,pace);
+      } else if(e.age>=e.curtainAt) {
+        e.curtainGap=this._clamp(e.curtainGap+(this._rand()<.5?-1:1)*this._range(40,80),70,230);
+        this._sovereignShardRow(e,[e.curtainGap,e.curtainGap+240]);
+        e.curtainAt=e.age+.85;this._event("bossShot",e.x,e.y);
+      }
+    }
+  }
+  // An aimed spread whose outer rounds are void (from rank 0.5) against a
+  // void-aware ship (orbitals or a reflector: Act II's counter to a maxed kit);
+  // the aimed centre stays red, so flak and orbitals still earn their keep.
+  _mixedSpread(x,y,count,voidMix) {
+    const p=this.player,a=Math.atan2(p.y-y,p.x-x),speed=this._vel(voidMix?225:245),aware=this._voidAware();
+    for(let i=0;i<count;i++) {
+      const v=voidMix&&aware&&(i===0||i===count-1);
+      this._bullet(x,y,a+(i-(count-1)/2)*.13,speed,v?"void":"red",v?5.6:4.8);
+    }
+  }
+  _mirrorCycle(e) { return e.style==="spread"?1.6:e.style==="missile"?1.8:2.1; }
+  // The copied main gun, tiered by the player's power band.
+  _sovereignMirror(e) {
+    const p=this.player,band=this._mirrorBand();
+    if(e.style==="spread") {
+      // Kestrel's copy is glass: fragile mirror rounds its own spread can cancel.
+      const n=[5,7,9][band],off=Math.sin(e.age*.8)*.08;
+      for(let i=0;i<n;i++){const b=this._bullet(e.x,e.y+50,off+Math.PI*.3+i/n*Math.PI*.4,this._vel(170),"mirror",4.6);if(b)b.fragile=true;}
+    } else if(e.style==="missile") {
+      const n=[2,3,5][band];
+      for(let i=0;i<n;i++){const side=i===4?0:i%2?1:-1,rank=Math.floor(i/2);
+        // Launched wide, so they flank in from the sides instead of down the gun line.
+        this._mirrorMissile(e.x+side*(48+rank*40),e.y+36,Math.PI/2+side*(.95+rank*.25),this._vel(175),2.6);}
+    } else {
+      // Rails at the ship's x (one), then 120 px steps (two), then two pairs 120 px
+      // apart either side of the ship (four): every gap stays 100 px or more.
+      const n=[1,2,4][band],frame=++this._hazardId,bars=[];
+      const xs=n===1?[p.x]:n===2?[p.x,p.x+(p.x<270?120:-120)]:[p.x-60,p.x+60,p.x-180,p.x+180];
+      for(const x of xs)bars.push(this._mirrorRail(x,e.y+e.h*.6,.75,.3,e.id,frame));
+      bars[0].lead=true;bars[0].count=bars.length;
+      this.events.push({type:"laserWarn",x:bars[0].pos,y:450,orient:"v",pos:bars[0].pos,value:false,mirror:true,count:bars.length,
+        bars:bars.map(b=>({orient:"v",pos:b.pos,from:b.from,to:b.to}))});
+    }
+    this._event("bossShot",e.x,e.y);
+  }
+  // A full-width shard row with void studs; `gaps` (the desperation curtain) leaves two open lanes.
+  _sovereignShardRow(e,gaps) {
+    const speed=gaps?170:this._vel(140),y=e.y+60,stud=6-Math.round(2*(e.rank||0));
+    for(let x=16,k=0;x<=524;x+=24,k++) {
+      if(gaps&&gaps.some(g=>Math.abs(x-g)<46))continue;
+      // Void studs every 6th slot at rank 0, every 4th at rank 1.
+      if(!gaps&&k%stud===2)this._bullet(x,y,Math.PI/2,speed,"void",5);else this._shard(x,y,Math.PI/2,speed);
+    }
+  }
+  // Grown weapons: each landed tether arms one mount (up to SOVEREIGN_WEAPONS_MAX).
+  _sovereignGrown(e,pace) {
+    const p=this.player;
+    for(const w of e.weapons) {
+      if(e.age<w.fireAt)continue;
+      const x=e.x+w.ox,y=e.y+40;
+      if(w.type==="power")this._spread(x,y,p.x,p.y,3,.1,this._vel(240),"mirror",4.6);
+      else if(w.type==="escort")for(const dx of [-10,-4,4,10])this._bullet(x+dx,y,Math.PI/2,this._vel(240),"mirror",4.2);
+      else if(w.type==="sidewinder")for(const s of [-1,1])this._mirrorMissile(x+s*10,y,Math.PI/2+s*.5,this._vel(150),1.6);
+      else this._spreadShards(x,y,p.x,p.y,8,.12,this._vel(150));
+      w.fireAt=e.age+3.6*pace;
+    }
+  }
+  // Salvage tokens grouped by type, one tether each, rising to the hull.
+  _launchTethers(tokens,x,y) {
+    const boss=this.boss,groups=[];
+    for(const t of tokens){const g=groups.find(o=>o.type===t.type);if(g)g.value+=t.value;else groups.push({type:t.type,value:t.value});}
+    groups.forEach((g,i)=>{
+      const k=i-(groups.length-1)/2;
+      this._enemy("tether",this._clamp(x+k*26,24,516),this._clamp(y,70,860),{parent:boss,ox:k*44,bow:k*90,
+        carrying:{type:g.type,value:g.value,life:SALVAGE_LIFE},hp:TETHER_HP,noScale:true});
+      this.events.push({type:"tetherLaunch",x,y,value:g.type,amount:g.value,time:TETHER_TIME});
+    });
+  }
+  _updateTether(e,h) {
+    const boss=this._enemyById(e.parentId);
+    if(!boss||boss.dead){this._cutTether(e,true);e.dead=true;return;}
+    e.progress=Math.min(1,e.progress+h/TETHER_TIME);
+    const t=e.progress,tx=boss.x+e.ox,ty=boss.y+boss.h*.55;
+    const mx=(e.x0+tx)/2+e.bow,my=(e.y0+ty)/2;
+    const ox=e.x,oy=e.y;
+    e.x=(1-t)*(1-t)*e.x0+2*(1-t)*t*mx+t*t*tx;e.y=(1-t)*(1-t)*e.y0+2*(1-t)*t*my+t*t*ty;
+    e.tx=tx;e.ty=ty;
+    if(h>0)e.angle=Math.atan2(-(e.x-ox),e.y-oy);
+    if(t>=1) {
+      // Gone for good: the SOVEREIGN grows a weapon from it.
+      const c=e.carrying;e.carrying=null;e.dead=true;
+      this.stats.salvageLost+=c.value||1;
+      this.events.push({type:"tetherLost",x:tx,y:ty,value:c.type,amount:c.value});
+      this._sovereignGrow(boss,c.type);
+    }
+  }
+  // A cut tether drops its salvage back into play (salvage: true).
+  _cutTether(e,quiet=false) {
+    const c=e.carrying;if(!c)return;
+    e.carrying=null;
+    this.pickups.push({id:++this._pickupId,x:this._clamp(e.x,SALVAGE_BOUNDS.left,SALVAGE_BOUNDS.right),
+      y:this._clamp(e.y,SALVAGE_BOUNDS.top,SALVAGE_BOUNDS.bottom),r:18,type:c.type,age:SALVAGE_GRACE,
+      vx:0,vy:60,salvage:true,value:c.value,life:Math.max(5,c.life||0)});
+    this.events.push({type:"tetherCut",x:e.x,y:e.y,value:c.type,amount:c.value,quiet});
+  }
+  _sovereignGrow(boss,type) {
+    boss.grown++;
+    if(boss.weapons.length<SOVEREIGN_WEAPONS_MAX) {
+      const slots=[-150,150,-80,80],ox=slots[boss.weapons.length];
+      boss.weapons.push({type,ox,fireAt:boss.age+1.5});
+    }
+    this.events.push({type:"sovereignGrow",x:boss.x,y:boss.y,value:type,count:boss.weapons.length,grown:boss.grown});
+  }
   _updateEnemies(h) {
     const p=this.player;
     for(const e of this.enemies) {
@@ -2023,6 +2653,12 @@ export class Game {
           e.y=-190+(1-(1-entrance)**3)*400;
           e.x=270+Math.sin(Math.max(0,e.age-3.4)*.3)*HALCYON_SWAY;
           e.angle=Math.sin(e.age*.6)*.02;
+        } else if(e.sovereign) {
+          // A mirror capital ship: a slow descent, a measured sway, a level keel.
+          const entrance=Math.min(1,e.age/3.4);
+          e.y=-200+(1-(1-entrance)**3)*400;
+          e.x=270+Math.sin(Math.max(0,e.age-3.4)*.28)*SOVEREIGN_SWAY;
+          e.angle=Math.sin(e.age*.5)*.015;
         } else {
         const entrance=Math.min(1,e.age/2.8);
         e.y=-145+(e.age<2.8?(1-(1-entrance)**3)*430:430);
@@ -2044,6 +2680,7 @@ export class Game {
           this._event("bossPhase",e.x,e.y,phase);
           if(e.leviathan)this._leviathanEnterPhase(e);
           else if(e.halcyon)this._halcyonEnterPhase(e);
+          else if(e.sovereign)this._sovereignEnterPhase(e);
           // Act I: a phase break is a recovery opportunity for a kit below
           // the sector's entitlement (a clean collector gets nothing).
           else if(this.stage<ACT_TWO_STAGE) {
@@ -2073,6 +2710,7 @@ export class Game {
         if(this.stage===3&&e.phase>=2)this._updateBossLance(e);
         if(e.leviathan)this._leviathanFire(e,h);
         else if(e.halcyon)this._halcyonFire(e,h);
+        else if(e.sovereign)this._sovereignFire(e,h);
         else if(e.age>2.8&&e.age>=e.fireAt) {
           this._bossFire(e);
           e.fireAt=e.age+BOSS_CADENCE[this.stage][e.phase-1]*ACT_ONE_BOSS_PACE_BASE/(1+ACT_ONE_BOSS_PACE_K*this.threat);
@@ -2267,11 +2905,12 @@ export class Game {
     // Armored hulls take a share of the damage while any of their turrets lives.
     if(e.type==="hull"&&e.turretsAlive>0)amount*=HULL_ARMOR;
     else if(e.type==="foundry"&&e.baysAlive>0)amount*=FOUNDRY_ARMOR;
+    else if(e.type==="station"&&e.turretsAlive>0)amount*=STATION_ARMOR;
     // A stripped or bare ship can still silence a hull inside its lifetime.
     if(WEAK_KIT_TYPES.has(e.type)&&this.threat<LOW_THREAT)amount*=WEAK_KIT_TURRET_BONUS;
     if(e.type!=="boss") {e.hp-=amount;return;}
-    // LEVIATHAN's deck turrets and HALCYON's bays armor the core.
-    if(e.turretsAlive>0||e.baysAlive>0)amount*=LEVIATHAN_ARMOR;
+    // LEVIATHAN's deck turrets, HALCYON's bays and THE SOVEREIGN's mirror escorts armor the core.
+    if(e.turretsAlive>0||e.baysAlive>0||e.escortsAlive>0)amount*=LEVIATHAN_ARMOR;
     // One threshold per learned pattern. Incoming fire still shows impacts,
     // while each phase has time to establish its distinctive attack.
     const floor=this._bossUnlocked(e)?0:(e.phase===1?Math.floor(e.maxHp*.66)-1:
@@ -2328,6 +2967,8 @@ export class Game {
       if(b.ttl!==undefined&&(b.ttl-=h)<=0)b.dead=true;
       // Flak shells burst into a ring when their fuse runs out.
       if(b.fuse!==undefined&&!b.dead&&(b.fuse-=h)<=0){b.dead=true;(bursting||=[]).push(b);}
+      // Sector 6 mirror missiles turn gently toward the ship for a while.
+      if(b.homing!==undefined&&b.homing>0)this._steerBullet(b,h);
     }
     if(bursting)for(const b of bursting)
       this._radial(b.x,b.y,b.burst.count,b.burst.speed,b.burst.offset||0,b.burst.kind,b.burst.r);
@@ -2343,7 +2984,7 @@ export class Game {
         // One pass finds the locked target, or else the nearest live enemy.
         let target=null,nearest=null,nearestDistance=Infinity;
         for(const enemy of this.enemies) {
-          if(enemy.dead||enemy.y<=-50||enemy.hidden)continue;
+          if(enemy.dead||enemy.y<=-50||enemy.hidden||enemy.phasing)continue;
           if(enemy.id===shot.targetId){target=enemy;break;}
           const dx=enemy.x-shot.x,dy=enemy.y-shot.y,distance=dx*dx+dy*dy;
           if(distance<nearestDistance){nearestDistance=distance;nearest=enemy;}
@@ -2506,11 +3147,13 @@ export class Game {
   _pierces(shot) { return !!shot.hitIds&&(shot.kind==="pierce"||shot.kind==="torpedo"||shot.style==="rail"); }
   _collide() {
     const p=this.player;
+    // Sector 6: any player shot breaks a shard (or a mirror missile) it touches.
+    if(this.stage===6)this._breakFragile();
     for(const shot of this.shots) {
       if(shot.dead)continue;
       for(const hitEnemy of this.enemies) {
         let e=hitEnemy;
-        if(e.dead||e.y< -70||e.hidden||shot.hitIds?.includes(e.id))continue;
+        if(e.dead||e.y< -70||e.hidden||e.phasing||shot.hitIds?.includes(e.id))continue;
         const reactor=e.reactor;
         if(reactor&&!reactor.broken&&e.age>=reactor.opensAt&&!shot.hitIds?.includes(reactor.id)&&Math.hypot(shot.x-reactor.x,shot.y-reactor.y)<reactor.r+(shot.hitR||shot.r)){
           if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
@@ -2529,7 +3172,7 @@ export class Game {
         if(!hit)continue;
         // Turrets ride on the deck: a shot over a live turret hits it, and a
         // shot flying up a live turret's column passes over the hull to reach it.
-        if(e.turretsAlive>0||e.baysAlive>0||e.gunnersAlive>0) {
+        if(e.turretsAlive>0||e.baysAlive>0||e.gunnersAlive>0||e.escortsAlive>0) {
           const turret=this._turretUnder(e,shot);
           if(turret===true)continue;
           if(turret)e=turret;
@@ -2537,8 +3180,8 @@ export class Game {
         if(!shot.countedHit){this.stats.shotsHit++;shot.countedHit=true;}
         const previousHp=e.hp;
         this._damageEnemy(e,shot.damage);
-        const armorStopped=(e.type==="boss"&&e.hp===previousHp)||((e.type==="boss"||e.type==="hull")&&e.turretsAlive>0)||
-          ((e.type==="boss"||e.type==="foundry")&&e.baysAlive>0);
+        const armorStopped=(e.type==="boss"&&e.hp===previousHp)||((e.type==="boss"||e.type==="hull"||e.type==="station")&&e.turretsAlive>0)||
+          ((e.type==="boss"||e.type==="foundry")&&e.baysAlive>0)||(e.type==="boss"&&e.escortsAlive>0);
         const heavy=shot.kind==="missile"||shot.kind==="torpedo";
         e.flash=heavy?.95:shot.kind==="pierce"?.72:.5;
         // Torpedoes pierce small craft and burst on big targets and bosses.
@@ -2586,7 +3229,7 @@ export class Game {
     // Each enemy can be struck once per roll, including the boss.
     if(p.roll>0) {
       for(const e of this.enemies) {
-        if(e.dead||e.y< -70||e.lastRollHit===this._rollSerial)continue;
+        if(e.dead||e.y< -70||e.phasing||e.lastRollHit===this._rollSerial)continue;
         const radius=e.type==="boss"?(p.rollCharged?90:75):e.r+(p.rollCharged?30:20);
         if(Math.hypot(e.x-p.x,e.y-p.y)>radius)continue;
         e.lastRollHit=this._rollSerial;
@@ -2656,7 +3299,7 @@ export class Game {
     if(p.invuln<=0) {
       for(const e of this.enemies) {
         // Surface ships (hulls, their turrets, gunboats) sail below the plane.
-        if(e.dead||e.hidden||NO_CONTACT_TYPES.has(e.type))continue;
+        if(e.dead||e.hidden||e.phasing||NO_CONTACT_TYPES.has(e.type))continue;
         const dx=e.x-p.x,dy=e.y-p.y;
         if(dx*dx+dy*dy<(p.r+e.r*.66)**2) {
           this._hurtPlayer(p.x,p.y);
@@ -2784,7 +3427,9 @@ export class Game {
         tokens.push({type:pool.type,value});
       }
     const offset=this._rand()*Math.PI*2;
-    tokens.forEach((token,i)=>{
+    // THE SOVEREIGN's phase 2 ("Theft"): the salvage goes up tethers instead.
+    if(this._theft())this._launchTethers(tokens,x,y);
+    else tokens.forEach((token,i)=>{
       const angle=offset+i/tokens.length*Math.PI*2+this._range(-.25,.25),speed=this._range(SALVAGE_BURST[0],SALVAGE_BURST[1]);
       this.pickups.push({id:++this._pickupId,x:this._clamp(x,SALVAGE_BOUNDS.left,SALVAGE_BOUNDS.right),
         y:this._clamp(y,SALVAGE_BOUNDS.top,SALVAGE_BOUNDS.bottom),r:18,type:token.type,age:0,
@@ -2832,11 +3477,13 @@ export class Game {
       this.boss=null;this._transition=this._transitionLength=actBreak?ACT_TWO_INTERLUDE:INTERLUDE;
       // HALCYON's last pose keeps the bays still standing.
       const liveBays=e.halcyon?this.enemies.filter(o=>o.type==="foundryBay"&&o.parentId===e.id&&!o.dead).map(o=>({ox:o.ox,oy:o.oy})):null;
-      if(e.halcyon)this._clearHazards();
+      if(e.halcyon||e.sovereign)this._clearHazards();
+      const liveEscorts=e.sovereign?this.enemies.filter(o=>o.type==="mirrorEscort"&&o.parentId===e.id&&!o.dead).map(o=>({ox:o.ox,oy:o.oy,slot:o.slot})):null;
       // Everything the flagship launched goes down with it; stolen salvage falls back.
       for(const other of this.enemies) {
         if(other===e||other.dead)continue;
-        if(other.type==="hullTurret"||other.type==="foundryBay")this._killEnemy(other,true,true);
+        if(other.type==="hullTurret"||other.type==="foundryBay"||other.type==="mirrorEscort")this._killEnemy(other,true,true);
+        else if(other.type==="tether"){this._cutTether(other,true);other.dead=true;}
         else {
           this._releaseCarried(other);other.dead=true;
           this._burst(other.x,other.y,8,"amber",120,"explode");
@@ -2853,6 +3500,12 @@ export class Game {
       if(e.halcyon) {
         Object.assign(this.events[this.events.length-1],{w:e.w,h:e.h,angle:e.angle||0,bays:liveBays});
         this.events.push({type:"wingBreak",x:e.x,y:e.y,value:this.stage,w:e.w,h:e.h,angle:e.angle||0});
+      }
+      // THE SOVEREIGN: the mirror hull shatters into shards that tumble toward the Earth.
+      if(e.sovereign) {
+        const pose={w:e.w,h:e.h,angle:e.angle||0,escorts:liveEscorts,weapons:e.weapons.map(w=>({type:w.type,ox:w.ox})),style:e.style};
+        Object.assign(this.events[this.events.length-1],pose);
+        this.events.push({type:"mirrorShatter",x:e.x,y:e.y,value:this.stage,...pose});
       }
       if(actBreak)this._event("actTwo",e.x,e.y,ACT_TWO_STAGE);
     } else if(silent) {
@@ -2876,7 +3529,7 @@ export class Game {
       // of the random table; heavies and loners still roll it. Act I rolls a
       // smaller flavour table at lower rates: the ledger is authored.
       const formation=e.squad&&FORMATION_TYPES.has(e.type);
-      const rescued=e.rescue&&this.threat<(this.stage===5?RESCUE_THREAT_S5:RESCUE_THREAT);
+      const rescued=e.rescue&&this.threat<this._rescueThreat();
       if(e.drop)drops.push(...[].concat(e.drop));
       // Act I: a rescue lead pays its power on top of an authored drop.
       if(rescued&&(actOne||!e.drop))drops.push("power");
@@ -2929,6 +3582,20 @@ export class Game {
       if(parent?.type==="boss"){this.shake=Math.max(this.shake,7);this.flash=Math.max(this.flash,.25);}
       this._event("bayDown",e.x,e.y,parent?.type==="boss"?"boss":"foundry");
     } else if(e.type==="tailGunner") this._childLost(e);
+    else if(e.type==="station") {
+      this._burst(e.x,e.y,44,"gold",270,"explode");this._particle(e.x,e.y,0,0,.6,12,"amber","ring");
+      this.shake=Math.max(this.shake,10);this.flash=Math.max(this.flash,.32);
+      for(const t of this.enemies)if(t.type==="stationTurret"&&t.parentId===e.id&&!t.dead)this._killEnemy(t,false,true);
+      this._event("stationDown",e.x,e.y,0);
+    } else if(e.type==="stationTurret") {
+      this._childLost(e);this._event("stationTurretDown",e.x,e.y,e.gun);
+    } else if(e.type==="mirrorEscort") {
+      this._childLost(e);this.shake=Math.max(this.shake,6);this.flash=Math.max(this.flash,.2);
+      this._event("mirrorEscortDown",e.x,e.y,e.slot);
+    } else if(e.type==="satellite"||e.type==="echo") {
+      this._dropOwnedHazards(e.id);
+      if(e.type==="satellite")this._event("satelliteDown",e.x,e.y,0);
+    } else if(e.type==="tether") this._cutTether(e);
     else if(e.type==="foundry"||e.type==="boxBomber") {
       if(e.type==="foundry") {
         this._burst(e.x,e.y,40,"gold",260,"explode");this._particle(e.x,e.y,0,0,.6,12,"amber","ring");
@@ -2937,6 +3604,10 @@ export class Game {
       for(const t of this.enemies)if(CHILD_TYPES.has(t.type)&&t.parentId===e.id&&!t.dead)this._killEnemy(t,false,true);
       if(e.type==="foundry")this._event("foundryDown",e.x,e.y,e.foundryClass);
     }
+  }
+  _ownerGone(id) { const o=this._enemyById(id);return !o||o.dead; }
+  _dropOwnedHazards(id) {
+    let w=0;for(const hz of this.hazards)if(hz.ownerId!==id)this.hazards[w++]=hz;this.hazards.length=w;
   }
   _turretLost(t) {
     const parent=this._enemyById(t.parentId);
@@ -2961,6 +3632,8 @@ export class Game {
       this.score+=this.player.lives*5000+this.player.bombs*1500+this.player.hp*1000;
       this.best=Math.max(this.best,this.score);
       this._finishRun("victory");
+      // THE SOVEREIGN's defeat ends Act II.
+      if(this.stage===6)this._event("actTwoComplete",270,320,2);
       this._event("victory",270,320,this.score);return;
     }
     // Anything the interlude did not collect is off screen and is lost.
@@ -3007,7 +3680,7 @@ export class Game {
       const e=this.enemies[read];
       // Rising interceptors start below the field; Act II fliers that climb
       // out of the top are gone.
-      const gone=(e.type==="hull"||e.type==="foundry"?e.y-e.h>=920:e.y>=(e.hidden?1200:990))||e.x<=-130||e.x>=670||
+      const gone=(e.type==="hull"||e.type==="foundry"||e.type==="station"?e.y-e.h>=920:e.y>=(e.hidden?1200:990))||e.x<=-130||e.x>=670||
         (e.y< -110&&e.age>1&&ESCAPE_TYPES.has(e.type));
       if(!e.dead&&!gone)this.enemies[write++]=e;
       else if(!e.dead&&e.type==="hullTurret")this._turretLost(e);

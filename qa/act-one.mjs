@@ -65,10 +65,12 @@ try {
   });
   await page.waitForTimeout(100);await capture('squadron-points');
   assert.ok(await page.evaluate(()=>__qaAct.renderer.impacts.some(f=>f.type==='squadronBonus'&&f.points===750&&f.drops===0)));
-  // Victory copy follows src/cinema.js: a campaign that clears sector N (4 or 5) reads
-  // "SECTOR 0N CLEARED / ACT II CONTINUES"; only sector 6 would close Act II.
+  // Victory copy follows src/cinema.js: a summary that clears sector N (4 or 5) reads
+  // "SECTOR 0N CLEARED / ACT II CONTINUES"; the campaign victory after sector 6
+  // (THE SOVEREIGN, CAMPAIGN_STAGES = 6) reads ACT II COMPLETE.
   for (const [stage,outcome,name,record] of [[2,'gameover','act-1','ACT I · SECTOR 02'],[4,'gameover','act-2','REACHED ACT II'],
-    [4,'victory','victory','SECTOR 04 CLEARED / ACT II CONTINUES'],[5,'victory','victory-s5','SECTOR 05 CLEARED / ACT II CONTINUES']]) {
+    [4,'victory','victory','SECTOR 04 CLEARED / ACT II CONTINUES'],[5,'victory','victory-s5','SECTOR 05 CLEARED / ACT II CONTINUES'],
+    [6,'victory','victory-s6','ACT II COMPLETE \/ ACT III AWAITS']]) {
     await page.evaluate(({stage,outcome}) => __qaAct.endSortie({outcome,shipId:'kestrel',score:86120,grade:'C',stage,grazes:41,rolls:4,livesRemaining:outcome==='victory'?3:0},true),{stage,outcome});
     assert.match(await page.locator('#endIntroLine').textContent(),new RegExp(record));
     await page.waitForTimeout(700); await capture('debrief-'+name);

@@ -1278,11 +1278,388 @@ Same structure as the sector 5 contract. The simulation owns state, and any cont
 
 ### Simulation notes (sector 6)
 
-(Simulation builder: record the sector-6 reference kit, drops → attacks, the HP curve, the echo, shard and tether numbers, the SOVEREIGN's numbers and the bot tables, including good, average and hesitant pilots on reference, P25, mid and real-arrival kits.)
+Status: round 1 (2026-10-31, simulation builder). **Events and fields come first** (landed in `game.js` before tuning; presentation can render real state). The tuning numbers, the drop schedule and the bot tables (128 seeds) follow. Every name in the build contract keeps its meaning; the items here are additions or exact definitions.
+
+#### Events / fields for presentation
+
+**Campaign**
+- `CAMPAIGN_STAGES = 6`. HALCYON → sector 6 is the ordinary 3.5 s interlude (no act card). Clearing HALCYON repairs the hull to full and adds one bomb, as LEVIATHAN does.
+- `stageGoal[6] = 105`. Sector 6 has no lane sweeps.
+- Victory follows THE SOVEREIGN. In the campaign the victory frame carries `actTwoComplete {x: 270, y: 320, value: 2}` just before `victory`; `summary.act === 2`, `summary.stage === 6`. Drills end in an ordinary drill victory (no `actTwoComplete`).
+- `startDrill(6)` starts THE SOVEREIGN with the sector-6 reference kit: **power 62, 6 escorts, sidewinder 24, signature 22, shield 3** (threat about 0.88). `progress.js` follows `CAMPAIGN_STAGES`, so `bossSeen`, drills and records accept 6.
+- The recorded path: `game.path = {x: Float64Array, y: Float64Array, head, count, size: 360, hz: 120}`. One sample per 1/120 s tick while `stage === 6`; `head` is the next slot to write. Echoes replay the sample 300 ticks (2.5 s) old.
+
+**Enemies** (all in `game.enemies`; every one sets `e.angle`, 0 = nose down, as before)
+
+| Type | Fields | Notes |
+| --- | --- | --- |
+| `echo` | `style` (`"spread"`, `"missile"` or `"pierce"`: the player's weapon family when it spawned), `mirror` (−1: mirrored about the centre line; 1: a straight copy), `trail` (the `game.path` index it is replaying; −1 while leaving), `lag` (s of replay delay: 2.5, or 0.5 for THE SOVEREIGN's rescue shadow), `ox`, `oy` (lateral shift, px up-field), `leaveAt` (s), `hidden` (true before its stagger delay), `phasing` (true for its first 0.8 s: a ghost that shots and the ship pass through; draw it materialising), `railX` (Wraith echoes: the x of its last rail) | r 14. Popcorn (one volley). Contact hurts once solid. Enters from the top (or from THE SOVEREIGN's hull), eases onto its replay over 0.8 s, replays for 6.5 s, then climbs out. Its position is `x = 270 + mirror × (pathX − 270) + ox`, `y = max(70, pathY − oy)` with the path `lag` s old. It leads its aim (it knows the flight it copies). Fires a weak copy of the player's gun: Kestrel a 3-way (5-way above threat 0.7 in the sector) `mirror` spread of fragile glass rounds; Manta one `mirror` missile; Wraith a mirror rail (a short `laser` hazard, below). In the elite tier (threat ≥ 0.8) each volley is a pair, 0.22 s apart. |
+| `satellite` | `laserId` (its live laser hazard id, 0 when none), `sweep` (rad/s of its last sweep, signed), `dir` (±1, travel direction), `anchored` (true while its laser warns or fires: it holds still), `baseY` | r 22. Enters from a side edge and crosses at 42 px/s, bobbing ±6 px. Body contact hurts. Destroying it removes its laser at once. |
+| `station` | `w`, `h` (half-extents 176 × 74, an ellipse for shots), `turrets` (child ids, dead kept), `turretsAlive`, `state` (`"enter"`, `"hold"`, `"leave"`), `holdUntil` | The Meridian Gate. Descends to y 205, holds 15 s, then scrolls off. ×0.35 damage while any turret lives. Never fires itself; never hurts on contact; bullets pass under it. |
+| `stationTurret` | `parentId`, `ox`, `oy`, `gun` (`"shard"`, `"void"` or `"mix"`), `aim` (radians toward the ship, slewing) | r 17. Six per station. A shot over a live turret hits it first. Dies with its parent. `shard`: a 7–9-shard aimed fan. `void`: a 3-way (5-way above threat 0.7) void spread. `mix`: a 12–14-round ring, every third round void, the rest shards. |
+| `mirrorEscort` | `parentId` (THE SOVEREIGN), `slot` (0–5), `side` (±1), `rank` (0–2), `ox`, `oy`, `style` (the copied ship id: `"kestrel"`, `"manta"`, `"wraith"`) | r 15. One per player escort at THE SOVEREIGN's arrival (0–6). Mirrors the player's escort formation: `ox = side × (118 + rank × 36)`, `oy = 26 + rank × 26`, bobbing a few px. Fires a light copy of the player's escort weapon (`mirror` bullets). A shot over a live escort hits it first. Each pays power plus a ladder item. |
+| `tether` | `carrying` (`{type, value, life}`, null once landed or cut), `progress` (0..1 up the line), `x0`, `y0` (launch point), `tx`, `ty` (the hull mount it is heading for), `bow` (px, the curve's sideways bow), `ox` (mount offset on the hull), `parentId` | r 11. HP 90 (never scaled: a just-scattered ship is bare). Flies a quadratic curve from the impact point to the hull in 2.6 s. Never hurts on contact. Shot down: the salvage drops back (`salvage: true`). At progress 1 it is lost. |
+
+**Bullets**
+- `kind: "shard"` (r 5.4, `fragile: true`): destructible. Any player shot that touches one breaks it; the shot is spent unless it pierces (Wraith rails, rail escorts and torpedoes carve on through). The reflector, orbitals and Kestrel flak treat shards as ordinary bullets.
+- `kind: "mirror"` marks a round from a copied player weapon (echoes, THE SOVEREIGN's phase-1 pattern, mirror escorts, grown weapons). Tint it with the player's colour family. `style: "missile"` on a mirror round is a Manta-style missile: r 6, `fragile: true` (shootable like a shard), `homing` (seconds of turning left), `turn` (rad/s).
+- Shard curtains spawn whole rows from the top edge, with void studs (`kind: "void"`) every sixth slot: no natural gap, the pilot carves one.
+
+**Hazards** (the `laser` kind gains two variants)
+- **Rotating** (satellites): `rotating: true`, `orient: "r"`, `pivotX`, `pivotY` (the satellite, fixed while it fires), `angle` (radians, standard `atan2` frame: 0 = +x, π/2 = straight down; live), `angle0`, `angle1` (start and end), `sweep` (rad/s, signed), `len` (1100 px), `width` (8, half-thickness), `warn` (0.9 s; the beam sits still on `angle0`), `on` (s), `ownerId`, `span` (`[x0, x1]`: what the sweep covers at the ship's altitude `spanY` when it was aimed). The beam is a ray from the pivot along `angle`; during `"fire"` it turns from `angle0` to `angle1`. It hurts on contact unless the ship is rolling, like every laser.
+- **Mirror rails** (Wraith echoes and THE SOVEREIGN copying a Wraith): ordinary vertical bars (`orient: "v"`) with `mirror: true`, `width` 6, a short warning and beam (echo 0.55 / 0.2 s; SOVEREIGN 0.75 / 0.3 s), `ownerId`. They vanish if the owner dies.
+- A bomb clears both, as before.
+
+**New events** (`x, y` is the natural point of each)
+- `echoSpawn {value: style, count}`; `echoFire {value: style}` (coalesced per frame).
+- `satelliteEnter {x: 0 | 540, y, value: dir, delay}`, `satelliteDown`.
+- `laserWarn` for a rotating sweep: `{x: pivotX, y: pivotY, orient: "r", pos: angle0, rotating: true, angle, pivotX, pivotY, sweep, on, count: 1, bars}`; `laserFire` gains `rotating: true`. Mirror rails: `laserWarn {..., orient: "v", mirror: true}`, `laserFire {..., mirror: true}`.
+- `shardCurtain {x: 270, y: 0, value: rows, speed}`; `shardBreak {value: count}`, at most one per 0.1 s (count = shards broken since the last one).
+- `stationEnter {x: 270, y: 0, value: 6}`, `stationDown`, `stationTurretDown {value: gun}`.
+- `mirrorCopy {value: style, escorts, band, ship}`: on THE SOVEREIGN's arrival (the start of phase 1). `band` is the copied power band (0 below power 20, 1 below 40, 2 from 40), read live for each salvo.
+- `mirrorEscortDown {value: slot}`.
+- `sovereignPhase {value: phase}` (alongside the usual `bossPhase`).
+- `tetherLaunch {x, y, value: pickupType, amount, time: 2.6}`: one per tether (salvage is grouped by type, so at most four).
+- `tetherCut {x, y, value: pickupType, amount, quiet}`: the salvage drops back. `quiet: true` when THE SOVEREIGN's death released it.
+- `tetherLost {x, y, value: pickupType, amount}` and then `sovereignGrow {x, y, value: pickupType, count, grown}` (`count` = weapon mounts now armed, up to 4; `grown` = tethers landed).
+- `mirrorShatter {x, y, value: 6, w, h, angle, escorts: [{ox, oy, slot}], weapons: [{type, ox}], style}`: THE SOVEREIGN's death, in the same frame as `bossDown`, which carries the same pose fields.
+- `actTwoComplete {value: 2}`: campaign victory after sector 6.
+- Existing boss events carry `stage === 6` (`bossEnter`, `bossPhase`, `bossDown`, `stage`). Interceptors, sky aces, bomber boxes, flak bands and drones are reused unchanged in the remix gauntlet.
+- Kestrel's copied fan and Kestrel echo rounds are `kind: "mirror"` with `fragile: true` ("glass"): shootable like shards.
+
+**THE SOVEREIGN** (`this.boss`, `stage === 6`)
+- `boss.name = "THE SOVEREIGN"`, `boss.sovereign = true`, `boss.w = 200`, `boss.h = 80` (collision ellipse), `boss.r = 75`. It glides to y 200 over 3.4 s and sways ±28 px.
+- `boss.style`: the copied weapon family (`"spread"`, `"missile"`, `"pierce"`); `boss.ship`: the copied ship id.
+- `boss.rank` (0..1, read at spawn: 0 at threat 0.45 or less, 1 from 0.84): how hard THE SOVEREIGN plays this arrival (void layers, escort and phase-2 cadence, phase-3 density, +30% HP at rank 1). A HUD or cinema may show it; nothing needs it.
+- `boss.escorts` (mirror escort ids, dead kept), `boss.escortsAlive`. While any lives, core damage is ×0.25 in every phase.
+- `boss.mirror` (0..1): the mirror plating deploying on arrival. `boss.ballet` (0..1): the phase-3 glow.
+- `boss.weapons` (`[{type, ox, fireAt}]`, up to 4): weapons grown from landed tethers, mounted at `ox` −150, 150, −80, 80 on the hull. `boss.grown`: tethers landed in total.
+- Phase 1, "Reflection": the copied main gun (Kestrel: a 5/7/9-round fan of fragile `mirror` glass rounds; Manta: 2/3/5 mirror missiles, launched wide so they flank; Wraith: 1/2/4 mirror rails, by the player's power band), the mirror escorts' fire, and echo pairs from the hull. Phase 2, "Theft": tethers on every scatter, the copied gun slower, wing shard fans, aimed spreads, grown weapons. Phase 3, "Ballet": void rings, shard rows with void studs, the copied gun, grown weapons; on the final guard floor the desperation curtain (shard rows with two drifting gaps) replaces them.
+
+
+#### Reference kit
+
+The no-hit engaged collector flew the whole campaign (Act I, sector 4, LEVIATHAN, sector 5, HALCYON) on the pre-sector-6 code, seeds 0–7. Its kit at sector-6 entry, counting HALCYON's spoils:
+
+| Ship | Power | Escorts | Sidewinder | Signature | Shield | Threat |
+| --- | --- | --- | --- | --- | --- | --- |
+| Kestrel | 58–64 | 6 | 17–27 | 19–24 | 3 | 0.877–0.879 |
+| Manta | 64–69 | 6 | 19–27 | 18–26 | 3 | 0.878–0.879 |
+| Wraith | 58–63 | 6 | 20–35 | 18–23 | 3 | 0.878–0.879 |
+
+- **The sector-6 reference kit is P62, E6, M24, ★22, S3** (arsenal 139, threat 0.879, saturated). Drill 6 uses it.
+- **Raw flagship DPS** (invulnerable tracker, escorts removed, guard ignored): Kestrel 5,213, Manta 6,867, Wraith 6,657 (sector 5's reference: 3,745 / 4,747 / 4,264).
+- The collector reaches THE SOVEREIGN at about P74–78, M31–40, ★27–35.
+- **Real arrivals are far below it.** Each pilot's measured sector-5 arrival kit, flown through sector 5 and HALCYON (threat 0, full hull, three lives; seeds 100–227), carries into sector 6:
+  - good: P q25/median/q75 15/20/30;
+  - average: 10/12/14, with M6, ★6, E4 and two lives (median);
+  - hesitant: 9/11/13, with M5, ★4, E4.
+  - 383/383 good, 274/343 average and 169/306 hesitant pilots reach sector 6.
+  - HALCYON strips most pilots, so "real arrival" in sector 6 is a mid kit, and the sector has to rebuild it.
+
+#### The rank: the sector notch, the elite tier and the heavies
+
+- **Heavies** (satellites, the station and its turrets, the mirror escorts, and reused bombers, gunners and aces) use `ACT_TWO_HP_SCALE[6] = 3.1` from threat 0.84, on sector 5's eased ramp down to ×1.6 at threat 0.3. **Popcorn** (interceptors, drones, echoes) uses `POPCORN_HP_SCALE[6] = 1.6`. Tethers never scale (HP 60: a just-scattered ship is bare).
+- **The notch** (`_sectorSix`): sector 6's own fire is ×1.14 faster on ×0.80 cooldowns. It fades in from threat 0.15 and is full at 0.85. THE SOVEREIGN keeps the shared flagship rank.
+- **Rescue power** below threat 0.65 (`RESCUE_THREAT_S6`; sector 5 keeps 0.6, sector 4 0.5). The 48 s echo wing's lead carries it.
+- **The elite tier** (threat ≥ `SECTOR_SIX_ELITE` 0.8: the reference kit, rarely a P25 kit, never a real arrival) adds:
+  - satellite return passes;
+  - two-volley echoes;
+  - six-echo wings;
+  - a sixth (or fourth) curtain row, with studs every fourth slot;
+  - five-ace wings instead of the 10 s-style pairs at 49.5 s;
+  - a four-bomber climbing box;
+  - the station's 5-way void spreads.
+  - It exists because the reference kit melts everything in the sector: before it, the good pilot took 2–3 sector hits. The remix gauntlet's pair and box (84 and 86.5 s) never upgrade; their stacking pushed peaks to 230.
+
+#### Enemy and hazard numbers
+
+Time on screen (engaged invulnerable collector, reference kit; median / 90th percentile): interceptor 0.28 / 0.78 s, echo 1.08 / 2.1 s (0.8 s of it phasing in), satellite 6.7 / 12.4 s, sky ace 1.6 / 4.9 s, station turret 5.4 / 11.7 s, the station 15.7 / 19.2 s, bomber 3.5 / 4.9 s.
+
+- **Echoes**:
+  - The path is recorded every 1/120 s tick into a 360-sample ring (`game.path`). An echo replays the sample 300 ticks old (`lag` 2.5 s), mirrored (`mirror` −1) or straight (1), `oy` 300–520 px up-field, clamped to x 36–504 and y ≥ 70.
+  - 40 base HP (×1.6), so a volley kills it. It is a ghost for its first 0.8 s (`phasing`), then fires at 0.9 s and every 1.6 s × pace.
+  - Its fire is a copy of the player's gun, aimed where the ship will be:
+    - Kestrel: a 3-way (5-way above threat 0.7) fragile glass spread at 240 px/s ×rank;
+    - Manta: one mirror missile (160 px/s, homing 1.6 s at 1.25 rad/s);
+    - Wraith: a mirror rail (warn 0.55 s, beam 0.2 s, 6 px half-width) at the ship's led x.
+  - It stays 6.5 s, then climbs out. Pairs (14, 27.5, 38, 66.5, 97 s) and wings of four, or six in the elite tier (48, 78.5 s), are squadrons (wipe bonus).
+- **Satellite lances**:
+  - 6,000 base HP. Enters from a side edge at 90 px/s, then crosses at 30 px/s at y 215–265.
+  - It sweeps when the ship is within 240 px across and 260 px below, every 3.6 s × pace, holding still while its laser is live.
+  - Each sweep:
+    - warns 0.9 s on a start line 80 px beside the ship;
+    - then turns across at most 280 px at the ship's altitude, toward the roomier side, at 0.46 rad/s (threat ≤ 0.6) to 0.72 rad/s (≥ 0.84);
+    - a beam lives 0.5 s or more (a short sweep turns slower);
+    - is 8 px half-width and 1,100 px long.
+  - **The gap**: the clear run (beam edge plus 9 px to the airframe's own field edge) is 110 px or more at the ship's altitude, held 80 px lower too. A test pins it for every ship over a grid of 1,200+ sweeps. The test also pins 80 px or more 60 px above and below, and that the nearest clear x is reachable at 325 px/s before the beam arrives.
+  - The elite return pass retraces the same wedge.
+- **Shard curtains** (34 s: 5 rows; 69 and 99.5 s: 3; +1 in the elite tier): rows 70 px apart from the top edge, a round every 27 px, falling at 140 px/s ×rank. Every fifth slot (fourth for elite) is a void stud, offset per row; there is no natural gap. One carved shard opens a lane for any hitbox. Shards are r 5.4, and any shot breaks one (rails, rail escorts and torpedoes carve on through). The reference kit breaks about 110 per sector run.
+- **The Meridian Gate**:
+  - 15,000 base HP (×3.1 at rank: 46,500), ×0.35 damage while any turret lives.
+  - It descends at 44 px/s to y 205, holds 15 s, then leaves at 32 px/s.
+  - Six turrets of 1,700 base HP, all carrying authored drops:
+    - two `shard` turrets: a 7–9-shard aimed fan every 2.0 s × pace;
+    - two `void` turrets: a 3-way void spread (5-way elite) every 3.0 s × pace;
+    - two `mix` turrets: a 12–14 ring, every third round void, every 2.8 s × pace.
+  - With the reference kit the turrets fall in about 5 s each (median) and the station in about 15 s.
+
+#### THE SOVEREIGN
+
+- **HP 300,000 × (1 + 0.3 × rank)**: 390,000 for a reference arrival or drill.
+- **Campaign mercy** (never in drills): × (0.62 + 0.38 × clamp((arsenal − 30) / 100)). That is ×0.62 at arsenal 30 or less, and full from 130 (a reference arrival carries 140–170).
+- **Rank** (`boss.rank`, read at spawn: 0 at threat ≤ 0.45, 1 at ≥ 0.84) on a ramp, so no arrival meets a cliff:
+  - the core's aimed spread joins in phase 1 from the start (void outer rounds from rank 0.5, against a void-aware ship; 5-way from 0.75);
+  - escorts fire every 1.9 → 1.15 s;
+  - the phase-2 clock runs 1.1 → 0.75 s;
+  - phase-3 rings grow 12 → 16 rounds, rows come every 2.2 → 1.6 s, and studs every 6th → 4th slot.
+- **Pace**: `_sovereignPace` = `_bossPace × (1 + 0.2·f(spawn threat) + 0.2·f(live threat))`, with sector 5's f.
+- **Learn windows** 30 / 60 / 92 s. `BOSS_GUARD_PAR[6] = 0.016`, K 20.
+- **Phase 1, "Reflection"**:
+  - `mirrorCopy` on arrival. Mirror escorts copy the player's escort count (0–6): 2,000 base HP (×3.1), r 20, the formation of the player's own wing. Each pays power plus a ladder item. Core ×0.25 while any lives.
+  - The copied gun, by the live power band (below 20 / 20–39 / 40+), every 1.6 s (Kestrel), 1.8 s (Manta) or 2.1 s (Wraith) × pace:
+    - Kestrel: a 5/7/9-round fragile glass fan;
+    - Manta: 2/3/5 mirror missiles, launched wide (175 px/s, homing 2.6 s);
+    - Wraith: 1/2/4 mirror rails (warn 0.75 s, beam 0.3 s), with gaps of 100 px or more.
+  - Echo pairs every 10 s × `_bossPace` (×0.4 for a stripped ship). The first is a close shadow (`lag` 0.5 s, straight above the ship) carrying rescue power below threat 0.65.
+- **Phase 2, "Theft"**:
+  - On every scatter the salvage is grouped by type into one tether each (at most four, `tetherLaunch`). Each flies a bowed curve (±90 px) to a hull mount in 2.9 s, with 60 HP.
+    - Shot down: the salvage drops back (`tetherCut`, `salvage: true`).
+    - At progress 1: `stats.salvageLost`, `tetherLost`, `sovereignGrow`. A weapon grows at mount −150 / 150 / −80 / 80 (up to four) and fires its type every 3.6 s × pace: power an aimed mirror 3-way, escort a cannon row, sidewinder two mirror missiles, signature an 8-shard fan.
+  - Fire rotates on one clock (the copied gun ×1.5 slower, crossing shard walls from the wings, an aimed mixed spread), so the layers take turns instead of converging.
+- **Phase 3, "Ballet"**:
+  - rings every 2.6 s × pace: void and red alternating, two void to one red against a void-aware ship from rank 0.75;
+  - full-width shard rows with void studs;
+  - the copied gun ×1.3 slower;
+  - grown weapons;
+  - echo pairs ×1.3 slower.
+  - On the final guard floor the desperation curtain replaces them: shard rows with two drifting 92 px lanes every 0.85 s, and a 12-void ring every 3.8 s.
+- **Kill times** (invulnerable tracker, escorts first; phases 2 / 3 in brackets):
+
+| Kit | Kestrel | Manta | Wraith |
+| --- | --- | --- | --- |
+| Reference (P62), drill | 92.0 s [34.8 / 60.0], escorts down 12.4 s | 90.8 s [29.9 / 59.3], 8.8 s | 90.5 s [29.8 / 59.2], 9.4 s |
+| Sector-5 reference (P43), drill | 113.0 s | 92.0 s | 92.1 s |
+| P25, drill / campaign (mercy) | 156.1 / 113.9 s | 128.0 / 92.3 s | 137.8 / 100.0 s |
+| Mid (P12), drill / campaign | 183.9 / 127.2 s | 171.6 / 117.8 s | 173.6 / 119.0 s |
+| Bare (P2), drill / campaign | 300.9 s (3.3×) / 221.4 s | 283.2 s (3.1×) / 208.5 s | 271.5 s (3.0×) / 199.2 s |
+
+Tests pin the reference kill at 80–95 s (escorts down at 6–20 s) and the bare drill at 210–320 s.
+
+#### Drop schedule
+
+`STAGE_BEATS[6]` is `SECTOR_SIX_BEATS`. "Collected" is the engaged collector's first pickup, over 8 seeds × 3 ships; "attack" is the first fire of the answering beat, measured the same way.
+
+| Beat (s) | Drop | Collected | Answers | Attack | Worst gap |
+| --- | --- | --- | --- | --- | --- |
+| 2.5 loop L | lead: power | 7.8–7.9 | the power trip | — | — |
+| 7.2 sweep L | lead: sidewinder | 8.2–8.3 | the 14 s echo pair (homing finds them) | 14.9 | 6.6 s |
+| 15.5 sweep R | lead: shield | 17.6 | the 24 s satellite lances | 25.2 | 7.6 s |
+| 29 sweep R | lead: power | 31.5–32.6 | the 34 s shard curtain (carve it); its first row reaches the ship at about 38 s | 34.2 (top edge) | 1.6 s at the edge, 5.4 s at the ship |
+| 38 echo pair | lead: signature | 39.8–41.9 | the 48 s echo wing | 48.9 | 7.0 s |
+| 53 sweep L | lead: shield | 54.0–56.3 (22/24) | the Meridian Gate's fire | 61.9 | 5.7 s |
+| 60 the Gate | turrets: power, signature, power, shield, power, sidewinder; heavy: power ×2 | 66.4–76.3; heavy 77.7–84.3 | the remix gauntlet | 82.2 | — |
+| 78.5 echo wing | lead: reflector (6 s) | 79.6–85.0 | the gauntlet's ace pair | 85.1 | 4.2 s typical; worst 0.1 s (one late pickup) |
+| 94.5 rise both | lead: power | 95.6–95.9 (19/24) | THE SOVEREIGN (105 s) | — | — |
+
+- **Full beat list** (s):
+  - 2.5 loop L, 4.9 loop R, 7.2 sweep L, 9.5 rise R;
+  - 14 echo pair, 15.5 sweep R, 18.5 rise L, 21 loop R;
+  - 24 two satellites plus six drifting drones, 27.5 echo pair, 29 sweep R, 31 rise L, 34 shard curtain;
+  - 38 echo pair, 40.5 rise R, 43.5 loop L, 44.5 satellite, 48 echo wing (rescue lead), 49.5 ace pair (elite: wing), 53 sweep L, 56.5 rise R;
+  - **the peak:** 60 the Meridian Gate, 64 satellite, 66.5 echo pair, 69 short curtain;
+  - 72 sweep R, 75 rise both, 78.5 echo wing;
+  - **the remix gauntlet:** 82 pincer loop, 84 ace pair, 86.5 climbing box, 90 flak pair;
+  - 94.5 rise both, 97 echo pair, 99.5 short curtain.
+- A test pins six pairs on every ship, each at least 2 s before its attack: sidewinder, shield, curtain power, signature, Gate shield and reflector.
+
+#### Balance bots
+
+- **Scripts** are in `~/knotz2026-dev-archive/s6-sim/`:
+  - `lib6.mjs`: `Dodger6` (sector 5's dodger, reading rotating beams by their future angle and shooting tethers, then mirror escorts, first), `run6`, `sov6`, `kt6`, `dps6`, `probe6`, `drops6` and `campaign56`;
+  - `table.mjs`, `cache-arr6.mjs` → `arrivals6.json`, `kt.mjs`, `drops.mjs`, `probe.mjs`;
+  - `golden.mjs` with `golden-base.json` (the ab6820f fingerprints), and `base-game.js` (the ab6820f snapshot);
+  - the dumps `d1`–`d32.json`.
+- **Runs** start at sector 6 from each kit, at threat 0, with a full hull and three lives, as in sector 5. Score extends start from 0, so a run can earn lives. Hits include shield hits. "Real arrival" uses each pilot's cached sector-6 arrival kit.
+
+**Final rows** (128 seeds, 100–227; values are Kestrel, Manta, Wraith):
+
+| Pilot | Kit | Clears | Sector hits | SOVEREIGN hits | Peak bullets (sector / boss) | Tethers launched (cut / lost) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Good | Reference | 126, 128, 128 (382/384, 99%) | 5.2 / 3.7 / 5.2 (mean 4.7) | 2.5 / 4.4 / 2.1 | 175 / 119 | 0.9 (0.7 / 0.2) |
+| Average | Reference | 92, 110, 119 (321/384, 84%, 40.1/48) | 7.6 / 5.3 / 7.7 | 9.3 / 12.7 / 5.9 | 226 / 112 | 3.6 (2.7 / 0.9) |
+| Hesitant | Reference | 81, 98, 92 (271/384, 71%) | 7.9 / 5.3 / 9.3 | 9.6 / 14.1 / 7.5 | 181 / 126 | 4.5 (3.2 / 1.1) |
+| Average | P25 | 109, 104, 97 (310/384, 81%) | 9.9 / 10.2 / 11.0 | 7.3 / 12.7 / 7.6 | 201 / 99 | 4.8 |
+| Hesitant | P25 | 83, 91, 70 (244/384, 64%) | 9.9 / 10.4 / 11.8 | 8.5 / 13.8 / 8.7 | 197 / 99 | 5.6 |
+| Average | Real arrival | 72/93, 71/90, 81/91 (224/274, 82%) | 8.8 / 8.9 / 9.5 | 8.0 / 13.5 / 5.5 | 190 / 101 | 4.5 |
+| Hesitant | Real arrival | 33/59, 42/53, 32/57 (107/169, 63%) | 9.3 / 9.5 / 10.9 | 8.7 / 13.1 / 6.9 | 184 / 95 | 5.6 |
+| Average | Mid (P12) | 93, 118, 105 (316/384, 82%) | 9.4 / 8.9 / 9.0 | 7.8 / 11.7 / 6.0 | 171 / 92 | 4.4 |
+| Hesitant | Mid | 71, 105, 55 (231/384, 60%) | 9.9 / 9.4 / 11.1 | 8.0 / 13.2 / 7.9 | 174 / 92 | 5.2 |
+| Good | Bare | 92, 128, 74 (294/384, 77%) | 5.9 / 6.0 / 6.5 | 3.8 / 3.7 / 4.7 | 119 / 81 | 2.3 |
+
+- Most failing runs die in THE SOVEREIGN's phase 3, then phase 2; almost none die in the sector.
+- Median fight length: good/reference 93 s, average 98 s, hesitant 116 s.
+- **Under-kit check:** for every pilot, reference ≥ P25 ≈ real arrival ≈ mid, so arriving short of kit is never the better choice.
+  - An earlier build with a binary elite gate at the boss had average P25 90% against reference 79%. That build tripped the check. The ramp (`boss.rank`) plus a smaller mid-kit ease and mercy fixed it.
+
+**What moved the ship balance** (average/reference: Kestrel 47–56% against 97–100% for the others, at its worst):
+- Kestrel scattered 8 times per fight against Wraith's 2.3; its time stripped per scatter was the same. All-void layers bypass its flak and Wraith's orbitals, but not Manta's double shields.
+- Fixed by:
+  - Kestrel's copy as fragile glass;
+  - mixed spreads with void only on the outer rounds, and only against a void-aware ship (Act II's rule);
+  - void/red rings;
+  - a 0.5 s-shadow rescue echo that any gun finds (Kestrel's narrow power-1 streams missed the 2.5 s replay);
+  - escort HP ×1.0;
+  - Manta's flanking missiles and Wraith's four-rail top band.
+
+#### Targets, and misses with reasons
+
+- **Good, reference: essentially all clears.** Met (99%).
+- **Good, reference: 5–8 sector hits.** Mean 4.7: met for Kestrel and Wraith (5.2), **missed for Manta (3.7)**. The cause wasn't isolated; Manta was also the lowest-but-one in sector 5 (4.5–4.7). Every sector lever that lifted Manta further (a stronger notch, denser curtains) also pushed P25 peaks past 200, so it was left here.
+- **Average, reference: about 36–40/48.** **At the ceiling** (40.1/48, 84%; 64-seed rows ran 39.5–40.8).
+- **Average P25 ≥ 65%, average real arrival ≥ 65%.** Met (81%, 82%).
+- **Hesitant P25 ≥ 55%, hesitant real arrival ≥ 50%.** Met (64%, 63%).
+- **Bare ship: may be 0.** A good bare pilot clears 77%: the rank ramp (rank 0), the mercy and the rescue shadow give it a rebuild path. It is still well below the reference kit.
+- **Peak bullets about 150–190.** Met for the good pilot (175) and for most rows. **The worst single runs reach 197–226** (average reference, P25), at the Gate's hold with the 64 s satellite and the 66.5 s echo pair when a kit is slow on the turrets. The typical peak is 120–180. Shards are about a third of it, and the kit is shooting them.
+- **Ship spread** (average reference K 72%, M 86%, W 93%) is wider than sector 5's (78 / 82 / 87%). Kestrel is still the most exposed ship to void.
+- **Drops:** the reflector at 78.5 s is late in 1 of 24 runs (collected 85.0 s against the ace pair at 85.1 s). The 53 s shield is missed in 2 of 24 runs (the sweep lead dies at the right edge, beyond the collector's 300 px reach).
+
+#### Tests
+
+- **New: `test/sector6.test.mjs`** (22 tests):
+  - **Campaign:** HALCYON hands over on a 3.5 s interlude with no act card, a full repair and +1 bomb; victory follows THE SOVEREIGN with `actTwoComplete` and `summary.act === 2`. The authored 105 s sector plays every beat, with peak bullets under 200 (reference kit).
+  - **Drill 6:** the reference kit, 200 × 80, six escorts, rank 1, `mirrorCopy`, no `actTwoComplete` in a drill; career and drill records accept 6.
+  - **Identity:** sectors 1–5, LEVIATHAN and HALCYON are bit-identical to ab6820f. That is 24 fingerprints: sector 5 from entry (three kits), drill 5, HALCYON as a campaign flagship, and the engaged collector from launch to HALCYON's death, each per ship.
+  - **Echoes:**
+    - the 2.5 s replay, mirrored and offset, deterministic;
+    - phasing;
+    - one-volley HP;
+    - each ship's copy;
+    - a rail that dies with its owner.
+  - **Satellites:** the 110 px gap over a grid of sweeps per ship (80 px off-altitude) and reachability; warn, fire and turn; harmless while warning; rolls; the laser ends with its satellite.
+  - **Shards:** broken by a shot (spent, or carved on by a rail); void never; the reflector and flak treat them as ordinary; curtains have no natural gap, and a bare rail carves one.
+  - **The Gate:** ×0.35 armor, turret guns and drops, hold and leave, no contact, children die with it.
+  - **THE SOVEREIGN:**
+    - copy and escorts;
+    - ×0.25 armor and escort drops;
+    - copy bands for all three ships, with rail gaps of 100 px or more;
+    - tethers (grouped, slow, cut → salvage back, landed → lost plus a grown weapon, mounts capped at four);
+    - the ballet and the desperation curtain;
+    - reference kill 80–95 s and bare drill 210–320 s;
+    - mercy and rank HP;
+    - the death pose plus `mirrorShatter`, with tethers released;
+    - rescue at 0.65 and the shadow echo.
+  - **Determinism and drops:** seeded sector-6 runs are identical; six key drops are collected at least 2 s before their attacks on every ship.
+- **Updated:**
+  - `test/sector4.test.mjs` and `test/sector5.test.mjs`: `CAMPAIGN_STAGES` is 6; HALCYON hands over to sector 6 with a full repair; the drill and `bossSeen` clamps follow `CAMPAIGN_STAGES`.
+  - `qa/act-one.mjs` gains a stage-6 `ACT II COMPLETE` victory row. It needs the world builder's copy in `cinema.js` before it can pass.
+- **Status:** 230 tests pass (`$NODE --test`), and `scripts/build.mjs` passes.
 
 ### Audio notes (sector 6)
 
-(Audio builder: record cues, event hooks and peak/voice numbers here.)
+Audio builder, round 1. Auditions are in `artifacts/audio-preview/s6/` (its README says what to listen for).
+
+**Bar clock (for the aurora)**
+- Each update, `audio.state` holds the latest shared state (null until audio is unlocked). It carries three clock fields:
+  - `barPhase`: 0..1 through the score's audible bar, from `MusicDirector.clock(now)`, which returns `{barPhase, barLength, bpm, cue}`. It is always a finite number. With no score running, it follows `game.time` at 140 bpm, the same fallback as `timeline.auroraBarPhase`.
+  - `barLength`: seconds per bar.
+  - `bpm`: the tempo.
+- Sector 6 runs at 140 bpm (`ZERO_MERIDIAN_BPM`). THE SOVEREIGN's score runs at 160.
+- **To wire it:** main.js should set `game.audioState = audio.state` each frame (or the aurora can read `audio.state.barPhase` directly). `timeline.auroraBarPhase(game)` reads `game.audioState.barPhase`. Audio does not write into `game`.
+
+**Music**
+- **`sector6`** (D, 140 bpm, two intro bars). The sections follow `stageTime`:
+  - drift from 0 s;
+  - build from 12 s;
+  - rise from 34 s;
+  - **the Gate from 58 s**, or at `stationEnter` if that comes earlier;
+  - a breather from 80 to 88 s, unless the station is still up;
+  - the gauntlet from 88 s.
+
+  The A section is a new melody over Dsus2, Bbmaj7, Fmaj7 and Asus4. The B section is "Long Meridian". The instruments are a new formant choir (`voices()`: saws through three vowel formants that morph from "oo" to "ah"), a triangle pulse, glass bells (`glass()`), and at the Gate the lead, brass, spiccato strings and taiko.
+- **`warning6`:** a choir cluster opening from "oo" to "ee", with glass strikes answered by their reflections.
+- **`boss6`** (D, 160 bpm, level 0.88). It quotes V_LEAD, A_LEAD, C_MOTIF, IRON_LEAD and HALCYON's Phrygian lead, each with a mirrored copy (a diatonic inversion about the motif's middle note). A phase change restarts the phrase.
+  - Phase 1, "Reflection": four bars per flagship, two bars of the original and then two of the mirror.
+  - Phase 2, "Theft": mirrors only, over a D–Eb pedal choir.
+  - Phase 3, "Ballet": the minor theme leads with the mirrors as a counter-line. Below 20% hull the major theme breaks through.
+  - `bossPhase` plays a mirrored glass run as the fill.
+- **Interlude:** HALCYON → sector 6 plays the new `ascent` variant (key `interludeAscent`). F Lydian strings thin out into a formant choir on Bbmaj7 → A sus4.
+- **ACT II COMPLETE:** the `victory` cue's `actTwo` variant (key `victoryActTwo`). It plays when `actTwoComplete` has been seen, or on a stage-6 campaign victory. It is three bars at 84 bpm:
+  1. Bb → C;
+  2. full D major, with the theme's head, bells and timpani;
+  3. a quiet choir leaning on G# that does not resolve (the Act III tease).
+
+  The hymn then starts at its first phrase. A drill victory stays `drillClear`.
+- THE SOVEREIGN's `bossDown` sting adds glass falling in mirrored pairs.
+
+**Ambience**
+- **The `sector6` bed** (`_meridian`) is near silence: thin canopy air, a solar-wind hiss drifting in pan, a constant faint static bed, chopped radio static bursts and a rare sliding carrier whistle.
+- **The aurora shimmer** (D6, A6 and E7) swells once per downbeat of `state.barPhase`.
+- **No thunder:** `lightningAt(t, 6)` returns null.
+- **Level:** −38.6 dBFS RMS, the quietest bed in the game (sector 5 is −33.7).
+- Later sectors borrow `_meridian`.
+
+**Effects** (simulation names and fields as published in "Simulation notes (sector 6)")
+- **Priority** (resolved before the shot stream): `echoSpawn`, `satelliteEnter`, `satelliteDown`, `stationEnter`, `stationDown`, `mirrorCopy`, `tetherLaunch`, `tetherCut`, `tetherLost`, `sovereignGrow`, `mirrorShatter`, `actTwoComplete`.
+- **Combat bus** (repeated): `echoFire` (thin copies by `value` style), `shardBreak`, `stationTurretDown`, `mirrorEscortDown` (a glass layer; the blast is `explode` `mirrorEscort`), mirror-rail fire.
+- **Fields read:**
+  - `echoSpawn`, `echoFire` and `mirrorCopy`: `value` style (weaponType or ship id sets the pitch).
+  - `shardBreak`: `value` count, which adds grace tinks, never volume. It is throttled at 0.045 s, on top of the simulation's 0.1 s. The tinks walk a high D-major pentatonic and never repeat a note back to back.
+  - `shardCurtain`: `value` rows (a falling glass sheet).
+  - `tetherLaunch` and `tetherLost`: `value` pickupType (pitch).
+  - `tetherCut`: with `quiet: true` it is silent (mirrorShatter covers it).
+  - `laserWarn` with `rotating`: adds a wavering FM layer. `laserWarn` and `laserFire` with `mirror`: a short, thin rail charge and zap.
+- **`explode`** stays silent for `satellite`, `station`, `stationTurret` and `tether`, which have their own events.
+- **`mirrorShatter`** is the SOVEREIGN's fall:
+  - a glass crack, two vast falling rings, about 20 shards tumbling lower and quieter over 3.7 s, a sub and debris;
+  - a tracked long cue;
+  - `bossDown` in the same batch keeps only its three opening blasts.
+- **`victory`** stands aside when `actTwoComplete` is in the batch, because the score's sting carries the moment.
+- **`bossEnter` / `bossPhase`** at stage 6:
+  - `bossEnter`: a reversed swell into a chord and its mirror;
+  - phase 2: a reversed suck of air and a growl;
+  - phase 3: mirrored glass runs into a horn.
+- **Long tails** (`stationDown`, 4.6 s; `mirrorShatter`, 6 s) are tracked long cues.
+
+**State-driven long cues** (the sector-5 EMP-hum lesson, applied from the start)
+- `sfx.syncLoops(t, game, live)` runs every tick from `audio._presentationCues`:
+  - Each `laser` hazard with `rotating && state === "fire"` gets one beam. It lasts for the sweep time left (`warn + on − age`), its pan follows the pivot and `angle`, and a whistle rises through `angle0 → angle1`. A fresh beam opens with a crack.
+  - Each live `tether` enemy gets one pull. Its pitch rises two octaves and its level grows with `progress`.
+  - At most two beams and three pulls.
+  - Each stops the moment its hazard or enemy is gone, for example when a satellite dies.
+- `laserFire` with `rotating` is not voiced separately.
+- They are tracked long cues:
+  - pause, mute, effects at 0 and leaving play cut them, and `stopLongCues` clears `sfx.loops`;
+  - the next live tick restores them for the time left;
+  - `lifeLost`, `gameover`, `bossDown`, `stage`, `wingBreak` and `mirrorShatter` cut them through `sfx._cutLoops` and hold them off for 0.5 s.
+- No new combat ducks. The only ducks are the one-off moments (`stationDown`, `mirrorShatter`, and SOVEREIGN enter and phase), like `hullDown`.
+
+**Headroom and voices**
+- The sector-5 dense trims already cover THE SOVEREIGN phase 3: `stage ≥ 5 && bossPhase === 3` (combat −1.5 dB, score −1 dB). No new trim was needed.
+- **Probe** (`artifacts/audio-preview/s6/limprobe.mjs`): the real `startDrill(6)` reference kit, every level at full, a strafing tracker with fire held, the limiter input metered every 20 ms.
+  - Phase 3: **0.603 / 0.605 / 0.618** over 3 × 72 s (Kestrel, Manta, Wraith). The top peak each run is the phase-entry impact; steady state stays at 0.58 or below.
+  - Phase 2: 0.626 over 40 s. Phase 1: 0.597 over 40 s.
+  - Voices: at most 27 of 96 and 25 of 40 combat. Score: at most 51 live voices, 0 errors.
+- **Offline peaks:** music −4.1 to −4.6 dBFS (sector6 −21.9 RMS, boss6 −20.2); effects up to −7.3 (mirrorShatter, against wingBreak's −7.7); the shard stream −31.4.
+
+**Tests and QA**
+- **`test/audio-sector6.test.mjs`** (new file, 8 tests). It is kept out of `test/audio.test.mjs` so neither builder's edits collide. It covers:
+  - every new event and laser variant sounds and releases its voices;
+  - the shard walk, bus and throttle;
+  - beams and pulls: following state, caps, pause, mute, effects at 0, the five cutting events, leaving play, and resuming for the time left;
+  - mirrorShatter with bossDown, and victory with actTwoComplete;
+  - `barPhase` and its fallback;
+  - every sector-6 cue and variant renders without errors inside the voice budget;
+  - cue picks (sector, warning, boss, drill, ascent, ACT II victory) and the Gate event;
+  - one aurora swell per downbeat, and no lightning at stage 6.
+- **`qa/audio-sector6.mjs`** (new):
+  - the bar clock in flight: cue `sector6`, 140 bpm, finite, wraps;
+  - 30 s of SOVEREIGN phase 3 at full levels, with the glue gated under 0.7: it measured 0.630, with 21 voices;
+  - beams and pulls cut by pause and mute, restored on resume.
+- `qa/audio.mjs` is unchanged and passes (HALCYON leg glue 0.657).
+
+**Requests to the simulation**
+- None. Every event and field used is in the notes. The beam loops key on the hazard `id`, and the tether loops on the enemy `id`.
 
 ## Part 3: Act I retune (sectors 1–3)
 
