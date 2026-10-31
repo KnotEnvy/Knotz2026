@@ -39,6 +39,8 @@
 //                with no score running it follows game.time at 140 bpm, sector 6's tempo. The
 //                sector-6 aurora pulses on it; read it as audio.state.barPhase (audio.state is the
 //                latest state object, or null before the first update with audio unlocked).
+//                It is slewed: it advances by dt / barLength each tick and eases out its error to
+//                the score's clock over about 0.5 s, so a cue change never makes it jump.
 //   barLength    seconds per bar of that clock (60 / bpm * 4)
 //   bpm          tempo of that clock
 // SECTOR 6 LONG CUES — rotating satellite beams and phase-2 tether pulls follow game state, not
@@ -59,6 +61,7 @@ const UI_LEVEL = 0.8;
 const COMBAT_CEILING = 0.78;
 // Repeated combat in HALCYON phase 3 (see _applyMix): -1.5 dB.
 const DENSE_COMBAT_TRIM = 0.84;
+const BAR_SLEW = 0.17;   // s, time constant of the published bar clock's catch-up (~95% in 0.5 s)
 // Sector 6's tempo: the bar clock's fallback when no score is running.
 const FALLBACK_BPM = 140;
 const MAX_VOICES = 96;
@@ -485,6 +488,9 @@ export class AudioEngine {
     let clock = null;
     try { clock = this.music?.clock?.(this.ctx?.currentTime) || null; } catch (_) { clock = null; }
     const fallbackBar = 240 / FALLBACK_BPM;
+    const barLength = clock ? clock.barLength : fallbackBar;
+    const rawPhase = clock ? clock.barPhase : (((Number(g.time) || 0) / fallbackBar) % 1 + 1) % 1;
+    const barPhase = this._slewBar(rawPhase, barLength, Number.isFinite(this.ctx?.currentTime) ? this.ctx.currentTime : Number(g.time) || 0, Boolean(clock));
     return {
       screen: this.screen,
       mode,
@@ -507,20 +513,41 @@ export class AudioEngine {
       paused: this.screen === 'pause' || mode === 'paused',
       muted: this.muted,
       events,
-      barPhase: clock ? clock.barPhase : (((Number(g.time) || 0) / fallbackBar) % 1 + 1) % 1,
-      barLength: clock ? clock.barLength : fallbackBar,
+      barPhase,
+      barLength,
       bpm: clock ? clock.bpm : FALLBACK_BPM,
     };
+  }
+
+  // The published bar clock: advance by dt / barLength, then ease out the wrap-aware error to
+  // the score's clock (BAR_SLEW). Snaps on the first tick, after a gap of more than a second, and
+  // when the source switches between the score and the game-time fallback.
+  _slewBar(target, length, now, scored) {
+    const s = this._barSlew;
+    if (!s || s.scored !== scored || !(now >= s.t) || now - s.t > 1 || !(length > 0)) {
+      this._barSlew = { phase: target, t: now, scored };
+      return target;
+    }
+    const dt = now - s.t;
+    if (dt === 0) return s.phase;
+    let phase = s.phase + dt / length;
+    let err = target - phase;
+    err -= Math.round(err);   // wrap to [-0.5, 0.5]
+    phase += err * (1 - Math.exp(-dt / BAR_SLEW));
+    phase = ((phase % 1) + 1) % 1;
+    s.phase = phase; s.t = now;
+    return phase;
   }
 
   // Bus levels, the pause treatment and the mute fade. Writes only when something changed.
   _applyMix(force, state) {
     if (!this.ctx || !this.master) return;
     const paused = state ? state.paused : this.screen === 'pause' || this._lastGame?.mode === 'paused';
-    // HALCYON's eclipse protocol and THE SOVEREIGN's ballet (stage 5+, phase 3) are the densest live
-    // mixes: void rows, lattices or shard curtains, EMP rings and a full kit's hits on the core. Repeated combat sits DENSE_COMBAT_TRIM lower there
+    // HALCYON's eclipse protocol and THE SOVEREIGN's theft and ballet (stage 5 phase 3, stage 6
+    // phases 2-3) are the densest live mixes: void rows, lattices or shard curtains, EMP rings,
+    // tethers and a full kit's hits on the core. Repeated combat sits DENSE_COMBAT_TRIM lower there
     // (about -1.5 dB), which keeps the limiter's input clear of its threshold.
-    const dense = state ? state.boss && state.stage >= 5 && state.bossPhase === 3 && state.mode === 'playing' : Boolean(this._dense);
+    const dense = state ? state.boss && state.mode === 'playing' && ((state.stage >= 5 && state.bossPhase === 3) || (state.stage === 6 && state.bossPhase >= 2)) : Boolean(this._dense);
     this._dense = dense;
     const key = [this.musicLevel, this.effectsLevel, this.ambienceLevel, paused, this.muted, dense].join('|');
     if (!force && key === this.mix) return;

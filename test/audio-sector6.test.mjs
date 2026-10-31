@@ -287,6 +287,27 @@ test('sector 6: the shared state carries a finite bar phase from the score clock
   });
 });
 
+test('sector 6: the published bar phase is slewed, so a cue change never makes it jump', async () => {
+  await withAudioContext(MockAudioContext, async () => {
+    const engine = new AudioEngine();
+    await engine.unlock();
+    engine.setScreen('play');
+    const ctx = engine.ctx, bar = 240 / 140;
+    let offset = 0;
+    engine.music = { clock: now => ({ barPhase: (((now / bar + offset) % 1) + 1) % 1, barLength: bar, bpm: 140, cue: 'x' }), update() {} };
+    const dt = 1 / 60, step = () => { ctx.currentTime += dt; engine.update(s6Game({}), dt); return engine.state.barPhase; };
+    for (let i = 0; i < 30; i++) step();
+    const wrap = d => d - Math.round(d);
+    assert.ok(Math.abs(wrap(engine.state.barPhase - engine.music.clock(ctx.currentTime).barPhase)) < 1e-6, 'locked to the score clock');
+    offset = 0.4;   // a cue change: the score's bar clock jumps by 0.4 bar
+    let last = engine.state.barPhase, worst = 0;
+    for (let i = 0; i < 36; i++) { const p = step(); worst = Math.max(worst, Math.abs(wrap(p - last)) - dt / bar); last = p; }
+    assert.ok(worst < 0.04, 'no frame jumps more than a small slew step: ' + worst.toFixed(3));
+    const err = Math.abs(wrap(engine.state.barPhase - engine.music.clock(ctx.currentTime).barPhase));
+    assert.ok(err < 0.02, 'caught up within about 0.6 s: ' + err.toFixed(3));
+  });
+});
+
 test('sector 6: the score has its cues and renders every phase and variant without errors inside the voice budget', async () => {
   for (const id of ['sector6', 'warning6', 'boss6', 'victory', 'interlude']) assert.ok(MUSIC_CUES.includes(id), id);
   const runs = [
@@ -309,6 +330,48 @@ test('sector 6: the score has its cues and renders every phase and variant witho
     assert.ok(director.stats.voices > 20, want.key + ' plays');
     assert.ok(director.stats.maxLive <= 64, want.key + ' stays inside the music voice budget: ' + director.stats.maxLive);
   }
+});
+
+test('sector 6: a bar is committed in beat-sized chunks, so no frame builds a whole dense bar and no note is lost', async () => {
+  const run = dt => {
+    const ctx = new MockAudioContext(), director = new MusicDirector(ctx, ctx.createGain());
+    director._pick = () => ({ id: 'sector6', key: 'sector6' });
+    let made = 0;
+    for (const k of Object.getOwnPropertyNames(Object.getPrototypeOf(ctx)).filter(k => k.startsWith('create'))) {
+      const f = ctx[k].bind(ctx); ctx[k] = (...x) => { made++; return f(...x); };
+    }
+    const perTick = [], perBar = [];
+    let bar = -1, inBar = 0;
+    for (let t = 0; t < 40; t += dt) {
+      ctx.currentTime = t; const before = made;
+      // The Meridian Gate section: the score's densest sector-6 bars.
+      director.update({ screen: 'play', mode: 'playing', stage: 6, time: t, stageTime: 60 + t * 0.5, intensity: 0.8, events: t === 0 ? [{ type: 'stationEnter' }] : [] }, t);
+      const n = made - before; perTick.push(n);
+      const b = director.cur?.bar ?? -1;
+      if (b !== bar) { if (bar >= 0) perBar.push(inBar); bar = b; inBar = 0; }
+      inBar += n;
+    }
+    return { voices: director.stats.voices, errors: director.stats.errors, maxTick: Math.max(...perTick), maxBar: Math.max(...perBar) };
+  };
+  const fine = run(1 / 60), coarse = run(0.05);
+  assert.equal(fine.errors, 0);
+  assert.ok(fine.maxBar > 100, 'a dense bar: ' + fine.maxBar + ' nodes');
+  assert.ok(fine.maxTick <= fine.maxBar * 0.5, `the busiest tick builds ${fine.maxTick} nodes of a ${fine.maxBar}-node bar`);
+  assert.equal(fine.voices, coarse.voices, 'the same notes play at any tick rate');
+});
+
+test('sector 6: THE SOVEREIGN\'s theft and ballet (phases 2-3) take the dense-combat and score trims', async () => {
+  await withAudioContext(MockAudioContext, async () => {
+    const engine = new AudioEngine();
+    await engine.unlock();
+    const at = (stage, bossPhase) => { engine._applyMix(true, { boss: true, stage, bossPhase, mode: 'playing', paused: false }); return engine._dense; };
+    assert.equal(at(6, 1), false); assert.equal(at(6, 2), true); assert.equal(at(6, 3), true);
+    assert.equal(at(5, 2), false); assert.equal(at(5, 3), true);
+  });
+  // The score takes its own dense trim at the same moments.
+  const ctx = new MockAudioContext(), director = new MusicDirector(ctx, ctx.createGain());
+  const score = (stage, bossPhase) => { director.update({ screen: 'play', mode: 'playing', stage, boss: true, bossPhase, events: [] }, 0); return director.trimDense; };
+  assert.equal(score(6, 1), false); assert.equal(score(6, 2), true); assert.equal(score(6, 3), true); assert.equal(score(5, 2), false);
 });
 
 test('sector 6: the director picks the sector-6 cues, the ascent interlude after HALCYON and the ACT II COMPLETE victory', async () => {

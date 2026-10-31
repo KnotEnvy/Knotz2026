@@ -126,8 +126,11 @@ test('drill 6 starts THE SOVEREIGN with the sector-6 reference kit; career and d
     assert.equal(game.boss.escorts.length, 6); assert.equal(game.boss.escortsAlive, 6);
     assert.equal(game.boss.style, p.weaponType); assert.equal(game.boss.rank, 1);
     assert.ok(game.threat > .86 && game.threat <= .88, 'the reference kit sits near threat 0.88: ' + game.threat);
-    const copy = game.events.find(e => e.type === 'mirrorCopy');
+    assert.equal(count(game.events, 'mirrorCopy'), 0, 'no copy while the hull is still off screen');
+    const seen = step(game, 3.5, () => { game.player.invuln = 99; return {}; }), copy = seen.find(e => e.type === 'mirrorCopy');
+    assert.equal(count(seen, 'mirrorCopy'), 1, 'one copy moment');
     assert.deepEqual([copy.value, copy.escorts, copy.band, copy.ship], [p.weaponType, 6, 2, ship]);
+    assert.ok(game.boss.age >= 3.4 && Math.abs(copy.y - 200) < 2 && Math.abs(copy.x - game.boss.x) < 3, 'the copy fires on the settled hull: ' + copy.x + ',' + copy.y);
     game.events = []; game._killEnemy(game.boss); const end = step(game, 4);
     assert.equal(game.mode, 'victory', 'a drill ends in victory'); assert.equal(count(end, 'actTwoComplete'), 0, 'a drill is not the Act II ending');
   }
@@ -243,7 +246,7 @@ test('echoes are ghosts while they materialise, then die to a volley and fire a 
     const game = quiet6(ship); const p = game.player; p.x = 300; p.y = 720;
     for (let i = 0; i < 400; i++) game._recordPath();
     const [e] = game._spawnEchoes([[1, 0, 410]], null, false, 0);
-    assert.equal(e.style, style); assert.ok(e.maxHp < 200, 'popcorn: ' + e.maxHp);
+    assert.equal(e.style, style); assert.equal(e.ship, ship, 'an echo names the ship it copies (its sprite)'); assert.ok(e.maxHp < 200, 'popcorn: ' + e.maxHp);
     step(game, .3);
     game.shots.push({ x: e.x, y: e.y + 20, vx: 0, vy: -900, r: 4, damage: 1000, kind: 'shot', age: 0 });
     game._updateShots(1 / 120); game._collide();
@@ -381,7 +384,9 @@ test('the Meridian Gate: armored while turrets live, holds, then leaves; turrets
   game.events = []; game._killEnemy(st);
   assert.ok(turrets.every(t => t.dead)); assert.equal(count(game.events, 'stationDown'), 1); assert.equal(count(game.events, 'stationTurretDown'), 0);
   const leave = quiet6(); const s2 = leave._spawnStation(null); s2.state = 'hold'; s2.holdUntil = 0; s2.y = 205;
-  step(leave, 2); assert.equal(s2.state, 'leave'); assert.ok(s2.y > 205, 'then it scrolls off');
+  const fired = leave.bullets.length;
+  step(leave, 4); assert.equal(s2.state, 'leave'); assert.ok(s2.y < 205 - 100, 'then it climbs back out');
+  assert.equal(leave.bullets.length, fired, 'its guns fall silent once it departs');
 });
 
 // ---- THE SOVEREIGN ---------------------------------------------------------------
@@ -581,7 +586,7 @@ test('key drops are collected 2 s or more before the attack they answer (engaged
     kit(game, REFERENCE6); game.threat = 0;
     const got = {}, first = {};
     const mark = k => { first[k] ??= game.stageTime; };
-    const echo = game._echoFire.bind(game), turret = game._stationTurretFire.bind(game), sweep = game._spawnShardCurtain.bind(game);
+    const echo = game._echoFire.bind(game), turret = game._stationTurretFire.bind(game);
     game._echoFire = (e, p) => { mark('echo@' + Math.floor(game.stageTime - e.age)); return echo(e, p); };   // keyed by spawn second
     game._stationTurretFire = (e, p) => { mark('gate'); return turret(e, p); };
     for (let f = 0; f < 60 * 92 && !game.boss; f++) {
@@ -590,8 +595,10 @@ test('key drops are collected 2 s or more before the attack they answer (engaged
       for (const e of game.events) {
         if (e.type === 'pickup' && e.tag) got[e.tag] ??= game.stageTime;
         if (e.type === 'laserFire' && e.rotating) mark('lance');
+        // The curtain's first row reaches the ship's band (y 520) at its fall speed,
+        // whether or not the kit has carved it by then.
+        if (e.type === 'shardCurtain') first.curtain ??= game.stageTime + 520 / e.speed;
       }
-      if (game.stageTime > 34 && game.bullets.some(b => b.kind === 'shard' && b.y > 520)) mark('curtain');
       if (game.stageTime > 84 && game.bullets.some(b => b.kind === 'cyan')) mark('remixAces');
     }
     const check = (tag, attack, label) => assert.ok(got[tag] != null && got[tag] <= first[attack] - 2,

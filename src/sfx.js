@@ -115,7 +115,10 @@ export class SfxLibrary {
   // cues, so stopLongCues (pause, mute, leaving play) cuts them and the next live tick resumes
   // them for the time left.
   syncLoops(t, game, live) {
-    const want = new Map();
+    // Nothing playing and nothing to start: no work and no allocation (most ticks).
+    if (!this.loops.size && !(live && game && this._loopCandidates(game))) return;
+    const want = this._loopWant || (this._loopWant = new Map());
+    want.clear();
     if (live && game) {
       for (const hz of Array.isArray(game.hazards) ? game.hazards : []) {
         if (hz?.kind !== 'laser' || !hz.rotating || hz.state !== 'fire') continue;
@@ -145,6 +148,12 @@ export class SfxLibrary {
       }
       try { loop.update(t, w); } catch (_) {}
     }
+  }
+  // True when the game holds a firing rotating beam or a live tether (a loop may start).
+  _loopCandidates(game) {
+    for (const hz of Array.isArray(game.hazards) ? game.hazards : []) if (hz?.kind === 'laser' && hz.rotating && hz.state === 'fire') return true;
+    for (const e of Array.isArray(game.enemies) ? game.enemies : []) if (e?.type === 'tether' && !e.dead) return true;
+    return false;
   }
   // A long cue with a live stereo position: group -> panner -> bus. Tracked for `seconds`.
   _panGroup(bus, seconds, pan) {
@@ -1467,4 +1476,4 @@ const HANDLERS = {
 };
 HANDLERS.tailGunnerFire = HANDLERS.gunnerFire;
 // Not voiced on purpose: chipHit (covered by hit), enemyDown (explode), special (bomb),
-// pause (the ui cue), shipSelect (the ui cue), summary, and sovereignPhase (bossPhase voices it).
+// pause (the ui cue), shipSelect (the ui cue), and summary.

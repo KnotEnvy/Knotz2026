@@ -20,6 +20,12 @@ import { CAMPAIGN_STAGES } from './game.js';
 import { BOSS_WARNING_LEAD } from './timeline.js';
 
 const LOOKAHEAD = 0.3;
+// A bar is written in beat-sized chunks: when its downbeat enters the lookahead the first beat's
+// notes are built at once and later notes queue on the instance, each built on the tick its start
+// enters the lookahead (so a dense bar spreads its ~350 nodes over the bar instead of one frame).
+// The value is the index of the start-time argument of each deferrable instrument.
+const DEFERRABLE = { brass: 2, pad: 2, voices: 2, glass: 2, pluck: 2, spicc: 2, keysChord: 2, bell: 2,
+  bass: 1, kick: 1, snare: 1, hat: 1, shaker: 1, taiko: 1, tom: 1, timp: 1, crash: 1, revCymbal: 1, riser: 1 };
 const MUSIC_TRIM = 0.55, DENSE_TRIM = 0.89;
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -1060,7 +1066,8 @@ export class MusicDirector {
     // HALCYON's eclipse protocol and THE SOVEREIGN's ballet (stage 5+, phase 3) are the densest mixes in the game: the score
     // sits DENSE_TRIM lower there (after its glue compressor, about -1 dB), so with every level
     // at full the limiter's input keeps its headroom.
-    const dense = Boolean(state.boss && state.stage >= 5 && state.bossPhase === 3 && state.mode === 'playing');
+    // THE SOVEREIGN's theft (stage 6 phase 2) takes the same trim: tethers, salvage and a full kit's hits.
+    const dense = Boolean(state.boss && state.mode === 'playing' && ((state.stage >= 5 && state.bossPhase === 3) || (state.stage === 6 && state.bossPhase >= 2)));
     if (dense !== this.trimDense) {
       this.trimDense = dense;
       try { this.trim.gain.setTargetAtTime(MUSIC_TRIM * (dense ? DENSE_TRIM : 1), now, 0.6); } catch (_) {}
@@ -1072,6 +1079,7 @@ export class MusicDirector {
     if (key !== this.targetKey) this._plan(want, state, now);
     const cur = this.cur;
     if (cur && !cur.done && cur.nextBar < now - 0.02) cur.nextBar = now + 0.06; // stalled: resync, never burst
+    if (cur) this._flush(cur, now);
     if (this.pending && this.pending.at < now + LOOKAHEAD) this._switch(now);
     let guard = 0;
     while (this.cur && !this.cur.done && this.cur.nextBar < now + LOOKAHEAD && guard++ < 3) {
@@ -1183,9 +1191,28 @@ export class MusicDirector {
   _scheduleBar(inst, s) {
     const def = inst.def, b = inst.bar, t = inst.nextBar;
     if (!def.loop && b >= def.length) { inst.done = true; return; }
+    // Notes from the second beat on queue (DEFERRABLE) and are built as they enter the lookahead.
+    this._defer = { inst, until: t + inst.step * 4 - 1e-4 };
     try { def.bar(this, inst, b, t, inst.step, s); }
     catch (e) { this.stats.errors++; if (!this.stats.lastError) this.stats.lastError = String(e?.stack || e); }
+    finally { this._defer = null; }
     inst.bar++; inst.nextBar = t + inst.barDur;
+  }
+
+  // Builds an instance's queued notes that start before `before` (default: inside the lookahead).
+  // A note whose start has already passed (a stalled tab) is dropped, never burst late.
+  _flush(I, now, before = now + LOOKAHEAD) {
+    const q = I.queue;
+    if (!q || !q.length) return;
+    let keep = 0;
+    for (let i = 0; i < q.length; i++) {
+      const n = q[i];
+      if (n.at >= before) { q[keep++] = n; continue; }
+      if (n.at < now - 0.05) continue;
+      try { n.fn.apply(this, n.args); }
+      catch (e) { this.stats.errors++; if (!this.stats.lastError) this.stats.lastError = String(e?.stack || e); }
+    }
+    q.length = keep;
   }
 
   // --- instances --------------------------------------------------------------------------------
@@ -1193,7 +1220,7 @@ export class MusicDirector {
   _newInstance(def, key, at, o = {}) {
     const c = this.ctx, step = 60 / def.bpm / 4;
     const I = {
-      def, key, start: at, step, barDur: step * 16, bar: 0, nextBar: at, voices: [], chs: Object.create(null), done: false,
+      def, key, start: at, step, barDur: step * 16, bar: 0, nextBar: at, voices: [], queue: [], chs: Object.create(null), done: false,
       level: def.level ?? 1, variant: o.want?.variant || '', grade: o.want?.grade, warnStart: o.warnStart,
       keyRoot: o.keyRoot, minor: o.minor,
       dry: c.createGain(), wet: c.createGain(), echo: c.createGain()
@@ -1231,6 +1258,12 @@ export class MusicDirector {
   }
 
   _cut(I, T, all = false) {
+    // Queued notes at or after T never start; with `all`, none do.
+    if (I.queue?.length) {
+      const now = this.ctx.currentTime;
+      if (!all) this._flush(I, now, T - 1e-4);
+      I.queue.length = 0;
+    }
     for (const v of I.voices) {
       if (!all && v.at < T - 1e-4) continue;
       for (const s of v.srcs) { try { s.stop(Math.max(T, v.at)); } catch (_) {} }
@@ -1749,6 +1782,17 @@ export class MusicDirector {
     x.connect(g); g.connect(out); n.connect(lp); lp.connect(ng); ng.connect(out);
     this._track(I, [x, n], [x, g, n, lp, ng], at, end);
   }
+}
+
+// Deferrable instruments: while a bar is being written, a note that starts after its first beat
+// queues on the instance (see DEFERRABLE and _flush); otherwise it is built at once.
+for (const [name, idx] of Object.entries(DEFERRABLE)) {
+  const build = MusicDirector.prototype[name];
+  MusicDirector.prototype[name] = function (...args) {
+    const d = this._defer;
+    if (d && args[0] === d.inst && args[idx] >= d.until) { d.inst.queue.push({ fn: build, args, at: args[idx] }); return; }
+    return build.apply(this, args);
+  };
 }
 
 export const MUSIC_CUES = Object.freeze(Object.keys(CUES));

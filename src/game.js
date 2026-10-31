@@ -181,7 +181,8 @@ const SAT_LASER_WIDTH = 8, SAT_LASER_LEN = 1100, SAT_GAP_MIN = 110;
 // Shard rounds: destructible enemy bullets (any player shot breaks one).
 const SHARD_R = 5.4, SHARD_SPEED = 140, SHARD_CELL = 24;
 // The Meridian Gate: an armored orbital station (a hull in the air).
-const STATION_CLASS = {hp:15000,w:176,h:74,vy:44,holdY:205,hold:15,leaveVy:32,value:42000,turretHp:1700};
+// It climbs back out after its hold (leaveVy < 0), its guns silent.
+const STATION_CLASS = {hp:15000,w:176,h:74,vy:44,holdY:205,hold:15,leaveVy:-32,value:42000,turretHp:1700};
 const STATION_ARMOR = .35;
 // THE SOVEREIGN (stage 6): mirror escorts armor the core (x LEVIATHAN_ARMOR),
 // tethers carry phase-2 salvage up to the hull in TETHER_TIME s.
@@ -199,6 +200,15 @@ const SOVEREIGN_ECHO_CYCLE = 10;   // s between the SOVEREIGN's echo pairs (x th
 // It brings the void layers in (the answer to a maxed kit), quickens the escorts
 // and the phase-2 clock and thickens phase 3, on a ramp so no arrival meets a cliff.
 const SOVEREIGN_RANK_FROM = .45, SOVEREIGN_RANK_FULL = .84, SOVEREIGN_RANK_HP = .3;
+// Where the void layers come in (rank): void outer rounds on the aimed spreads,
+// and two void to one red in the phase-3 rings. Void bypasses Kestrel's flak, so
+// Kestrel holds the kinder mix one rank step longer.
+// The same holds for the phase-3 row studs (rank x SOVEREIGN_STUD_SCALE).
+const SOVEREIGN_VOID_FROM = {kestrel:.65,manta:.5,wraith:.5}, SOVEREIGN_THIRD_FROM = {kestrel:1,manta:.75,wraith:.75};
+const SOVEREIGN_STUD_SCALE = {kestrel:.7,manta:1,wraith:1};
+// Phase-3 shard rows come x this cadence. Kestrel meets them a little slower (no flak for void); Manta's double
+// shields and Wraith's column-carving rails meet rows a little more often.
+const SOVEREIGN_ROW_PACE = {kestrel:1.15,manta:.85,wraith:.85};
 const TETHER_TIME = 2.9, TETHER_HP = 60, SOVEREIGN_WEAPONS_MAX = 4;
 // Act II HP curve, tuned against the power-25 reference kit (P25, 6 escorts,
 // sidewinder 4, signature 4; raw flagship DPS 1,820-2,110):
@@ -474,10 +484,10 @@ const SECTOR_SIX_BEATS = [
   [44.5,"satellite"],
   [48,"echoWing",{rescue:1}],                      // an echo wing plus sky aces
   [49.5,"acePair"],
-  [53,"sweepL",{lead:"shield"}],                   // shield (~55 s) -> the Gate's mixes
+  [53,"sweepL",{lead:"shield",band:[110,430]}],    // shield (~55 s) -> the Gate's mixes (dropped inside the reach)
   [56.5,"riseR"],
   [60,"gate",{heavy:["power","power"],turrets:["power","signature","power","shield","power","sidewinder"]}],
-  [64,"satellite"],
+  [64,"satellite",{afterGate:1}],                  // waits for the Gate to fall or depart
   [66.5,"echoPair"],
   [69,"shardCurtainShort"],
   [72,"sweepR"],
@@ -595,7 +605,7 @@ export class Game {
     this.summary=null;
     this.boss=null; this.events=[]; this._seed=20261942; this._acc=0;
     this._beatIndex=0; this._laneIndex=0; this._transition=0; this._transitionLength=INTERLUDE; this._fireClock=0; this._comboClock=0;
-    this._id=0; this._last={}; this._hitAudioClock=0; this._missileClock=0; this._rollSerial=0;
+    this._id=0; this._heldBeat=null; this._last={}; this._hitAudioClock=0; this._missileClock=0; this._rollSerial=0;
     this._sidewinderClock=0; this._signatureClock=0; this._escortVolley=0; this._bonusIndex=0;
     this._squads=new Map(); this._squadId=0;
     this._pickupId=0; this._scavengerCall=0; this._scavengerFlank=false; this.threat=0;
@@ -784,6 +794,7 @@ export class Game {
         this._spawnStageBeat(beats[this._beatIndex][1],this._beatDrops(beats[this._beatIndex][2]));
         this._beatIndex++;
       }
+      if(this._heldBeat)this._releaseHeldBeat();
       const lanes=LANE_BEATS[this.stage];
       while(this._laneIndex<lanes.length&&this.stageTime>=lanes[this._laneIndex][0]) {
         this._spawnLaneSweep(lanes[this._laneIndex][1]);
@@ -1356,10 +1367,11 @@ export class Game {
       Object.assign(e,{dive:!!o.dive,drift:!!o.drift,fireAt:o.fireAt??.75,fired:false});
     } else if(type==="echo") {
       // e.trail: the path sample being replayed; e.mirror: -1 mirrored about
-      // the centre line, 1 a straight copy; e.style: the copied weapon family.
-      Object.assign(e,{style:o.style||this.player.weaponType,mirror:o.mirror??-1,ox:o.ox||0,oy:o.oy??ECHO_OFFSET,lag:o.lag??ECHO_DELAY,
+      // the centre line, 1 a straight copy; e.style: the copied weapon family;
+      // e.ship: the copied ship id (its sprite).
+      Object.assign(e,{style:o.style||this.player.weaponType,ship:o.ship||this.player.shipId,mirror:o.mirror??-1,ox:o.ox||0,oy:o.oy??ECHO_OFFSET,lag:o.lag??ECHO_DELAY,
         trail:-1,leaveAt:o.leaveAt??ECHO_LIFE,x0:x,y0:y,hidden:true,phasing:true,fireAt:o.fireAt??ECHO_ENTER+.1,fireRate:o.fireRate??ECHO_FIRE,
-        laserId:0,railX:null,railWarn:0});
+        laserId:0});
     } else if(type==="satellite") {
       Object.assign(e,{dir:o.dir||1,laserId:0,sweep:0,fireAt:o.fireAt??1.4,fireRate:o.fireRate??SAT_CYCLE,anchored:false});
     } else if(type==="station") {
@@ -1497,7 +1509,16 @@ export class Game {
       const drift=150*(1-Math.cos(Math.min(Math.PI,t*.9)))/2;
       return [e.x0+s*drift,e.y0-v*t,s*150*.45*Math.sin(Math.min(Math.PI,t*.9)),-v];
     }
-    // Sweep: across the field on a shallow dipping arc.
+    // Sweep: across the field on a shallow dipping arc. A carrier with turnX
+    // U-turns there (a 46 px half-loop, downward) and flies back level.
+    if(e.turnX!=null) {
+      const tt=(e.turnX-e.x0)*s/v;
+      if(t>tt) {
+        const ut=this._clamp((e.turnX-e.x0)*s/620,0,1),yt=e.y0+150*Math.sin(Math.PI*ut),R=46,phi=(t-tt)*v/R;
+        if(phi<Math.PI)return [e.turnX+s*R*Math.sin(phi),yt+R*(1-Math.cos(phi)),s*v*Math.cos(phi),v*Math.sin(phi)];
+        return [e.turnX-s*v*(t-tt-Math.PI*R/v),yt+2*R,-s*v,0];
+      }
+    }
     const x=e.x0+s*v*t,u=this._clamp((x-e.x0)*s/620,0,1);
     return [x,e.y0+150*Math.sin(Math.PI*u),s*v,150*Math.PI*Math.cos(Math.PI*u)*v/620];
   }
@@ -2170,6 +2191,15 @@ export class Game {
   }
   _spawnSectorSixBeat(pattern,drops) {
     const p=this.player,lead=drops?.lead,rescue=!!drops?.rescue;
+    // A beat that waits for the Meridian Gate to fall or depart (the peak stays readable).
+    if(drops?.afterGate&&this._gateHolding()){this._heldBeat=[pattern,{...drops,afterGate:0}];return true;}
+    // A beat whose carrier must stay inside the reach: a sweep lead U-turns at
+    // the band's far edge for a second pass, and its drop lands inside the band.
+    if(drops?.band) {
+      const before=this._id,done=this._spawnSectorSixBeat(pattern,{...drops,band:null});
+      for(const e of this.enemies)if(e.id>before&&e.tag){e.dropBand=drops.band;if(e.path==="sweep")e.turnX=drops.band[e.side>0?1:0];}
+      return done;
+    }
     if(pattern==="echoPair")this._spawnEchoes([[-1,0,ECHO_OFFSET],[1,0,ECHO_OFFSET+60]],lead,rescue);
     else if(pattern==="echoWing")this._spawnEchoes([[-1,-70,380],[-1,70,380],[1,-120,470],[1,120,470],
       ...(this.threat>=SECTOR_SIX_ELITE?[[-1,0,520],[1,0,300]]:[])],lead,rescue,.3);
@@ -2187,12 +2217,20 @@ export class Game {
     else return this._spawnSectorFiveBeat(pattern,drops);
     return true;
   }
+  _gateHolding() { return this.enemies.some(e=>e.type==="station"&&!e.dead&&e.state!=="leave"); }
+  // A held beat plays once the Gate is down or leaving; it is dropped if the
+  // Gate outlasts the remix gauntlet's start (82 s).
+  _releaseHeldBeat() {
+    if(this._gateHolding()&&this.stageTime<82)return;
+    const [pattern,drops]=this._heldBeat;this._heldBeat=null;
+    if(this.stageTime<82)this._spawnSectorSixBeat(pattern,drops);
+  }
   // specs: [mirror, x offset, y offset up-field, replay lag s] per echo. The lead carries the beat's drop.
   _spawnEchoes(specs,lead=null,rescue=false,stagger=.25,o={}) {
-    const squad=o.bonus===false?0:this._newSquad(),style=this.player.weaponType,out=[];
+    const squad=o.bonus===false?0:this._newSquad(),style=this.player.weaponType,ship=this.player.shipId,out=[];
     specs.forEach(([mirror,ox,oy,lag],i)=>{
       const [tx,ty]=this._echoTarget({mirror,ox,oy,lag});
-      const e=this._enemy("echo",o.x0??tx,o.y0??-30,{style,mirror,ox,oy,lag,squad,delay:i*stagger,
+      const e=this._enemy("echo",o.x0??tx,o.y0??-30,{style,ship,mirror,ox,oy,lag,squad,delay:i*stagger,
         fireAt:ECHO_ENTER+.1+i*.15,rescue:(rescue||o.rescue)&&i===0});
       if(i===0)this._tagDrop(e,lead);
       out.push(e);
@@ -2235,10 +2273,7 @@ export class Game {
       for(let i=0;i<n;i++){const b=this._bullet(e.x,e.y+12,a+(i-(n-1)/2)*.13,speed,"mirror",4.4);if(b)b.fragile=true;}
     }
     else if(e.style==="missile")this._mirrorMissile(e.x,e.y+12,Math.atan2(ty-e.y,tx-e.x),this._vel(160),1.6);
-    else {
-      const bar=this._mirrorRail(this._clamp(p.x+(p.vx||0)*ECHO_RAIL_WARN*.6,24,516),e.y+14,ECHO_RAIL_WARN,ECHO_RAIL_ON,e.id);
-      e.railX=bar.pos;
-    }
+    else this._mirrorRail(this._clamp(p.x+(p.vx||0)*ECHO_RAIL_WARN*.6,24,516),e.y+14,ECHO_RAIL_WARN,ECHO_RAIL_ON,e.id);
     this._eventCoalesced("echoFire",e.x,e.y,e.style);
   }
   // A Wraith-style rail: a telegraphed vertical line (a short `laser` hazard, mirror: true).
@@ -2271,20 +2306,23 @@ export class Game {
   // Any player shot that touches a fragile round (shard, mirror missile) breaks
   // it; the shot is spent unless it pierces. Shards are binned by column.
   _breakFragile() {
-    let cols=null;
+    // Column bins persist on the instance (cleared, never reallocated, per frame).
+    const cols=this._shardCols||=Array.from({length:25},()=>[]);
+    let any=false;
+    for(const list of cols)list.length=0;
     for(const b of this.bullets) {
       if(b.dead||!b.fragile)continue;
       const c=Math.floor(b.x/SHARD_CELL);if(c<-1||c>23)continue;
-      ((cols||=[])[c+1]||=[]).push(b);
+      cols[c+1].push(b);any=true;
     }
-    if(!cols)return;
+    if(!any)return;
     let broke=0;
     for(const shot of this.shots) {
       if(shot.dead)continue;
       const c=Math.floor(shot.x/SHARD_CELL)+1,reach=shot.hitR||shot.r;
       let spent=false;
       for(let k=c-1;k<=c+1&&!spent;k++) {
-        const list=cols[k];if(!list)continue;
+        const list=cols[k];if(!list?.length)continue;
         for(const b of list) {
           if(b.dead)continue;
           const dx=b.x-shot.x,dy=b.y-shot.y,r=reach+b.r;
@@ -2419,7 +2457,8 @@ export class Game {
       if(!parent||parent.dead){this._loseChild(e,parent);return;}
       e.x=parent.x+e.ox;e.y=parent.y+e.oy;
       this._slewAim(e,p,h,2.6);
-      if(e.age>=e.fireAt&&e.y>30&&e.y<Math.min(640,p.y-140)) {
+      // The guns fall silent once the Gate departs.
+      if(parent.state!=="leave"&&e.age>=e.fireAt&&e.y>30&&e.y<Math.min(640,p.y-140)) {
         this._stationTurretFire(e,p);e.fireAt=e.age+e.fireRate*this._pace();
       }
     } else if(t==="mirrorEscort") {
@@ -2453,7 +2492,8 @@ export class Game {
   _rigSovereign(boss) {
     const p=this.player,n=Math.min(MAX_ESCORTS,p.escorts);
     Object.assign(boss,{sovereign:true,easeThreat:this.threat,style:p.weaponType,ship:p.shipId,escorts:[],escortsAlive:0,
-      rank:this._sovereignRank(),
+      rank:this._sovereignRank(),voidFrom:SOVEREIGN_VOID_FROM[p.shipId]??.5,thirdFrom:SOVEREIGN_THIRD_FROM[p.shipId]??.75,
+      studScale:SOVEREIGN_STUD_SCALE[p.shipId]??1,rowPace:SOVEREIGN_ROW_PACE[p.shipId]??1,
       weapons:[],grown:0,mirror:0,ballet:0,mirrorAt:0,echoAt:5,aimAt:0,shardAt:0,ringAt:0,rowAt:0,curtainAt:0,curtainGap:150,
       echoes:0});
     for(let i=0;i<n;i++) {
@@ -2462,14 +2502,17 @@ export class Game {
         ox:side*(118+row*36),oy:26+row*26,style:p.shipId,hp:SOVEREIGN_ESCORT_HP,fireAt:4+i*.4,fireRate:1.9-.75*this._sovereignRank(),
         drop:"power",bonusDrops:1,value:3000});
     }
-    this._event("mirrorCopy",boss.x,boss.y,boss.style);
-    Object.assign(this.events[this.events.length-1],{escorts:n,band:this._mirrorBand(),ship:p.shipId});
+  }
+  // The copy moment: once the hull has glided in and settled (3.4 s), on screen.
+  _sovereignCopy(e) {
+    e.copied=true;
+    this._event("mirrorCopy",e.x,e.y,e.style);
+    Object.assign(this.events[this.events.length-1],{escorts:e.escorts.length,band:this._mirrorBand(),ship:e.ship});
   }
   _sovereignEnterPhase(e) {
     this._clearHazards();
     if(e.phase===2){e.mirrorAt=e.age+2.4;e.aimAt=e.age+1.6;e.shardAt=e.age+3;}
     else if(e.phase===3){e.ringAt=e.age+1.2;e.rowAt=e.age+2.2;e.mirrorAt=e.age+3.4;e.curtainAt=0;}
-    this._event("sovereignPhase",e.x,e.y,e.phase);
   }
   // Theft: phase 2 sends a hit's salvage up tethers instead of letting it float.
   _theft() { const b=this.boss;return !!(b&&b.sovereign&&!b.dead&&b.phase===2); }
@@ -2477,6 +2520,7 @@ export class Game {
     const p=this.player,pace=this._sovereignPace();
     e.mirror=Math.min(1,e.mirror+h/1.4);
     if(e.phase===3)e.ballet=Math.min(1,e.ballet+h/1.5);
+    if(!e.copied&&e.age>=3.4)this._sovereignCopy(e);
     if(e.age<3.6)return;
     const desperate=e.phase===3&&e.guard;
     // Echo pairs (its language): one carries rescue power for a stripped ship.
@@ -2492,9 +2536,9 @@ export class Game {
     if(e.phase===1) {
       if(e.age>=e.mirrorAt){this._sovereignMirror(e);e.mirrorAt=e.age+this._mirrorCycle(e)*pace;}
       // The core joins in once the escorts fall; a ranked arrival meets it from the
-      // start, as void rounds from rank 0.5.
+      // start, as void rounds from rank 0.5 (Kestrel 0.65).
       if((e.rank>0||!e.escortsAlive)&&e.age>=e.aimAt) {
-        this._mixedSpread(e.x,e.y+50,e.rank>=.75?5:3,e.rank>=.5);
+        this._mixedSpread(e.x,e.y+50,e.rank>=.75?5:3,e.rank>=(e.voidFrom??.5));
         e.aimAt=e.age+(e.escortsAlive?3.8-1.6*e.rank:2.6)*pace;this._event("bossShot",e.x,e.y);
       }
     } else if(e.phase===2) {
@@ -2504,7 +2548,7 @@ export class Game {
         const k=e.volley2=(e.volley2||0)+1;
         if(k%3===1)this._sovereignMirror(e);
         else if(k%3===2)for(const side of [-1,1])this._radialShards(e.x+side*150,e.y+20,7,this._vel(150),Math.PI/2+side*.42,.12);
-        else {this._mixedSpread(e.x,e.y+50,e.rank>=.75?5:3,e.rank>=.5);this._event("bossShot",e.x,e.y);}
+        else {this._mixedSpread(e.x,e.y+50,e.rank>=.75?5:3,e.rank>=(e.voidFrom??.5));this._event("bossShot",e.x,e.y);}
         e.mirrorAt=e.age+(1.1-.35*e.rank)*pace;
       }
       this._sovereignGrown(e,pace);
@@ -2513,13 +2557,13 @@ export class Game {
       // on the final guard floor the desperation curtain (shard rows, drifting gaps).
       if(e.age>=e.ringAt) {
         // Void and red alternate against a void-aware ship (two void to one red
-        // from rank 0.75); every other ship meets void and red half and half.
-        const n=desperate?12:12+2*Math.round(2*e.rank),off=e.age*.37,third=e.rank>=.75&&this._voidAware();
+        // from rank 0.75, Kestrel only at rank 1); every other ship meets void and red half and half.
+        const n=desperate?12:12+2*Math.round(2*e.rank),off=e.age*.37,third=e.rank>=(e.thirdFrom??.75)&&this._voidAware();
         for(let i=0;i<n;i++){const red=!desperate&&(third?i%3===1:i%2===1);this._bullet(e.x,e.y+30,off+i/n*Math.PI*2,this._vel(105),red?"red":"void",red?4.8:5.2);}
         e.ringAt=e.age+(desperate?3.8:2.6)*pace;this._event("bossShot",e.x,e.y);
       }
       if(!desperate) {
-        if(e.age>=e.rowAt){this._sovereignShardRow(e,null);e.rowAt=e.age+(2.2-.6*e.rank)*pace;}
+        if(e.age>=e.rowAt){this._sovereignShardRow(e,null);e.rowAt=e.age+(2.2-.6*e.rank)*(e.rowPace??1)*pace;}
         if(e.age>=e.mirrorAt){this._sovereignMirror(e);e.mirrorAt=e.age+this._mirrorCycle(e)*1.3*pace;}
         this._sovereignGrown(e,pace);
       } else if(e.age>=e.curtainAt) {
@@ -2529,7 +2573,7 @@ export class Game {
       }
     }
   }
-  // An aimed spread whose outer rounds are void (from rank 0.5) against a
+  // An aimed spread whose outer rounds are void (from rank 0.5; Kestrel 0.65) against a
   // void-aware ship (orbitals or a reflector: Act II's counter to a maxed kit);
   // the aimed centre stays red, so flak and orbitals still earn their keep.
   _mixedSpread(x,y,count,voidMix) {
@@ -2566,10 +2610,10 @@ export class Game {
   }
   // A full-width shard row with void studs; `gaps` (the desperation curtain) leaves two open lanes.
   _sovereignShardRow(e,gaps) {
-    const speed=gaps?170:this._vel(140),y=e.y+60,stud=6-Math.round(2*(e.rank||0));
+    const speed=gaps?170:this._vel(140),y=e.y+60,stud=6-Math.round(2*(e.rank||0)*(e.studScale??1));
     for(let x=16,k=0;x<=524;x+=24,k++) {
       if(gaps&&gaps.some(g=>Math.abs(x-g)<46))continue;
-      // Void studs every 6th slot at rank 0, every 4th at rank 1.
+      // Void studs every 6th slot at rank 0, every 4th at rank 1 (Kestrel: every 5th).
       if(!gaps&&k%stud===2)this._bullet(x,y,Math.PI/2,speed,"void",5);else this._shard(x,y,Math.PI/2,speed);
     }
   }
@@ -3555,7 +3599,7 @@ export class Game {
       }
       if(recovery.length)drops.push(...recovery);
       const before=this.pickups.length;
-      if(drops.length)this._dropMany(e.x,e.y,drops);
+      if(drops.length)this._dropMany(e.dropBand?this._clamp(e.x,e.dropBand[0],e.dropBand[1]):e.x,e.y,drops);
       // Sector 5's authored drops carry their beat tag (the schedule is measured at collection).
       if(e.tag){const authored=[].concat(e.drop);for(let i=before;i<this.pickups.length;i++)if(authored.includes(this.pickups[i].type))this.pickups[i].tag=e.tag;}
       if(wiped)this.events.push({type:"squadronBonus",x:e.x,y:e.y,value:wiped,drops:bonusDrops,points});
