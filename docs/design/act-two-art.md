@@ -142,7 +142,7 @@ All sheets are RGBA PNG with a transparent background, source in `assets/source/
 | `mine` | 1408,0,128,128 | 3 | 114×114 | center | dark lens center; the fuse lamp is procedural |
 | `torpedo` | 1536,0,128,256 | 3 | 72×132 | center | nose UP |
 | `interceptor` (opt.) | 1664,0,256,256 | 3 | 204×216 | center | S4 livery for the `ace` |
-| `turret-head-triple` | 640,256,256,256 | 3 | ≤192 radius-circle | center | barrels UP |
+| `turret-head-triple` | 640,256,256,256 | 3 | fits a 192 px diameter circle | center | barrels UP |
 | `turret-head-fan` | 896,256,256,256 | 3 | " | center | |
 | `turret-head-flak` | 1152,256,256,256 | 3 | " | center | |
 | `turret-head-broadside` | 1408,256,256,256 | 3 | " | center | |
@@ -163,7 +163,7 @@ All sheets are RGBA PNG with a transparent background, source in `assets/source/
 | `core-armor-l` | 512,512,128,256 | 2 | 72×120 | center | slides −x |
 | `core-armor-r` | 640,512,128,256 | 2 | 72×120 | center | slides +x |
 | `core-bed` | 768,512,256,256 | 2 | 168×136 | center | engine bed seen when the plates part |
-| `battery-block-r` | 1024,512,128,128 | 4 | 64×56 | center | right side |
+| `battery-block-r` | 1024,512,128,128 | 4 | 64×56 | center | right side. Battery pieces are S = 4 on purpose (tiny on screen) |
 | `battery-barrels-r` | 1152,512,128,128 | 4 | 84×32 | (0.1, 0.5) | twin barrels pointing +x; code scales length 9→21 |
 | `battery-block-l` / `battery-barrels-l` | 1280 / 1408,512,128,128 | 4 | as above | mirror pivot (0.9, 0.5) | paint separately (light direction) |
 
@@ -208,7 +208,7 @@ Deck turrets reuse the `act2-s4-fleet` heads.
 | `station-turret-head-mix` / `-shard` / `-void` | 1152 / 1344 / 1536,0,192,192 | 3 | ~162 | center | barrel UP; distinct emitter shapes per gun |
 | `station-turret-wreck` (opt.) | 1728,0,192,192 | 3 | ~140 | center | |
 | `satellite` | 0,384,384,256 | 3 | 312×168 | center | body + solar wings |
-| `satellite-arm` | 384,384,128,128 | 3 | 24×69 | (0.5, 0.5) at the arm root | arm points UP from center |
+| `satellite-arm` | 384,384,128,128 | 3 | 24×69 | (0.5, 0.75) = arm root | arm points UP from the root; render.js draws it pointing down, so the swap uses rotate(t*.6+PI) |
 | `tether-node` (opt.) | 512,384,128,128 | 3 | 72×72 | center | grapple head |
 
 ### Sheet `act2-sovereign.png`: 2048×640

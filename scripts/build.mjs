@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
 
@@ -43,6 +44,23 @@ const runtimeFiles = [
   'assets/brand/apple-touch-icon.png',
   'assets/brand/og-image.png',
 ];
+// Act II painted sheets (docs/design/act-two-art.md §5) are optional at runtime: the
+// game falls back to procedural art without them. Ship each one that exists; set
+// REQUIRE_ACT_TWO_ART=1 to fail the build when any is missing.
+const actTwoSheets = [
+  'assets/act2-s4-fleet.webp',
+  'assets/act2-leviathan.webp',
+  'assets/act2-s5-skyforge.webp',
+  'assets/act2-halcyon.webp',
+  'assets/act2-s6-meridian.webp',
+  'assets/act2-sovereign.webp',
+];
+const missingActTwo = actTwoSheets.filter(file => !existsSync(join(projectRoot, file)));
+if (missingActTwo.length) {
+  if (process.env.REQUIRE_ACT_TWO_ART) throw new Error('Missing Act II art: ' + missingActTwo.join(', '));
+  console.warn('Building without Act II art (procedural fallback): ' + missingActTwo.join(', '));
+}
+runtimeFiles.push(...actTwoSheets.filter(file => !missingActTwo.includes(file)));
 const allowedFiles = new Set(runtimeFiles);
 const sources = new Map();
 for (const file of runtimeFiles) sources.set(file, await readFile(join(projectRoot, file), /\.(webp|png)$/.test(file) ? undefined : 'utf8'));
