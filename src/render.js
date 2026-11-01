@@ -2,10 +2,30 @@
 import { drawAtlasScenery, drawAtlasClouds, WorldAmbience, worldPaintsStage } from './background.js';
 import * as skyArt from './art.js';
 import { CAMPAIGN_STAGES } from './game.js';
-import { drawCraft, drawCoast, drawWreck, prepareWaterMaps, monsoonSea } from './art.js';
+import { drawCraft, drawCoast, drawWreck, prepareWaterMaps, monsoonSea, drawPiece, hasSheet, pieceInfo } from './art.js';
 const W = 540, H = 900, TAU = Math.PI * 2;
 const ZERO_ENEMIES = new Set(['echo','satellite','station','stationTurret','mirrorEscort','tether']);
 const ECHO_SHIPS = {spread:'kestrel',missile:'manta',pierce:'wraith'};
+// Sector 6 painted pieces (docs/design/act-two-art.md §5), logical px measured from
+// the sheets. Station heads turn about their round body (hub px below the cell
+// center); muzzles are [x,y] from that body, barrels up.
+const S6_GATE='act2-s6-meridian',S6_BOSS='act2-sovereign';
+const GATE_HEADS={
+  mix:{hub:8,muzzles:[[-6,-34],[0,-35],[6,-34]],glow:'coreCool',rgb:'159,234,255'},
+  shard:{hub:8,muzzles:[[-5,-34],[5,-34]],glow:'coreCool',rgb:'159,234,255'},
+  void:{hub:0,muzzles:[[-17,-24],[17,-24]],glow:'rimViolet',rgb:'215,163,255'}
+};
+const SOVEREIGN_SLOTS=[-150,150,-80,80];
+// The outer wings are thin (painted underside at y 14), so those mounts sit higher.
+const sovereignMountY=ox=>Math.abs(ox)>100?10:24;
+const SOVEREIGN_PODS={power:[-9,0,9],escort:[-7,7],sidewinder:[-7,7]};
+const SOVEREIGN_NOZZLES=[-70,-50,50,70];
+const SOVEREIGN_PHASE=[
+  {tint:'rgba(143,230,255,.9)',glow:'coreCool',rgb:'143,230,255',rate:2},
+  {tint:'rgba(192,140,255,.9)',glow:'rimViolet',rgb:'192,140,255',rate:2.8},
+  {tint:'rgba(255,143,216,.9)',glow:'enemyMini',rgb:'255,143,216',rate:4}
+];
+const easeOutBack=k=>{const s=2.2;return 1+(s+1)*Math.pow(k-1,3)+s*Math.pow(k-1,2);};
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hash = n => { const v = Math.sin(n * 127.1 + 31.7) * 43758.5453; return v - Math.floor(v); };
 const BLOOM_CACHE_RADIUS = 96;
@@ -42,6 +62,19 @@ const TRACER_STYLES = Object.freeze({
 const tracerGrowth = radius => { const grow=Math.max(0,radius-4);return grow<=2.5?grow:2.5+Math.log1p(grow-2.5)*.7; };
 const SKY_SIDES = [-1,1];
 const HALCYON_BAY_X = [-150,0,150];
+// Sector 5 painted pieces (docs/design/act-two-art.md §5). Points are logical px in
+// the piece frame, measured from the sheets: engine exhausts, muzzle tips, bay sockets.
+const S5_SKY='act2-s5-skyforge',S5_BOSS='act2-halcyon';
+const HALCYON_BAY_Y = [24,42,24];
+const HALCYON_NOZZLES = [-102,-77,-51,-27,28,53,77,101];
+const SKY_EXHAUSTS = {
+  boxBomber:{points:[[-43,8],[-23,8],[23,8],[43,8]],r:13},
+  skyAce:{points:[[-8.5,42],[8.5,42]],r:15},
+  drone:{points:[[-15,-15],[15,-15],[-15,15],[15,15]],r:7},
+  'foundry-small':{points:[[-8,50],[8,50]],r:20},
+  'foundry-large':{points:[[-17,60],[0,60],[16,60]],r:20}
+};
+const SKY_CRAFT_SCALE = {boxBomber:1,skyAce:1.1,drone:1.1};
 const HALCYON_STREAK_COLORS = Array.from({length:12},(_,i)=>`rgba(255,230,210,${.25*(1-i/12)})`);
 const exhaustSprites = new Map();
 function playerExhaust(ship) {
@@ -106,6 +139,26 @@ function surface(width,height) {
   canvas.width=width;canvas.height=height;
   return canvas;
 }
+// Sector 4 painted pieces (docs/design/act-two-art.md). Measured from the sheets in
+// logical px: hull half-extents of the painted art, and for each turret head the
+// muzzle tips [x, y, splay] in the head cell frame (barrels up) plus the y where the
+// barrels meet the mantlet (barrels above it slide back on recoil).
+const S4_FLEET='act2-s4-fleet',S4_BOSS='act2-leviathan';
+const S4_HULLS={destroyer:{id:'hull-destroyer',w:32,h:150},cruiser:{id:'hull-cruiser',w:46,h:194}};
+const TURRET_HUB=10; // the head's round body sits this far below its cell center
+const TURRET_GUNS={
+  triple:{muzzles:[[-8.3,-30,0],[0,-30,0],[8.3,-30,0]],cut:-8,rim:'#b9c6ad'},
+  fan:{muzzles:[[-17.5,-26,-.3],[-5.5,-30,-.08],[5.3,-30,.08],[17.5,-26,.3]],cut:-10,rim:'#8ac3bd'},
+  flak:{muzzles:[[-8,-30,0],[7.7,-30,0]],cut:-10,rim:'#e5ae68'},
+  broadside:{muzzles:[[-8.8,-30,0],[-3,-30,0],[2.8,-30,0],[8.8,-30,0]],cut:-4,rim:'#b9c6ad'},
+  void:{muzzles:[[-5.8,-30,0],[5.8,-30,0]],cut:-7,rim:'#c391e8'}
+};
+// LEVIATHAN batteries are render-only (broadside rows fire from fixed screen
+// columns). The painted hull's port casemate reaches x -210 and the starboard one
+// only +190, so the starboard guns sit further in and roll out a little less.
+function leviathanBatteryX(side,extension){return side<0?-(178.5+22*extension):166+18*extension;}
+const LEVIATHAN_BATTERY_REACH=20.3; // barrel length of the piece at scale 1
+const LEVIATHAN_BATTERY_SCALE=1.3;  // the S4 battery pieces read too thin at 1:1 on the casemates
 export class Renderer {
   constructor(canvas) {
     this.canvas=canvas;this.ctx=canvas.getContext('2d',{alpha:false});
@@ -786,7 +839,7 @@ export class Renderer {
     }
     this.pickups(game.pickups||[],t);
     if(!fleet){if(this.currentStage!==5)this.projectiles(game.shots||[],true,t);this.arsenalCraft(game.player,t);}
-    for(const e of enemies)if(!fleet||!['hull','gunboat','hullTurret'].includes(e.type)){if(!['foundry','foundryBay','tailGunner'].includes(e.type))this.enemy(e,t);}
+    for(const e of enemies)if(!fleet||!['hull','gunboat','hullTurret'].includes(e.type)){if(!['foundry','foundryBay','tailGunner'].includes(e.type)&&!(this.currentStage===5&&e.type==='hullTurret'))this.enemy(e,t);}
     if(game.boss&&!enemies.includes(game.boss)) this.boss(game.boss,t);
     for(const e of enemies)if(e.type==='tailGunner')this.enemy(e,t);
     if(!fleet)this.drawEffects(t);
@@ -798,6 +851,8 @@ export class Renderer {
     if(fleet)this.arsenalCraft(game.player,t);
     for(const e of enemies)if(e.type==='foundry')this.enemy(e,t);
     for(const e of enemies)if(e.type==='foundryBay')this.enemy(e,t);
+    // Foundry void batteries sit on the deck, so they draw over their foundry.
+    if(this.currentStage===5)for(const e of enemies)if(e.type==='hullTurret')this.enemy(e,t);
     if(this.currentStage===5){
       this.ambience.drawSkyforgeOver?.(c,game);
       this.foundrySilhouettes(game.player,enemies,t);
@@ -816,7 +871,7 @@ export class Renderer {
     c.restore();c.setTransform(1,0,0,1,0,0);
     if(fleet){
       this.fleetPickupPoints=(game.pickups||[]).map(p=>({id:p.id,x:p.x,y:p.y,type:p.type}));
-      this.fleetMountPoints=enemies.filter(e=>e.type==='hullTurret'&&!e.dead&&e.hp>0).map(e=>({id:e.id,parentId:e.parentId,x:e.x,y:e.y,ox:e.ox,oy:e.oy,gun:e.gun}));
+      this.fleetMountPoints=enemies.filter(e=>e.type==='hullTurret'&&!e.dead&&e.hp>0).map(e=>({id:e.id,parentId:e.parentId,x:e.x,y:e.y,ox:e.ox,oy:e.oy,gun:e.gun,aim:e.aim}));
       for(const [id,wreck] of this.fleetWrecks||[]){if(!enemies.some(e=>e.id===wreck.parentId)&&game.boss?.id!==wreck.parentId)this.fleetWrecks.delete(id);}
     }
   }
@@ -1712,14 +1767,30 @@ export class Renderer {
     c.fillText(flagship?'L V / 0 4':'I M / '+(hullClass==='cruiser'?'CR':'DD'),w*.48,h*.25);
     this.fleetSprites.set(key,s);return s;
   }
-  fleetWake(x,y,w,h,t) {
+  // Silhouette drop shadow for a painted piece: a blurred dark copy baked once per
+  // piece, drawn offset down-right like the old baked hull shadow.
+  fleetPieceShadow(c,id,x,y,alpha=.85) {
+    this.fleetShadows ||= new Map();
+    let shadow=this.fleetShadows.get(id);
+    if(!shadow){
+      const info=pieceInfo(id),pad=10,s=surface(Math.ceil(info.w+pad*2),Math.ceil(info.h+pad*2)),g=s.getContext('2d');
+      g.filter='blur(2.5px)';
+      if(!drawPiece(g,id,pad+info.w*info.px,pad+info.h*info.py,0,1,1,{tint:'#02080c'}))return false;
+      g.filter='none';
+      shadow={canvas:s,dx:-pad-info.w*info.px,dy:-pad-info.h*info.py};this.fleetShadows.set(id,shadow);
+    }
+    const prior=c.globalAlpha;c.globalAlpha=prior*alpha;
+    c.drawImage(shadow.canvas,x+5+shadow.dx,y+12+shadow.dy);c.globalAlpha=prior;
+    return true;
+  }
+  fleetWake(x,y,w,h,t,foam=true) {
     const c=this.ctx;c.save();
     oval(c,x+6,y+11,w+9,h+5,'rgba(0,6,10,.7)');
     for(const side of [-1,1]){
       line(c,[x+side*w*.77,y-h*.72,x+side*(w+12),y+h*.3,x+side*(w+23),y+h+38], 'rgba(193,231,216,.28)',2);
       line(c,[x+side*w*.8,y+h*.65,x+side*(w+5),y+h+27+Math.sin(t*4)*5], 'rgba(231,248,229,.5)',1.3);
     }
-    oval(c,x,y+h+9,w*.63,9,'rgba(175,224,208,.15)');c.restore();
+    if(foam)oval(c,x,y+h+9,w*.63,9,'rgba(175,224,208,.15)');c.restore();
   }
   fleetDamage(e,w,h,t) {
     const c=this.ctx,damage=1-clamp(e.hp/Math.max(1,e.maxHp||e.hp),0,1);
@@ -1727,7 +1798,7 @@ export class Renderer {
     const count=damage>.65?5:damage>.4?3:1;
     for(let i=0;i<count;i++){
       const x=(hash(i*17+13)-.5)*w*1.5,y=(hash(i*23+8)-.5)*h*1.3;
-      oval(c,x,y,12+i*2,7+i,'#121b1c');
+      oval(c,x,y,15+i*2,9+i,'rgba(12,18,20,.35)');oval(c,x,y,9+i*2,5+i,'rgba(12,18,20,.6)');
       const pulse=1+Math.sin(t*15+i*2)*.22;
       poly(c,[x-5,y+3,x-8,y-8*pulse,x-2,y-4,x+2,y-18*pulse,x+7,y-4,x+5,y+4],'#dc6034');
       poly(c,[x-3,y+2,x,y-10*pulse,x+4,y+1],'#ffe8a1');
@@ -1740,7 +1811,18 @@ export class Renderer {
     c.save();c.translate(e.x,e.y);
     if(type==='hull'||type==='gunboat'){
       const w=type==='hull'?(e.w||72):18,h=type==='hull'?(e.h||100):37;
-      c.save();c.translate(-e.x,-e.y);this.fleetWake(e.x,e.y,w,h,t);c.restore();
+      const sprite=type==='hull'&&hasSheet(S4_FLEET)&&S4_HULLS[e.hullClass==='cruiser'?'cruiser':'destroyer'];
+      c.save();c.translate(-e.x,-e.y);
+      // The painted hulls are slimmer and longer than the sim box; the wake follows the paint.
+      if(sprite)this.fleetWake(e.x,e.y,sprite.w,sprite.h*.93,t);else this.fleetWake(e.x,e.y,w,h,t);
+      c.restore();
+      if(sprite){
+        this.fleetPieceShadow(c,sprite.id,0,0);
+        drawPiece(c,sprite.id,0,0);
+        this.fleetDamage(e,sprite.w*.8,h,t);
+        if(e.flash>0)drawPiece(c,sprite.id,0,0,0,1,Math.min(.3,e.flash*.3),'flash');
+        c.restore();return true;
+      }
       if(type==='hull'){const tile=this.fleetHull(w,h,false,e.hullClass);c.drawImage(tile,-w-32,-h-32);}
       else if(!drawCraft(c,'turret',0,0,44,79,true)){
         poly(c,[0,-h,-w,-h*.35,-w,h*.7,0,h,w,h*.7,w,-h*.35],'#30484c','#a3b5a5',1.3);
@@ -1755,6 +1837,8 @@ export class Renderer {
       if(prior!==undefined&&e.fireAt>prior+.03)this.fleetMuzzles?.set(e.id,.11);
       this.fleetFireClocks.set(e.id,e.fireAt);
       const gun=e.gun||'triple',col=gun==='void'?'#c391e8':gun==='flak'?'#e5ae68':gun==='fan'?'#8ac3bd':'#b9c6ad';
+      if(this.currentStage===5&&hasSheet(S5_SKY)){this.skyTurretSprite(e,t);c.restore();return true;}
+      if(hasSheet(S4_FLEET)){this.fleetTurretSprite(e,gun,t);c.restore();return true;}
       oval(c,2,5,21,16,'#071217');oval(c,0,0,20,16,'#293c40');oval(c,0,0,20,16,col,true,1.5);
       if(e.hp<=0||e.dead){poly(c,[-15,-4,3,-12,13,3,-6,10],'#10181b','#6e7470',2);line(c,[-12,-7,10,9],'#c17e51',2);}
       else{
@@ -1793,6 +1877,17 @@ export class Renderer {
         line(c,[-7,8,0,25,7,8],col,2);
         c.save();c.translate(0,27);poly(c,[0,-10,10,0,0,10,-10,0],'#0a1620',col,2.5);c.fillStyle=col;c.font='bold 11px Arial';c.textAlign='center';c.fillText(PICKUP_THEMES[e.carrying.type]?.[0]||'P',0,4);c.restore();
       }
+      if(hasSheet(S4_FLEET)){
+        // Claws snap while it homes on salvage, clamp shut (with a twitch) while carrying.
+        const id=e.id||0,hunting=!e.carrying&&e.targetPickupId!=null;
+        const open=e.carrying?Math.sin(t*7+id)>.92:hunting?Math.sin(t*21+id)>0:Math.sin(t*3.1+id)>.2;
+        c.rotate(clamp((e.vx||0)/900,-.3,.3));
+        const frame=open?'scavenger-open':'scavenger';
+        drawPiece(c,frame,0,0,0,1,1,'outline');
+        oval(c,0,-6,1.8,1.8,e.carrying?col:'#c8543a');
+        if(e.flash>0)drawPiece(c,frame,0,0,0,1,Math.min(.6,e.flash*.6),'flash');
+        c.restore();return true;
+      }
       for(const side of [-1,1]){
         poly(c,[side*5,-5,side*20,-13,side*25,3,side*14,0,side*9,10],'#374a46','#a0c3a0',1);
         line(c,[side*10,3,side*18,10+Math.sin(t*30)*3,side*13,17],'#c2a775',1.6);
@@ -1801,10 +1896,32 @@ export class Renderer {
       oval(c,0,-5,3,4,e.carrying?col:'#ef6b47');
     }else if(type==='mine'){
       const fuse=Math.max(0,e.fuse??4),pulse=Math.sin(t*(8+28/(fuse+.5)))>0;
+      if(hasSheet(S4_FLEET)){
+        // Slow tumble; the fuse lamp stays procedural and quickens as the fuse burns.
+        const id=e.id||0,spin=t*(id%2?.55:-.55)+id;
+        drawPiece(c,'mine',0,0,spin,1,1,'outline');
+        if(e.flash>0)drawPiece(c,'mine',0,0,spin,1,Math.min(.6,e.flash*.6),'flash');
+        oval(c,0,0,3.2,3.2,pulse?'#fff4bf':'#8f3a2a');
+        if(pulse)oval(c,0,0,6.5,6.5,'#e99c61',true,1.3);
+        c.restore();return true;
+      }
       for(let i=0;i<8;i++){const a=i*TAU/8;line(c,[Math.cos(a)*10,Math.sin(a)*10,Math.cos(a)*19,Math.sin(a)*19],'#a6b2a0',3);}
       oval(c,1,3,13,13,'#030d13');oval(c,0,0,12,12,'#3d4640');oval(c,0,0,12,12,'#a2aa92',true,1.5);oval(c,-3,-4,4,3,'#65766b');
       oval(c,0,0,4,4,pulse?'#fff4bf':'#ad422e');if(pulse)oval(c,0,0,7,7,'#e99c61',true,1.5);
     }else{
+      if(hasSheet(S4_FLEET)){
+        // Painted nose up: the wake trails the tail fins, the motor burns at the tail.
+        c.rotate(Math.atan2(e.vy||110,e.vx||0)+Math.PI/2);
+        const flick=.85+.15*Math.sin(t*41+(e.id||0));
+        line(c,[-5,12,-9,44],'rgba(194,228,208,.5)',2);line(c,[5,12,9,44],'rgba(194,228,208,.5)',2);
+        line(c,[0,22,0,34+flick*6],'rgba(194,228,208,.22)',4);
+        bloom(c,0,23,15*flick,'rgba(255,185,103,.25)','hitMissile',.3);
+        drawPiece(c,'torpedo',0,0,0,1,1,'outline');
+        line(c,[-2.6,22.5,2.6,22.5],'#ffc27a',2.4);
+        if(Math.sin(t*9+(e.id||0))>0)oval(c,0,-16,1.3,1.3,'#ff765c');
+        if(e.flash>0)drawPiece(c,'torpedo',0,0,0,1,Math.min(.6,e.flash*.6),'flash');
+        c.restore();return true;
+      }
       c.rotate(Math.atan2(e.vy||110,e.vx||0)-Math.PI/2);
       line(c,[-6,-11,-10,-42],'rgba(194,228,208,.6)',2);line(c,[6,-11,10,-42],'rgba(194,228,208,.6)',2);
       poly(c,[0,21,-7,9,-6,-16,-12,-23,-3,-20,3,-20,12,-23,6,-16,7,9],'#14252b','#aab6a0',1.5);
@@ -1814,13 +1931,122 @@ export class Renderer {
     if(e.flash>0){c.globalAlpha=Math.min(.65,e.flash);oval(c,0,0,type==='hull'?e.w:19,type==='hull'?e.h:15,'#fff3ca');}
     c.restore();return true;
   }
+  // Painted hull turret, drawn at the mount (context already translated). The head
+  // turns about its round body (TURRET_HUB below the cell center); on each shot the
+  // barrels slide back into the mantlet and spring out again.
+  fleetTurretSprite(e,gun,t) {
+    const c=this.ctx,spec=TURRET_GUNS[gun]||TURRET_GUNS.triple,id=e.id||0;
+    const rot=(e.aim??Math.PI/2)+Math.PI/2;
+    if(e.hp<=0||e.dead){
+      drawPiece(c,'turret-base-wreck',0,0);
+      // The burnt head keeps its last bearing, knocked askew on the ring.
+      c.save();c.rotate(rot+(hash(id*7+3)-.5)*.9);c.translate(1.5,-8);
+      drawPiece(c,'turret-head-wreck',0,0);c.restore();
+      const ember=.45+.35*Math.sin(t*11+id);
+      oval(c,-2,1,2.2,1.6,'rgba(220,96,52,'+ember.toFixed(2)+')');
+      for(let j=0;j<(this.reducedEffects?1:3);j++){
+        const q=(t*.42+j/3+hash(id*3))%1;
+        oval(c,Math.sin(q*3+id)*3+q*7,-4-q*30,4+q*7,3+q*5,'rgba(16,22,25,'+((1-q)*.38).toFixed(3)+')');
+      }
+      return;
+    }
+    const shot=clamp(Math.max((this.fleetMuzzles?.get(e.id)||0)/.11,e.firePulse||0),0,1);
+    const kick=shot*4.2,head='turret-head-'+(TURRET_GUNS[gun]?gun:'triple');
+    // Head-shaped drop shadow on the deck, then the base and a thin gun-type rim.
+    c.save();c.translate(2,4);c.rotate(rot);drawPiece(c,head,0,-TURRET_HUB,0,1,.55,{tint:'#02080c'});c.restore();
+    drawPiece(c,'turret-base',0,0);
+    c.save();c.globalAlpha*=.38;oval(c,0,0,19.5,18.5,spec.rim,true,1.1);c.restore();
+    c.save();c.rotate(rot);c.translate(0,-TURRET_HUB+kick*.25);
+    if(kick>.2){
+      c.save();c.beginPath();c.rect(-40,-60,80,60+spec.cut);c.clip();drawPiece(c,head,0,kick);c.restore();
+      c.save();c.beginPath();c.rect(-40,spec.cut,80,60);c.clip();drawPiece(c,head,0,0);c.restore();
+    }else drawPiece(c,head,0,0);
+    if(gun==='void'){
+      const charge=clamp(1-((e.fireAt??0)-(e.age??0))/.7,0,1),pulse=.75+.25*Math.sin(t*6+id);
+      bloom(c,0,12,9+charge*7,'rgba(215,163,255,.6)','rimViolet',(.2+.35*charge)*pulse);
+      oval(c,0,12,2.2,7,'rgba(220,170,255,'+(.25+.45*charge).toFixed(2)+')');
+    }
+    if(e.flash>0)drawPiece(c,head,0,0,0,1,Math.min(.45,e.flash*.45),'flash');
+    if(shot>.05){
+      for(const [x,y,a] of spec.muzzles){
+        const tip=y+kick,len=6+shot*7+hash(x+t*60)*3;
+        c.save();c.translate(x,tip);c.rotate(a);
+        if(!this.reducedEffects)bloom(c,0,-3,8,'rgba(255,178,116,.5)','rimFire',.55*shot);
+        c.globalAlpha*=shot;
+        poly(c,[-2.8,0,-1.2,-len*.55,0,-len,1.2,-len*.55,2.8,0],'#e98a4c');
+        poly(c,[-1.4,0,0,-len*.6,1.4,0],'#fff0b4');
+        c.restore();
+      }
+    }
+    c.restore();
+  }
   fleetTurretWrecks(parent,t) {
     for(const wreck of this.fleetWrecks?.values()||[]){
       if(wreck.parentId!==parent.id)continue;
       this.fleetEnemy({...wreck,type:'hullTurret',x:parent.x+wreck.ox,y:parent.y+wreck.oy,hp:0,maxHp:1},t);
     }
   }
+  // Broadside recoil (0..1) of one LEVIATHAN side, from its latest broadside event.
+  leviathanRecoil(side) {
+    let r=0;
+    for(const fx of this.impacts)if(fx.fleet&&fx.type==='broadside'&&(Number(fx.value)||1)===side&&fx.age<.32)r=Math.max(r,1-fx.age/.32);
+    return r;
+  }
+  // Ten casemate batteries: blocks slide out with `extension`, twin barrels grow
+  // 9 -> 21 px about their root. `sink` (0..1) folds the barrels down on the wreck.
+  leviathanBatteries(c,extension,litSide,t,sink=0) {
+    for(const side of [-1,1]){
+      const s=side<0?'l':'r',lit=!sink&&extension>0&&litSide===side,recoil=sink?0:this.leviathanRecoil(side);
+      const variant=sink?'wreck':undefined;
+      for(let i=0;i<5;i++){
+        const y=-41.6+i*20.8,x=leviathanBatteryX(side,extension)-side*recoil*2.2;
+        const len=(9+extension*12)*(1-.42*recoil)*(1-sink*.7);
+        const bars=[len/LEVIATHAN_BATTERY_REACH,LEVIATHAN_BATTERY_SCALE],fold=side*sink*.55;
+        if(lit&&!this.reducedEffects)bloom(c,x+side*(len+1),y,11,'rgba(255,178,116,.5)','rimFire',.3+.12*Math.sin(t*7+i));
+        // Dark underside first so the small parts separate from the deck and the sea.
+        drawPiece(c,'battery-barrels-'+s,x+1,y+2,fold,bars,.75,{tint:'#02080c'});
+        drawPiece(c,'battery-block-'+s,x+1,y+2,0,LEVIATHAN_BATTERY_SCALE*1.08,.8,{tint:'#02080c'});
+        drawPiece(c,'battery-barrels-'+s,x,y,fold,bars,1,variant);
+        drawPiece(c,'battery-block-'+s,x,y,0,LEVIATHAN_BATTERY_SCALE,1,variant);
+        if(lit)drawPiece(c,'battery-block-'+s,x,y,0,LEVIATHAN_BATTERY_SCALE,.4+.15*Math.sin(t*7+i),{tint:'rgba(255,170,92,.55)'});
+      }
+    }
+  }
+  leviathanSprite(b,t) {
+    const c=this.ctx,w=b.w||210,h=b.h||80,cy=18;
+    // The painted hull spans y -59..57 (mast to -92): the wake hugs the paint.
+    this.fleetWake(b.x,b.y-1,w,58,t,false);
+    c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
+    this.fleetPieceShadow(c,'leviathan-hull',0,0);
+    drawPiece(c,'leviathan-hull',0,0);
+    this.leviathanBatteries(c,clamp(b.broadside||0,0,1),b.broadsideSide,t);
+    // Armor plates part over the engine bed; two counter-rotating rotors spin up.
+    const core=clamp(b.core||0,0,1);
+    drawPiece(c,'core-bed',0,cy);
+    if(core>0){
+      c.save();c.globalAlpha*=core;
+      bloom(c,0,cy,65,'rgba(128,253,228,.8)','effectTeal',this.reducedEffects?.5:.75);
+      for(const [id,dir,scale] of [['core-rotor-a',-1,1],['core-rotor-b',1,.84]]){
+        const a=t*dir*1.7;
+        // Motion blur: two fading ghosts trail each rotor.
+        if(!this.reducedEffects)for(let j=2;j>=1;j--)drawPiece(c,id,0,cy,a-dir*j*.13,scale,.2/j);
+        drawPiece(c,id,0,cy,a,scale);
+      }
+      bloom(c,0,cy,26,'rgba(128,253,228,.8)','effectTeal',.45+.15*Math.sin(t*9));
+      // Small hub glow: the spirals leave from here, so it stays dimmer than the rounds.
+      oval(c,0,cy,5+Math.sin(t*9),5,'rgba(206,255,238,.72)');
+      c.restore();
+    }
+    drawPiece(c,'core-armor-l',-(19+core*37),cy);
+    drawPiece(c,'core-armor-r',19+core*37,cy);
+    this.fleetDamage(b,w,h*.85,t);
+    if(b.flash>0)drawPiece(c,'leviathan-hull',0,0,0,1,Math.min(.16,b.flash*.16),'flash');
+    c.restore();
+    this.fleetTurretWrecks(b,t);
+    for(const e of this.fleetEnemies||[])if(e.type==='hullTurret'&&e.parentId===b.id&&!e.dead&&e.hp>0)this.enemy(e,t);
+  }
   leviathan(b,t) {
+    if(hasSheet(S4_BOSS)&&hasSheet(S4_FLEET))return this.leviathanSprite(b,t);
     const c=this.ctx,w=b.w||210,h=b.h||80;
     this.fleetWake(b.x,b.y,w,h,t);
     c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
@@ -1863,6 +2089,15 @@ export class Renderer {
     const fade=Math.min(1,(1-p)*3),sink=p*p*85;
     c.save();c.translate(fx.x+Math.sin(p*2)*8,fx.y+sink);
     c.rotate(angle+p*.13);c.scale(1,1-p*.36);c.globalAlpha=fade;
+    if(hasSheet(S4_BOSS)){
+      // Burnt hull at the same registration; batteries fold, the engine is dead.
+      this.fleetPieceShadow(c,'leviathan-wreck',0,0,.7);
+      drawPiece(c,'leviathan-wreck',0,0);
+      this.leviathanBatteries(c,broadside,0,t,Math.min(1,p*1.6));
+      drawPiece(c,'core-bed',0,18,0,1,1,'wreck');
+      drawPiece(c,'core-armor-l',-(19+core*37),18+p*4,-p*.2,1,1,'wreck');
+      drawPiece(c,'core-armor-r',19+core*37,18+p*6,p*.25,1,1,'wreck');
+    }else{
     c.drawImage(this.fleetHull(w,h,true),-w-32,-h-32);
     // Batteries fold down with the listing deck; the engine is extinguished.
     for(const side of [-1,1])for(let i=0;i<5;i++){
@@ -1871,6 +2106,7 @@ export class Renderer {
     }
     oval(c,0,18,42+core*12,34,'#0b1519');
     oval(c,0,18,42+core*12,34,'#7d887a',true,2);
+    }
     // Persistent fires stay attached to the deck. Only their small lobes move.
     for(let i=0;i<7;i++){
       const x=(i/6-.5)*w*1.55,y=(hash(i*17+8)-.5)*h;
@@ -1948,7 +2184,28 @@ export class Renderer {
         c.globalAlpha=fade;oval(c,fx.x,fx.y,fx.size*(.2+p),fx.size*(.1+p*.3),'#c7f5e2',true,2);
       }else{
         const radius=fx.size*(.1+p);
-        if(fx.type==='broadside'){
+        const boss=this.fleetBoss;
+        if(fx.type==='broadside'&&boss&&!boss.dead&&hasSheet(S4_BOSS)){
+          // Muzzle blasts at the battery tips that just fired, then gun smoke rolling outward.
+          const side=Number(fx.value)||1,extension=clamp(boss.broadside||0,0,1),k=clamp(1-p/.22,0,1);
+          const x=leviathanBatteryX(side,extension),len=9+extension*12;
+          c.save();c.translate(boss.x,boss.y);c.rotate(boss.angle||0);
+          for(let i=0;i<5;i++){
+            const y=-41.6+i*20.8,tip=x+side*len;
+            for(let j=0;j<2;j++){
+              const q=clamp((p-j*.08)/.9,0,1);if(q<=0)continue;
+              oval(c,tip+side*(5+q*30+j*6),y-q*10+(j?3:-2),3+q*9,2.5+q*6,'rgba(132,146,140,'+((1-q)*.26).toFixed(3)+')');
+            }
+            if(k>0){
+              if(!this.reducedEffects)bloom(c,tip+side*5,y,13,'rgba(255,226,179,.8)','coreFire',.55*k);
+              c.globalAlpha=fade*k;
+              poly(c,[tip,y-3.6,tip+side*(9+9*k),y-1.2,tip+side*(13+11*k),y,tip+side*(9+9*k),y+1.2,tip,y+3.6],'#f0a25a');
+              poly(c,[tip,y-1.8,tip+side*(8+7*k),y,tip,y+1.8],'#ffe4a0');
+              c.globalAlpha=fade;
+            }
+          }
+          c.restore();
+        }else if(fx.type==='broadside'){
           const side=Number(fx.value)||1;
           for(let i=0;i<7;i++){
             const x=fx.x,y=fx.y-65+i*20;
@@ -2027,6 +2284,7 @@ export class Renderer {
   }
   skyEnemy(e,t) {
     if(!['boxBomber','tailGunner','skyAce','foundry','foundryBay','drone'].includes(e.type))return false;
+    if(hasSheet(S5_SKY))return this.skySpriteEnemy(e,t);
     const c=this.ctx;c.save();c.translate(e.x,e.y);c.rotate(e.angle||0);
     if(['boxBomber','skyAce','drone'].includes(e.type))c.rotate(Math.PI);
     if(e.type==='tailGunner'){
@@ -2042,6 +2300,184 @@ export class Renderer {
       if(e.type!=='drone')for(const side of [-1,1])oval(c,side*(e.type==='foundry'?w: e.type==='boxBomber'?65:40),0,2,2,side<0?'#ff6a77':'#92f6ba');
     }
     if(e.flash>0){c.globalAlpha=Math.min(1,e.flash*3);oval(c,0,0,18,12,'#fff0c7');}c.restore();return true;
+  }
+  // ---- Sector 5 painted sprites (act2-s5-skyforge / act2-halcyon). Render-only state:
+  // per-id trackers below read the sim (x, fireAt, burstLeft, launch) and never write it.
+  skyTrack(name,id,make) {
+    const map=this[name] ||= new Map();let s=map.get(id);
+    if(!s){if(map.size>160)for(const k of map.keys()){map.delete(k);if(map.size<=100)break;}map.set(id,s=make());}
+    return s;
+  }
+  // Smoothed lateral velocity in -1..1, for a cheap bank squash.
+  skyBank(e,t) {
+    const s=this.skyTrack('skyMotion',e.id,()=>({x:e.x,t,roll:0}));
+    const dt=t-s.t;
+    if(dt<0||dt>.5){s.x=e.x;s.t=t;s.roll=0;return 0;}
+    if(dt>0){s.roll+=(clamp((e.x-s.x)/dt/320,-1,1)-s.roll)*Math.min(1,dt*7);s.x=e.x;s.t=t;}
+    return s.roll;
+  }
+  // 1 right after a shot (fireAt jumps or a burst round leaves), decaying over ~.13 s.
+  skyShot(e) {
+    const s=this.skyTrack('skyShots',e.id,()=>({fireAt:e.fireAt,burst:e.burstLeft,at:-9}));
+    if((e.fireAt??0)>(s.fireAt??0)+.03||(e.burstLeft??0)<(s.burst??0))s.at=this.time;
+    s.fireAt=e.fireAt;s.burst=e.burstLeft;
+    return Math.max(clamp(1-(this.time-s.at)/.13,0,1),clamp(e.firePulse||0,0,1));
+  }
+  skyExhaust(c,key,t,id,k=1) {
+    const spec=SKY_EXHAUSTS[key];if(!spec)return;
+    c.save();c.globalCompositeOperation='lighter';
+    spec.points.forEach(([x,y],i)=>{
+      const flicker=.82+.18*Math.sin(t*37+i*2.1+id*1.7)*Math.sin(t*23+i);
+      if(!this.reducedEffects)bloom(c,x,y+spec.r*.35,spec.r*flicker,'rgba(255,170,112,.55)','rimFire',.45*k*flicker);
+      oval(c,x,y,spec.r*.22,spec.r*.12,'rgba(255,206,160,'+(.55*k*flicker).toFixed(2)+')');
+    });
+    c.restore();
+  }
+  skySpriteEnemy(e,t) {
+    const c=this.ctx,type=e.type,id=e.id||0;
+    c.save();c.translate(e.x,e.y);c.rotate(e.angle||0);
+    if(type==='foundry'){
+      const w=e.w||112,h=e.h||62,piece=e.large||e.foundryClass==='large'||w>=140?'foundry-large':'foundry-small';
+      const shadow=this.skyCloudShadow(w,h);c.drawImage(shadow,-shadow.width/2+6,-shadow.height/2+42);
+      drawPiece(c,piece,0,0);
+      // A thin violet dusk wash keeps the pale hatch plates at mid value under bullets.
+      drawPiece(c,piece,0,0,0,1,.2,{tint:'#1d1030'});
+      this.skyExhaust(c,piece,t,id,.9);
+      // Soot curls off the stacks and trails behind (up-screen) as the foundry descends.
+      if(!this.reducedEffects)for(let i=0;i<6;i++){const q=((t*.45+i*.37)%1),x=(i%2?1:-1)*w*(.18+.22*(i>>1))+Math.sin(t*1.3+i)*3*q;oval(c,x,-h*.55-q*30,5+q*10,4+q*6,'rgba(40,28,50,'+(.3*(1-q)*Math.min(1,q*5)).toFixed(3)+')');}
+      for(const side of SKY_SIDES)oval(c,side*(w+4),2,2,2,Math.sin(t*3.2+side)>-.3?(side<0?'#ff6a77':'#92f6ba'):'#3b2c40');
+      if(e.flash>0)drawPiece(c,piece,0,0,0,1,Math.min(.32,e.flash*.4),'flash');
+    }else if(type==='foundryBay'){
+      this.skyBaySprite(e,t);
+    }else if(type==='tailGunner'){
+      const shot=this.skyShot(e),kick=shot*3;
+      drawPiece(c,'tail-gunner-base',0,0);
+      c.rotate((e.aim??Math.PI/2)+Math.PI/2-(e.angle||0));
+      c.save();c.translate(1.5,2.5);drawPiece(c,'tail-gunner-head',0,0,0,1,.45,{tint:'#0b0716'});c.restore();
+      drawPiece(c,'tail-gunner-head',0,kick);
+      if(e.flash>0)drawPiece(c,'tail-gunner-head',0,kick,0,1,Math.min(.45,e.flash*.45),'flash');
+      if(shot>.05)for(const x of [-3,3])this.skyMuzzle(c,x,-28+kick,shot,t+x,false);
+    }else{
+      // boxBomber, skyAce, drone: painted nose UP.
+      c.rotate(Math.PI);
+      const bank=type==='drone'?0:this.skyBank(e,t),k=SKY_CRAFT_SCALE[type]||1,piece=type==='boxBomber'?'box-bomber':type==='skyAce'?'sky-ace':'drone';
+      // Banking reads as a roll: the wings foreshorten and the hull slides toward the turn.
+      const squash=1-Math.abs(bank)*(type==='skyAce'?.2:.1);
+      c.scale(k*squash,k);
+      this.skyExhaust(c,type,t,id,1);
+      drawPiece(c,piece,0,0);
+      if(type==='drone'){const spin=t*9+id;for(const [x,y] of SKY_EXHAUSTS.drone.points)oval(c,x,y,4.6,4.6*Math.abs(Math.cos(spin+x)),'rgba(20,14,30,.35)');}
+      if(e.flash>0)drawPiece(c,piece,0,0,0,1,Math.min(.45,e.flash*.45),'flash');
+      c.scale(1/(k*squash),1/k);
+      if(type!=='drone')for(const side of SKY_SIDES){
+        const x=side*(type==='boxBomber'?67:36)*k*squash,y=type==='boxBomber'?4:14;
+        oval(c,x,y,1.8,1.8,Math.sin(t*4+side+id)>-.4?(side<0?'#ff6a77':'#92f6ba'):'#3b2c40');
+      }
+    }
+    c.restore();return true;
+  }
+  skyMuzzle(c,x,y,shot,seed,violet) {
+    c.save();c.translate(x,y);
+    if(!this.reducedEffects)bloom(c,0,-3,violet?10:7,violet?'rgba(215,163,255,.55)':'rgba(255,178,116,.5)',violet?'rimViolet':'rimFire',.55*shot);
+    c.globalAlpha*=shot;const len=5+shot*6+hash(seed*7.3)*3;
+    poly(c,[-2.6,0,-1.1,-len*.55,0,-len,1.1,-len*.55,2.6,0],violet?'#b77ee6':'#e98a4c');
+    poly(c,[-1.3,0,0,-len*.6,1.3,0],violet?'#f2dcff':'#fff0b4');
+    c.restore();
+  }
+  // Bay doors: shut, then a hard snap open (crossfade + scale pop) in the last beat
+  // before a launch, a lit throat while open, and a smoke puff as the drones leave.
+  skyBaySprite(e,t) {
+    const c=this.ctx,id=e.id||0,open=clamp(e.open??((e.launch??2)<.8?1:0),0,1);
+    const s=this.skyTrack('skyBays',id,()=>({launch:e.launch,puff:-9}));
+    if((e.launch??0)>(s.launch??0)+.2)s.puff=this.time;
+    s.launch=e.launch;
+    const q=clamp((open-.5)/.3,0,1),pop=1+.09*Math.sin(Math.PI*q),strain=open>.05&&q<1?open:0;
+    c.save();
+    if(strain&&!this.reducedEffects)c.translate(Math.sin(t*95+id)*.7*strain,0);
+    if(q<1)drawPiece(c,'bay-closed',0,0,0,1,1-q*q);
+    if(q>0)drawPiece(c,'bay-open',0,0,0,pop,q);
+    // Seam heat as the latches strain, then the furnace throat.
+    if(strain&&q<.5)line(c,[-11,1,11,1],'rgba(255,190,130,'+(.6*strain).toFixed(2)+')',1.4);
+    if(q>0){
+      const flicker=.85+.15*Math.sin(t*29+id);
+      c.save();c.globalCompositeOperation='lighter';
+      if(!this.reducedEffects)bloom(c,0,10,13+4*q,'rgba(255,150,96,.45)','rimFire',.32*q*flicker);
+      const g=c.createLinearGradient(0,-9,0,12);g.addColorStop(0,'rgba(255,120,80,0)');g.addColorStop(1,'rgba(255,128,84,'+(.3*q*flicker).toFixed(2)+')');
+      c.fillStyle=g;c.fillRect(-8*pop,-9,16*pop,21);c.restore();
+    }
+    if(e.flash>0)drawPiece(c,'bay-closed',0,0,0,1,Math.min(.4,e.flash*.45),'flash');
+    c.restore();
+    const age=this.time-s.puff;
+    if(age>=0&&age<.6){
+      const p=age/.6;
+      if(!this.reducedEffects)for(let i=0;i<3;i++)oval(c,(i-1)*9*(1+p),14+p*22+i%2*4,7+p*12,5+p*8,'rgba(48,34,58,'+(.42*(1-p)).toFixed(3)+')');
+      oval(c,0,12+p*8,8+p*20,3+p*6,'rgba(255,205,150,'+(.34*(1-p)).toFixed(3)+')',true,1.2);
+    }
+  }
+  // Foundry void battery (hullTurret gun 'void' in sector 5): sky livery, barrels UP.
+  skyTurretSprite(e,t) {
+    const c=this.ctx,id=e.id||0,rot=(e.aim??Math.PI/2)+Math.PI/2,shot=this.skyShot(e),kick=shot*3.5;
+    c.save();c.translate(2,4);c.rotate(rot);drawPiece(c,'sky-turret-head-void',0,0,0,1,.5,{tint:'#0b0716'});c.restore();
+    drawPiece(c,'sky-turret-base',0,0);
+    c.save();c.rotate(rot);drawPiece(c,'sky-turret-head-void',0,kick);
+    const charge=clamp(1-((e.fireAt??0)-(e.age??0))/.7,0,1),pulse=.75+.25*Math.sin(t*6+id);
+    c.save();c.globalCompositeOperation='lighter';
+    if(!this.reducedEffects)bloom(c,0,-6+kick,8+charge*7,'rgba(215,163,255,.6)','rimViolet',(.15+.35*charge)*pulse);
+    oval(c,0,-6+kick,1.8,5,'rgba(220,170,255,'+(.2+.4*charge).toFixed(2)+')');c.restore();
+    if(e.flash>0)drawPiece(c,'sky-turret-head-void',0,kick,0,1,Math.min(.45,e.flash*.45),'flash');
+    if(shot>.05)this.skyMuzzle(c,0,-36+kick,shot,t+id,true);
+    c.restore();
+  }
+  halcyonSprite(b,t) {
+    const c=this.ctx,w=b.w||220,h=b.h||70,ratio=b.hp/b.maxHp;
+    const s=this.skyTrack('skyBossState',b.id??'halcyon',()=>({phase:b.phase||1,emit:b.phase>=2?-9:null,eye:b.phase>=3?-9:null}));
+    if(b.phase>=2&&s.emit===null)s.emit=this.time;
+    if(b.phase>=3&&s.eye===null)s.eye=this.time;
+    if(b.phase>=3){bloom(c,b.x,b.y,92,'#d9a1e0','rimViolet',.4);oval(c,b.x,b.y,56,56,'rgba(20,10,40,.8)');}
+    c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
+    c.save();c.translate(0,60);c.scale(1.1,1.1);const shadow=this.skyCloudShadow(w,h);c.drawImage(shadow,-shadow.width/2,-shadow.height/2);c.restore();
+    if(!this.reducedEffects){
+      const points=this.skyStreakLine ||= [0,0,0,0];
+      for(const side of SKY_SIDES)for(let i=0;i<12;i++){
+        points[0]=side*(w-4);points[1]=i*10-12;points[2]=points[0]+Math.sin(t+i*.3)*3;points[3]=i*10-1;
+        line(c,points,HALCYON_STREAK_COLORS[i],3+i*.25);
+      }
+    }
+    drawPiece(c,'halcyon-hull',0,0);
+    c.save();c.globalCompositeOperation='lighter';
+    HALCYON_NOZZLES.forEach((x,i)=>{
+      const f=.8+.2*Math.sin(t*31+i*1.9)*Math.sin(t*17+i);
+      if(!this.reducedEffects)bloom(c,x,62,19*f,'rgba(255,170,112,.55)','rimFire',.6*f);
+      oval(c,x,58,7,2.4,'rgba(255,200,150,'+(.5*f).toFixed(2)+')');
+    });
+    c.restore();
+    for(let i=0;i<3;i++)if(!this.skyBayLife[i]){const x=HALCYON_BAY_X[i];drawPiece(c,'bay-dead',x,HALCYON_BAY_Y[i]);this.skyFire(c,x,HALCYON_BAY_Y[i]+2,t+i,15);}
+    if(ratio<.66)for(const side of SKY_SIDES)this.skyFire(c,side*143,8,t+side,18);
+    if(ratio<.33)for(const side of SKY_SIDES){const pts=[side*36,-22,side*68,-5,side*59,13,side*103,27];line(c,pts,'rgba(20,10,28,.85)',4);line(c,pts,'rgba(255,170,140,'+(.45+.25*Math.sin(t*9+side)).toFixed(2)+')',1);}
+    // Lattice emitters deploy one by one, sliding up out of their mounts.
+    if(b.phase>=2)for(const side of SKY_SIDES)for(let i=0;i<5;i++){
+      const x=side*(45+i*32),y=-h+14+i*8,a=clamp((this.time-s.emit-i*.07-(side>0?.035:0))/.35,0,1);
+      if(a<=0)continue;
+      const ease=1+2.2*Math.pow(a-1,3)+1.2*Math.pow(a-1,2);
+      drawPiece(c,'lattice-emitter',x,y+(1-a)*7,0,Math.max(.01,ease),Math.min(1,a*2));
+      if(this.skyLaserWarning){bloom(c,x,y-2,17,'#d9a1e0','rimViolet',.7);oval(c,x,y-3,1.8,2.6,'#fff3ef');}
+    }
+    for(const side of SKY_SIDES)oval(c,side*(w-6),-13,2.5,2.5,Math.sin(t*4+side)>0?(side<0?'#ff7888':'#9effc5'):'#49394f');
+    // The eye: shut through phases 1-2; in phase 3 it irises open, the tick ring spins
+    // up, and the pupil dilates as the next void row / EMP comes due.
+    const opened=b.phase>=3?clamp((this.time-s.eye)/.6,0,1):0;
+    if(opened<1)drawPiece(c,'eye-closed',0,0,0,1,1-opened);
+    if(opened>0){
+      const charge=clamp(1-(Math.min(b.rowAt??Infinity,b.empAt??Infinity)-(b.age??0))/1.2,0,1);
+      drawPiece(c,'eye-open',0,0,0,1,opened);
+      oval(c,0,0,(5+charge*9)*opened,(5+charge*9)*opened,'rgba(8,6,20,.9)');
+      c.save();c.globalCompositeOperation='lighter';
+      bloom(c,0,0,14+charge*12,'rgba(217,161,224,.6)','rimViolet',(.25+.45*charge)*opened);
+      oval(c,0,0,(5+charge*9)*opened,(5+charge*9)*opened,'rgba(230,180,255,'+(.25+.4*charge).toFixed(2)+')',true,1.2);c.restore();
+      drawPiece(c,'eye-ring',0,0,t*.3+(1-opened)*1.5,.75+.25*opened,opened);
+    }
+    if(b.flash>0)drawPiece(c,'halcyon-hull',0,0,0,1,Math.min(.22,b.flash*.25),'flash');
+    c.restore();
   }
   foundrySilhouettes(p,enemies,t) {
     if(!p||p.dead||p.alive===false)return;
@@ -2073,6 +2509,7 @@ export class Renderer {
       const x=e.ox??e.x-b.x;
       for(let i=0;i<3;i++)if(Math.abs(x-HALCYON_BAY_X[i])<45)bayLife[i]=true;
     }
+    if(hasSheet(S5_BOSS))return this.halcyonSprite(b,t);
     if(b.phase>=3){bloom(c,b.x,b.y,92,'#d9a1e0','rimViolet',.4);oval(c,b.x,b.y,56,56,'rgba(20,10,40,.8)');}
     c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
     c.save();c.translate(0,60);c.scale(1.1,1.1);const shadow=this.skyCloudShadow(w,h);c.drawImage(shadow,-shadow.width/2,-shadow.height/2);c.restore();
@@ -2112,13 +2549,13 @@ export class Renderer {
         for(const x of [95,135,405,445])line(c,[x-8,y+4,x,y-5,x+8,y+4],'#ffd09e',2);
         c.fillStyle='#ffe0b5';c.font='800 15px Arial';c.textAlign='center';c.fillText(f.value==='dive'?'BOMBER DIVE':'BOMBERS CLIMBING',270,y+5);
       }else if(f.type==='wingBreak'){
-        const p=f.age/f.life,w=f.w,h=f.h,tile=this.skyHull('halcyon',w,h);
+        const p=f.age/f.life,w=f.w,h=f.h,tile=hasSheet(S5_BOSS)?null:this.skyHull('halcyon',w,h);
         // Keep the first breakup beat above the title, then plunge into cloud.
         const early=Math.min(f.age/1.5,1),late=Math.max(0,(f.age-1.5)/(f.life-1.5));
         const breakupY=clamp(f.y,180,200)+early*early*65+late*late*310;
         for(let piece=-1;piece<=1;piece++){
           c.save();const drift=piece*(early*65+late*45),fall=piece===0?late*late*45:0;c.translate(f.x+drift,breakupY+fall);c.rotate(f.angle+piece*(early*.28+late*.62));c.globalAlpha=p>.86?(1-p)/.14:1;
-          c.beginPath();c.rect(piece<0?-w-40:piece===0?-48:48,-h-40,piece===0?96:w,h*2+100);c.clip();c.drawImage(tile,-w-40,-h-40);c.restore();
+          c.beginPath();c.rect(piece<0?-w-40:piece===0?-48:48,-h-40,piece===0?96:w,h*2+100);c.clip();if(!drawPiece(c,'halcyon-broken',0,0))c.drawImage(tile,-w-40,-h-40);c.restore();
           for(let j=0;j<3;j++)this.skyFire(c,f.x+drift+piece*(65+j*35),breakupY+fall-j*13,f.age+j,23+j*4);
         }
         // Timed secondary detonations retain the full skin for more than two seconds.
@@ -2203,9 +2640,11 @@ export class Renderer {
     const c=this.ctx,b=this.fleetBoss;
     if(e.type==='tether'){
       line(c,[e.x,e.y,b?.x??270,b?.y??180],'rgba(167,199,255,.48)',3);
-      oval(c,e.x,e.y,12,12,'#132940');oval(c,e.x,e.y,12,12,'#b6f9ff',true,2);
+      if(hasSheet(S6_GATE)&&this.zeroPainted('tether-node'))this.tetherSprite(e,t);
+      else{oval(c,e.x,e.y,12,12,'#132940');oval(c,e.x,e.y,12,12,'#b6f9ff',true,2);}
       const glyph=PICKUP_THEMES[e.carrying?.type]?.[0]||'S';c.fillStyle='#fff0ac';c.font='bold 13px monospace';c.textAlign='center';c.fillText(glyph,e.x,e.y+5);return true;
     }
+    if(hasSheet(S6_GATE)&&(e.type==='station'||e.type==='stationTurret'||e.type==='satellite')){this.meridianSprite(e,t);return true;}
     const w=e.w||(e.type==='station'?180:e.type==='satellite'?52:e.type==='stationTurret'?23:e.type==='mirrorEscort'?19:34),h=e.h||(e.type==='station'?90:e.type==='satellite'?28:e.type==='stationTurret'?28:e.type==='mirrorEscort'?20:36);
     const tile=this.zeroHull(e.type,w,h,e.type==='echo'?(e.ship||ECHO_SHIPS[e.style]||'kestrel'):(e.ship||e.style||'kestrel'));
     if(e.type==='echo'){
@@ -2233,7 +2672,241 @@ export class Renderer {
     for(const x of [-14,14])oval(c,x,-13,1.5,1.5,'#f0e2ff');
     this.zeroPods[type]=tile;return tile;
   }
+  // ---- Sector 6 painted pieces ------------------------------------------------
+  // Optional cells may be left blank on the sheet: test once whether one has paint.
+  zeroPainted(id) {
+    this.zeroPaint ||= new Map();
+    if(this.zeroPaint.has(id))return this.zeroPaint.get(id);
+    if(!skyArt.hasPiece(id))return false;
+    const canvas=skyArt.pieceCanvas(id,{logical:true});let painted=true;
+    try{const d=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;painted=false;
+      for(let i=3;i<d.length;i+=4)if(d[i]>40){painted=true;break;}}catch{}
+    this.zeroPaint.set(id,painted);return painted;
+  }
+  // A pale band of light that sweeps across a piece every `period` s (mirror chrome).
+  // Kept faint: S6 chrome must stay darker than the shard rounds.
+  zeroGlint(c,id,t,period,span,alpha=.13,offset=0) {
+    const k=((t+offset)%period)/1.3;if(k>=1)return;
+    const x=-span+k*span*2,fade=Math.sin(k*Math.PI);
+    c.save();c.beginPath();c.moveTo(x-14,-200);c.lineTo(x+22,-200);c.lineTo(x-38,200);c.lineTo(x-74,200);c.closePath();c.clip();
+    c.globalCompositeOperation='lighter';drawPiece(c,id,0,0,0,1,alpha*fade,{tint:'#cfe4ff'});c.restore();
+  }
+  // Recent shot (1 -> 0 over `span` s) of a gun, from its sim fire clock.
+  zeroShot(key,clock,t,span=.14) {
+    this.zeroShots ||= new Map();this.zeroClocks ||= new Map();
+    const prior=this.zeroClocks.get(key);
+    if(prior!==undefined&&clock>prior+.03)this.zeroShots.set(key,t);
+    this.zeroClocks.set(key,clock);
+    if(this.zeroClocks.size>120){this.zeroClocks.clear();this.zeroShots.clear();}
+    const at=this.zeroShots.get(key);
+    return at===undefined?0:clamp(1-(t-at)/span,0,1);
+  }
+  meridianSprite(e,t) {
+    const c=this.ctx;c.save();c.translate(e.x,e.y);
+    if(e.type==='station')this.gateSprite(e,t);
+    else if(e.type==='stationTurret')this.gateTurretSprite(e,t);
+    else this.satelliteSprite(e,t);
+    c.restore();
+  }
+  // The Meridian Gate: ring, a counter-spinning hub that spins up on arrival and a
+  // core lamp that dims as its guns fall. Dead guns stay on the ring as wrecks.
+  gateSprite(e,t) {
+    const c=this.ctx,age=e.age||0;
+    this.fleetPieceShadow(c,'gate-ring',0,0,.45);
+    drawPiece(c,'gate-ring',0,0);
+    this.zeroGlint(c,'gate-ring',age<1.6?age+5.4:t,7,190,.12);
+    const spin=-(age*.22+2.6*(1-Math.exp(-age*.9)));
+    this.fleetPieceShadow(c,'gate-hub',0,0,.35);
+    drawPiece(c,'gate-hub',0,0,spin);
+    const alive=e.turrets?.length?(e.turretsAlive??e.turrets.length)/e.turrets.length:1;
+    const lamp=(.25+.55*alive)*(.8+.2*Math.sin(t*3.1));
+    if(!this.reducedEffects)bloom(c,0,0,30,'rgba(215,163,255,.6)','rimViolet',.38*lamp);
+    oval(c,0,0,5,5,'rgba(189,172,255,'+(.35*lamp).toFixed(3)+')');
+    if(e.flash>0)drawPiece(c,'gate-ring',0,0,0,1,Math.min(.25,e.flash*.25),'flash');
+    // Gun wrecks: the sim drops a dead turret, so keep its last pose here.
+    for(const id of e.turrets||[]){
+      const pose=this.gatePoses?.get(id);if(!pose)continue;
+      const live=this.fleetEnemies.some(o=>o.id===id&&!o.dead&&o.hp>0);
+      if(!live)this.gateTurretWreck(pose,t);
+    }
+  }
+  gateTurretWreck(pose,t) {
+    const c=this.ctx,id=pose.id||0;
+    c.save();c.translate(pose.ox,pose.oy);
+    if(this.zeroPainted('station-turret-wreck'))drawPiece(c,'station-turret-wreck',0,0,(hash(id*5)-.5)*.6);
+    else{
+      // Scorched pad, burnt base, and the dead head knocked askew off its ring.
+      oval(c,1,2,21,17,'rgba(5,6,16,.55)');
+      drawPiece(c,'station-turret-base',0,0,0,1,1,'wreck');
+      const spec=GATE_HEADS[pose.gun]||GATE_HEADS.mix,skew=hash(id*7+3)-.5;
+      c.save();c.translate(skew*6,3);c.rotate(pose.aim+Math.PI/2+skew*1.1);
+      drawPiece(c,'station-turret-head-'+(GATE_HEADS[pose.gun]?pose.gun:'mix'),0,-spec.hub,0,.86,1,{tint:'rgba(9,11,24,.74)'});c.restore();
+    }
+    const ember=.4+.35*Math.sin(t*11+id);
+    oval(c,-2,1,2.4,1.7,'rgba(196,140,255,'+ember.toFixed(2)+')');
+    // Leaking coolant vents up and away in thin violet wisps.
+    for(let j=0;j<(this.reducedEffects?1:3);j++){
+      const q=(t*.5+j/3+hash(id*3))%1;
+      oval(c,Math.sin(q*3+id)*3+q*6,-4-q*26,3+q*6,2+q*4,'rgba(30,26,58,'+((1-q)*.42).toFixed(3)+')');
+    }
+    c.restore();
+  }
+  // Gate gun: a fixed base, a head that tracks `aim`, recoil and a muzzle flash
+  // per shot. The void gun's emitter charges up before it fires.
+  gateTurretSprite(e,t) {
+    const c=this.ctx,gun=GATE_HEADS[e.gun]?e.gun:'mix',spec=GATE_HEADS[gun],head='station-turret-head-'+gun;
+    const rot=(e.aim??Math.PI/2)+Math.PI/2;
+    (this.gatePoses ||= new Map()).set(e.id,{id:e.id,ox:e.ox??0,oy:e.oy??0,aim:e.aim??Math.PI/2,gun});
+    if(this.gatePoses.size>60)for(const id of this.gatePoses.keys()){if(!this.fleetEnemies.some(o=>o.id===id||o.turrets?.includes(id)))this.gatePoses.delete(id);}
+    const shot=this.zeroShot('gate'+e.id,e.fireAt??0,t,.16),kick=shot*3.4;
+    // Head-shaped shadow onto the ring, then the base and the turning head.
+    c.save();c.translate(2,4);c.rotate(rot);drawPiece(c,head,0,-spec.hub,0,1,.5,{tint:'#02060f'});c.restore();
+    drawPiece(c,'station-turret-base',0,0);
+    c.save();c.rotate(rot);c.translate(0,kick);
+    drawPiece(c,head,0,-spec.hub);
+    if(gun==='void'){
+      const charge=clamp(1-((e.fireAt??0)-(e.age??0))/.8,0,1),pulse=.75+.25*Math.sin(t*7+(e.id||0));
+      if(!this.reducedEffects)bloom(c,0,-4,8+charge*9,'rgba(215,163,255,.6)','rimViolet',(.18+.4*charge)*pulse);
+      oval(c,0,-4,2.5+charge*1.5,2.5+charge*1.5,'rgba(222,180,255,'+(.2+.5*charge).toFixed(2)+')');
+    }
+    if(e.flash>0)drawPiece(c,head,0,-spec.hub,0,1,Math.min(.45,e.flash*.45),'flash');
+    if(shot>.05){
+      for(const [x,y] of spec.muzzles){
+        const len=5+shot*8+hash(x+t*60)*3;
+        c.save();c.translate(x,y);
+        if(!this.reducedEffects)bloom(c,0,-3,8,'rgba('+spec.rgb+',.5)',spec.glow,.5*shot);
+        c.globalAlpha*=shot;
+        poly(c,[-2.4,0,-1,-len*.55,0,-len,1,-len*.55,2.4,0],gun==='void'?'#9b62d6':'#5fa8d8');
+        poly(c,[-1.2,0,0,-len*.6,1.2,0],gun==='void'?'#ecd2ff':'#d8f6ff');
+        c.restore();
+      }
+    }
+    c.restore();
+    // The mix gun fires a full ring: a thin shock ring leaves the body.
+    if(gun==='mix'&&shot>0){c.save();c.globalAlpha*=shot*.55;oval(c,0,0,10+(1-shot)*26,8+(1-shot)*20,'#a9d9f2',true,1.4);c.restore();}
+  }
+  // Satellite: painted body (turned with the sim's heading like the old tile), an
+  // emitter arm sweeping about its root and a lamp that glows while the beam is live.
+  satelliteSprite(e,t) {
+    const c=this.ctx;
+    c.rotate(e.angle||0);
+    this.fleetPieceShadow(c,'satellite',0,0,.4);
+    drawPiece(c,'satellite',0,0);
+    this.zeroGlint(c,'satellite',t,5.5,60,.16,(e.id||0)*1.3);
+    const arm=t*.6+Math.PI;
+    drawPiece(c,'satellite-arm',1,2,arm,1,.5,{tint:'#02060f'});
+    drawPiece(c,'satellite-arm',0,0,arm);
+    const live=e.anchored?1:0,tipX=-Math.sin(arm)*-20,tipY=Math.cos(arm)*-20;
+    const lamp=live?.7+.3*Math.sin(t*14):.25+.15*Math.sin(t*3+(e.id||0));
+    if(live&&!this.reducedEffects)bloom(c,tipX,tipY,12,'rgba(215,163,255,.6)','rimViolet',.45*lamp);
+    oval(c,tipX,tipY,1.8,1.8,'rgba(230,219,255,'+lamp.toFixed(2)+')');
+    if(e.flash>0)drawPiece(c,'satellite',0,0,0,1,Math.min(.4,e.flash*.4),'flash');
+  }
+  // Tether: the painted grapple head turns slowly as it hauls the salvage home.
+  tetherSprite(e,t) {
+    const c=this.ctx;
+    drawPiece(c,'tether-node',e.x+1.5,e.y+3,(e.angle||0)+t*1.4,.9,.5,{tint:'#02060f'});
+    drawPiece(c,'tether-node',e.x,e.y,(e.angle||0)+t*1.4,.9);
+    if(e.flash>0)drawPiece(c,'tether-node',e.x,e.y,(e.angle||0)+t*1.4,.9,Math.min(.5,e.flash*.5),'flash');
+    oval(c,e.x,e.y,8,8,'rgba(10,18,36,.72)');
+  }
+  // THE SOVEREIGN: painted hull, a breathing crystal core coloured by phase, four
+  // pod mounts (sockets until a stolen weapon grows into one), engine glow.
+  sovereignSprite(b,t) {
+    const c=this.ctx,phase=clamp(b.phase||1,1,3),look=SOVEREIGN_PHASE[phase-1];
+    // Render-only memory: phase change flare, and the core's kick on each volley.
+    const seen=this.sovSeen ||= {phase,at:-9,clock:0,shotAt:-9};
+    if(seen.id!==b.id){seen.id=b.id;seen.phase=phase;seen.at=-9;seen.shotAt=-9;}
+    if(phase!==seen.phase){seen.phase=phase;seen.at=t;}
+    const clock=(b.aimAt||0)+(b.mirrorAt||0)+(b.ringAt||0)+(b.rowAt||0)+(b.shardAt||0);
+    if(clock>seen.clock+.03)seen.shotAt=t;seen.clock=clock;
+    const flare=clamp(1-(t-seen.at)/.9,0,1),kick=clamp(1-(t-seen.shotAt)/.22,0,1);
+    c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
+    this.fleetPieceShadow(c,'sovereign-hull',0,0,.5);
+    // Engine glow under the four nozzles.
+    const thrust=.55+.2*Math.sin(t*9)+.25*flare;
+    for(const x of SOVEREIGN_NOZZLES){
+      if(!this.reducedEffects)bloom(c,x,52,14,'rgba(192,140,255,.6)','rimViolet',.35*thrust);
+      oval(c,x,50,4.5,2.5+thrust*2,'rgba(183,160,255,'+(.3*thrust).toFixed(3)+')');
+    }
+    drawPiece(c,'sovereign-hull',0,0);
+    this.zeroGlint(c,'sovereign-hull',t,6.5,230,.1);
+    if(this.zeroPainted('sovereign-fractured')){
+      const damage=1-clamp(b.hp/Math.max(1,b.maxHp),0,1);
+      if(damage>.5)drawPiece(c,'sovereign-fractured',0,0,0,1,clamp((damage-.5)*3,0,1));
+    }else this.sovereignCracks(b);
+    // Sockets on every mount, then the grown pods over them.
+    for(const ox of SOVEREIGN_SLOTS)drawPiece(c,'pod-socket',ox,sovereignMountY(ox));
+    for(let i=0;i<(b.weapons?.length||0);i++)this.sovereignPod(b,b.weapons[i],i,t);
+    // The core: a slow breath that quickens each phase, a flare on phase change.
+    const breath=.5+.5*Math.sin(t*look.rate),scale=1+.025*breath+.06*flare;
+    if(!this.reducedEffects)bloom(c,0,0,46+flare*30,'rgba('+look.rgb+',.6)',look.glow,.22+.18*breath+.4*flare);
+    drawPiece(c,'sovereign-core',0,0,0,scale);
+    c.save();c.globalCompositeOperation='lighter';
+    drawPiece(c,'sovereign-core',0,0,0,scale,.1+.14*breath+.25*kick+.35*flare,{tint:look.tint});c.restore();
+    if(flare>0){c.save();c.globalAlpha*=flare;oval(c,0,0,30+(1-flare)*120,24+(1-flare)*60,'rgba('+look.rgb+',.8)',true,2);c.restore();}
+    if(b.flash>0){
+      drawPiece(c,'sovereign-hull',0,0,0,1,Math.min(.16,b.flash*.16),'flash');
+      drawPiece(c,'sovereign-core',0,0,0,scale,Math.min(.5,b.flash*.5),'flash');
+    }
+    c.restore();
+  }
+  // Procedural cracks over the paint, kept inside the hull's diamond silhouette.
+  sovereignCracks(b) {
+    const c=this.ctx,damage=1-clamp(b.hp/Math.max(1,b.maxHp),0,1);
+    for(let i=0;i<Math.floor(damage*12);i++){
+      const x=(hash(i+7)-.5)*300,half=Math.max(8,70*(1-Math.abs(x)/180)),y=(hash(i+9)-.5)*half*1.3;
+      line(c,[x-8,y-7,x,y,x-4,y+12],'rgba(8,10,26,.85)',3);line(c,[x,y,x+8,y+3],'rgba(214,170,255,.75)',1);
+    }
+  }
+  sovereignPod(b,pod,i,t) {
+    const c=this.ctx,my=sovereignMountY(pod.ox);
+    const fx=this.impacts.find(f=>f.zero&&f.type==='sovereignGrow'&&f.count===i+1);
+    const grow=fx?clamp(fx.age/.55,0,1):1,ease=easeOutBack(grow);
+    const shot=this.zeroShot('pod'+(b.id||0)+'-'+i,pod.fireAt??0,t,.2),kick=shot*3;
+    const id=SOVEREIGN_PODS[pod.type]?'pod-'+pod.type:this.zeroPainted('pod-'+pod.type)?'pod-'+pod.type:'pod-generic';
+    c.save();c.translate(pod.ox,my+(1-ease)*42-kick);c.globalAlpha*=.4+.6*Math.min(1,grow*1.6);
+    drawPiece(c,id,2,4,0,1,.45,{tint:'#02060f'});
+    drawPiece(c,id,0,0);
+    if(b.flash>0)drawPiece(c,id,0,0,0,1,Math.min(.35,b.flash*.35),'flash');
+    if(grow<1){
+      // Bolt ring while it slides in; sparks as the collar locks home.
+      oval(c,0,0,26*(1-grow)+14,24,'#e8b8ff',true,2);line(c,[-24,-12,-10,-3,6,-14,22,0],'#fff2c8',1.5);
+      if(grow>.55)for(let k=0;k<5;k++){const a=-Math.PI*(.15+.7*hash(k+i*5)),r=8+(grow-.55)*60;line(c,[Math.cos(a)*r*.6,Math.sin(a)*r*.4-1,Math.cos(a)*r,Math.sin(a)*r*.6-1],'rgba(255,236,200,'+(1-grow).toFixed(2)+')',1.2);}
+    }
+    if(shot>.05){
+      const missile=pod.type==='sidewinder';
+      for(const x of SOVEREIGN_PODS[pod.type]||[0]){
+        const len=5+shot*9;
+        c.save();c.translate(x,37);
+        if(!this.reducedEffects)bloom(c,0,3,9,missile?'rgba(255,178,116,.5)':'rgba(215,163,255,.5)',missile?'rimFire':'rimViolet',.5*shot);
+        c.globalAlpha*=shot;
+        poly(c,[-2.4,0,-1,len*.55,0,len,1,len*.55,2.4,0],missile?'#e98a4c':'#9b62d6');
+        poly(c,[-1.2,0,0,len*.6,1.2,0],missile?'#fff0b4':'#f0dcff');
+        c.restore();
+      }
+    }
+    c.restore();
+  }
+  // The hull, pre-cut for the death shatter: logical canvas, white silhouette for
+  // the shard rims, and which of the 8x3 cells actually hold paint.
+  sovereignShards() {
+    if(this.sovShards!==undefined)return this.sovShards;
+    const tile=skyArt.pieceCanvas('sovereign-hull',{logical:true});if(!tile)return null;
+    const rim=surface(tile.width,tile.height),g=rim.getContext('2d');
+    g.drawImage(tile,0,0);g.globalCompositeOperation='source-atop';g.fillStyle='#f6eaff';g.fillRect(0,0,rim.width,rim.height);
+    const cols=8,rows=3,tw=tile.width/cols,th=tile.height/rows,live=[];
+    let d=null;try{d=tile.getContext('2d').getImageData(0,0,tile.width,tile.height).data;}catch{}
+    for(let i=0;i<cols*rows;i++){
+      if(!d){live.push(true);continue;}
+      const x0=(i%cols)*tw|0,y0=Math.floor(i/cols)*th|0;let n=0;
+      for(let y=y0;y<y0+th;y+=3)for(let x=x0;x<x0+tw;x+=3)if(d[(y*tile.width+x)*4+3]>80)n++;
+      live.push(n>12);
+    }
+    return this.sovShards={tile,rim,live};
+  }
   sovereign(b,t) {
+    if(b&&hasSheet(S6_BOSS))return this.sovereignSprite(b,t);
     if(!b)return;const c=this.ctx,w=b.w||200,h=b.h||80;c.save();c.translate(b.x,b.y);c.rotate(b.angle||0);
     c.drawImage(this.zeroHull('sovereign',w,h),-w-20,-h-20);
     const damage=1-clamp(b.hp/Math.max(1,b.maxHp),0,1);
@@ -2254,10 +2927,23 @@ export class Renderer {
         const bloom=clamp(1-f.age/.35,0,1);
         if(bloom>0){c.save();c.globalAlpha=(this.reducedEffects?.35:.75)*bloom;oval(c,f.x,f.y,f.w*(.7+(1-bloom)*.6),f.h*(1+(1-bloom)*.9),'#f4e8ff');
           c.globalAlpha=(this.reducedEffects?.2:.45)*bloom;oval(c,f.x,f.y,f.w*(1.1+(1-bloom)*.9),f.h*(1.6+(1-bloom)*1.2),'#b48cff');c.restore();}
-        const tile=this.zeroHull('sovereign',f.w,f.h),cols=8,rows=3,tw=tile.width/cols,th=tile.height/rows,edge=clamp(1-f.age/1.2,0,1);
+        const shards=hasSheet(S6_BOSS)?this.sovereignShards():null;
+        const tile=shards?.tile||this.zeroHull('sovereign',f.w,f.h),cols=8,rows=3,tw=tile.width/cols,th=tile.height/rows,edge=clamp(1-f.age/1.2,0,1);
         for(let i=0;i<cols*rows;i++){const col=i%cols,row=Math.floor(i/cols),age=f.age;
-          c.save();c.globalAlpha*=clamp((2.4-age)/.8,0,1);c.translate(f.x+(col-3.5)*tw*(1+age*.22),f.y+(row-1)*th+age*10+age*age*5);c.rotate(f.angle+(hash(i+8)-.5)*age*2);c.drawImage(tile,col*tw,row*th,tw,th,-tw/2,-th/2,tw,th);
-          if(edge>0){c.globalAlpha*=edge*(.45+.55*hash(i+31));c.strokeStyle='#f6eaff';c.lineWidth=1.5;c.strokeRect(-tw/2+1,-th/2+1,tw-2,th-2);}c.restore();}
+          if(shards&&!shards.live[i])continue;
+          c.save();c.globalAlpha*=clamp((2.4-age)/.8,0,1);c.translate(f.x+(col-3.5)*tw*(1+age*.22),f.y+(row-1)*th+age*10+age*age*5);c.rotate(f.angle+(hash(i+8)-.5)*age*2);
+          if(shards){
+            // Painted shards: a hot silhouette rim around each piece, then the paint;
+            // the cut faces glow a moment longer than the rim.
+            const hot=edge*(.45+.55*hash(i+31));
+            if(hot>0){c.save();c.globalAlpha*=hot;c.drawImage(shards.rim,col*tw,row*th,tw,th,-tw/2-2.5,-th/2-2.5,tw+5,th+5);c.restore();}
+            c.drawImage(tile,col*tw,row*th,tw,th,-tw/2,-th/2,tw,th);
+            if(hot>0){c.save();c.globalAlpha*=hot*hot*.22;c.globalCompositeOperation='lighter';c.drawImage(shards.rim,col*tw,row*th,tw,th,-tw/2,-th/2,tw,th);c.restore();}
+          }else{
+            c.drawImage(tile,col*tw,row*th,tw,th,-tw/2,-th/2,tw,th);
+            if(edge>0){c.globalAlpha*=edge*(.45+.55*hash(i+31));c.strokeStyle='#f6eaff';c.lineWidth=1.5;c.strokeRect(-tw/2+1,-th/2+1,tw-2,th-2);}
+          }
+          c.restore();}
       }else if(f.type==='mirrorCopy'){
         oval(c,f.x,f.y,30+p*170,15+p*65,'#c2eeff',true,2);
       }else{const snap=f.type==='tetherCut';for(let i=0;i<8;i++){const a=i*TAU/8,r=8+p*38;line(c,[f.x+Math.cos(a)*r,f.y+Math.sin(a)*r,f.x+Math.cos(a)*(r+8),f.y+Math.sin(a)*(r+8)],snap?'#a6ffed':f.type==='shardBreak'?'#d2f7ff':'#edbaff',2);}}
