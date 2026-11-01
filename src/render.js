@@ -205,7 +205,28 @@ const ATLAS_WRECKS={scout:['scout',60],wing:['wing',68],ace:['ace',74],bomber:['
 const PIECE_WRECKS={scavenger:['scavenger','act2-s4-fleet',1.3,'angle'],mine:['mine','act2-s4-fleet',1,'free'],
   torpedoEnemy:['torpedo','act2-s4-fleet',1,'craft'],boxBomber:['box-bomber','act2-s5-skyforge',1,'craft'],
   skyAce:['sky-ace','act2-s5-skyforge',1.1,'craft'],drone:['drone','act2-s5-skyforge',1.1,'craft'],
-  satellite:['satellite','act2-s6-meridian',1,'angle'],tether:['tether-node','act2-s6-meridian',.9,'free']};
+  satellite:['satellite','act2-s6-meridian',SATELLITE_SCALE,'angle'],tether:['tether-node','act2-s6-meridian',.9,'free']};
+// Painterly blast palette (Renderer.blast): radial stops per baked billow lobe.
+const BLAST_LIFE=1.5;
+// Beam palettes (Renderer.laserBar): glow rgb, hot rgb and the baked cross-sections.
+const beamPalette=(key,rgb,hot,core,edge,bloomProfile)=>({key,rgb,hot,core,edge,bloom:bloomProfile,under:'rgb(30,16,40)',
+  glow:[[0,'rgba('+rgb+',0)'],[.25,'rgba('+rgb+',.06)'],[.4,'rgba('+rgb+',.28)'],[.5,'rgba('+rgb+',.7)'],[.6,'rgba('+rgb+',.28)'],[.75,'rgba('+rgb+',.06)'],[1,'rgba('+rgb+',0)']],
+  body:[[0,'rgba('+rgb+',.55)'],[.2,'rgba('+rgb+',.85)'],[.5,'rgba('+hot+',.95)'],[.8,'rgba('+rgb+',.85)'],[1,'rgba('+rgb+',.55)']],
+  warn:[[0,'rgba('+rgb+',0)'],[.22,'rgba('+rgb+',.6)'],[.4,'rgba('+rgb+',.2)'],[.6,'rgba('+rgb+',.2)'],[.78,'rgba('+rgb+',.6)'],[1,'rgba('+rgb+',0)']]});
+const BEAM_LATTICE=beamPalette('lattice','255,150,96','255,222,186','rgba(255,244,230,.95)','rgb(255,196,150)','rimFire');
+const BEAM_VOID=beamPalette('void','206,128,255','240,214,255','rgba(250,236,255,.95)','rgb(228,180,255)','rimViolet');
+// Warning pulse: 2.5 Hz rising to ~10 Hz as the bar nears firing (calm: a steady 1.5 Hz).
+const laserPulse=(age,calm)=>.5+.5*Math.sin(calm?age*TAU*1.5:TAU*(2.5*age+4.2*age*age));
+const FLEET_KILLS=new Set(['hullDown','turretDown','bossDown']);
+// Hull kill chain [delay s, along hull (-1 bow .. 1 stern), across, scale]: the
+// magazine first, then fires walking fore and aft along the deck.
+const HULL_BLASTS=[[0,.05,0,1.35],[.16,-.55,.45,.8],[.34,.5,-.5,.9],[.5,-.2,-.3,.7],[.68,.75,.2,.6]];
+const BLAST_LOBES={
+  fire:[[0,'rgba(255,222,156,1)'],[.25,'rgba(255,156,66,.85)'],[.55,'rgba(204,72,30,.5)'],[1,'rgba(120,30,14,0)']],
+  burn:[[0,'rgba(140,48,22,.72)'],[.45,'rgba(66,26,18,.52)'],[1,'rgba(28,14,12,0)']],
+  smoke:[[0,'rgba(36,35,33,.76)'],[.55,'rgba(44,44,42,.46)'],[1,'rgba(52,54,54,0)']],
+  skySmoke:[[0,'rgba(30,22,40,.7)'],[.55,'rgba(40,30,52,.4)'],[1,'rgba(52,40,64,0)']]
+};
 export class Renderer {
   constructor(canvas) {
     this.canvas=canvas;this.ctx=canvas.getContext('2d',{alpha:false});
@@ -863,13 +884,19 @@ export class Renderer {
     c.setTransform(1,0,0,1,0,0);c.fillStyle='#061b2b';c.fillRect(0,0,W,H);
     c.save();
     this.playerPoint=game.player;
-    this.skyEnemies=game.enemies||[];this.skyLaserWarning=(game.hazards||[]).some(h=>h.kind==='laser'&&h.state==='warn');
+    this.skyEnemies=game.enemies||[];this.skyLaserWarning=false;this.skyLaserFiring=false;this.skyLaserCharge=0;this.skyLaserPulse=0;this.skyLaserVoid=false;
+    for(const h of game.hazards||[]){
+      if(h.kind!=='laser'||h.rotating||h.mirror)continue;
+      this.skyLaserVoid=!!h.void;
+      if(h.state==='fire')this.skyLaserFiring=true;
+      else if(h.state==='warn'){const u=clamp(h.age/(h.warn||.9),0,1);if(!this.skyLaserWarning||u>this.skyLaserCharge){this.skyLaserCharge=u;this.skyLaserPulse=laserPulse(h.age,this.reducedEffects);}this.skyLaserWarning=true;}
+    }
     const shake=this.reducedEffects?0:clamp(Number(game.shake||0),0,14);
     if(shake) c.translate(Math.sin(t*163)*shake*.55,Math.cos(t*179)*shake*.55);
     this.background(scroll,t,game.stage||1,game,step);
     if(this.currentStage===5&&game.boss?.phase>=3){
       const eclipse=clamp(game.boss.eclipse??1,0,1);c.save();c.globalAlpha=eclipse;
-      bloom(c,408,244,54,'#d9a1e0','rimViolet',.7);oval(c,408,244,35,35,'#1b152d');oval(c,408,244,37,37,'#d9a1e0',true,1.5);c.restore();
+      if(!this.reducedEffects)bloom(c,408,244,54,'#d9a1e0','rimViolet',.7);oval(c,408,244,35,35,'#1b152d');oval(c,408,244,37,37,'#d9a1e0',true,1.5);c.restore();
     }
     this.drawReactorCover(game.boss);
     this.zeroBoss=game.boss;
@@ -891,7 +918,7 @@ export class Renderer {
     if(game.boss&&!enemies.includes(game.boss)) this.boss(game.boss,t);
     for(const e of enemies)if(e.type==='tailGunner')this.enemy(e,t);
     if(!fleet)this.drawEffects(t);
-    else this.projectiles(game.shots||[],true,t);
+    else{this.projectiles(game.shots||[],true,t);this.fleetBlasts();}
     this.drawReactorCoverLabel(game.boss);
     this.drawBossLance(game.boss,t);
     if(!fleet)this.particles(game.particles||[]);
@@ -1094,6 +1121,7 @@ export class Renderer {
         continue;
       }
       if(fx.type!=='explode'&&fx.type!=='bossDown'&&fx.type!=='bomb')continue;
+      if(this.fleetKillExplode(fx))continue;
       const p=fx.age/fx.life,fade=(1-p)*(1-p);
       const r=fx.size*(.27+p*.92),y=fx.y+Math.min(24,fx.size*.17);
       if(y<-60||y>H+40)continue;
@@ -1112,7 +1140,7 @@ export class Renderer {
     const c=this.ctx;
     for(const fx of this.impacts) {
       if(fx.zero||fx.sky||fx.type==='boxEnter'||fx.type==='wingBreak')continue;
-      if(fx.type==='lane'||fx.fleet)continue;
+      if(fx.type==='lane'||fx.fleet||this.fleetKillExplode(fx))continue;
       const p=fx.age/fx.life,fade=(1-p)*(1-p),size=fx.size;
       const violet=this.currentStage===3&&(fx.type==='bossPhase'||fx.type==='explode');
       const cool=fx.type==='playerHit';
@@ -1842,6 +1870,156 @@ export class Renderer {
     for(const [at,color] of stops)grad.addColorStop(at,color);
     g.fillStyle=grad;g.fillRect(0,0,64,64);return this.fleetSoft[key]=s;
   }
+  // Billowed lobe baked once per key: seven offset radial puffs give a lumpy,
+  // feathered edge instead of a disc. Variants (0-2) differ only in their puff layout.
+  blastSprite(key,variant=0) {
+    this.blastSprites ||= new Map();const id=key+variant;
+    let s=this.blastSprites.get(id);if(s)return s;
+    const stops=BLAST_LOBES[key];s=surface(128,128);const g=s.getContext('2d');
+    for(let i=0;i<7;i++){
+      const a=hash(variant*31+i*7+1)*TAU,d=i?14+hash(variant*13+i)*16:0,r=i?24+hash(variant*17+i*3)*14:36;
+      const x=64+Math.cos(a)*d,y=64+Math.sin(a)*d*.85,grad=g.createRadialGradient(x,y,0,x,y,r);
+      for(const [at,color] of stops)grad.addColorStop(at,color);
+      g.fillStyle=grad;g.fillRect(x-r,y-r,r*2,r*2);
+    }
+    this.blastSprites.set(id,s);return s;
+  }
+  // Soft shock ring (no stroke): a thin feathered band at 85% of the sprite radius.
+  blastRing(rgb) {
+    return this.fleetSoftSprite('ring'+rgb,[[0,'rgba('+rgb+',0)'],[.68,'rgba('+rgb+',0)'],[.86,'rgba('+rgb+',.6)'],[1,'rgba('+rgb+',0)']]);
+  }
+  // Muzzle flame: a feathered teardrop, hot at its root (sprite origin at bottom centre).
+  muzzleSprite() {
+    if(this.muzzleFlame)return this.muzzleFlame;
+    const s=surface(32,96),g=s.getContext('2d');g.translate(16,90);g.scale(1,4.6);
+    const grad=g.createRadialGradient(0,0,0,0,0,16);
+    grad.addColorStop(0,'rgba(255,246,214,1)');grad.addColorStop(.3,'rgba(255,200,120,.9)');
+    grad.addColorStop(.65,'rgba(236,120,56,.45)');grad.addColorStop(1,'rgba(200,80,40,0)');
+    g.fillStyle=grad;g.beginPath();g.arc(0,0,16,Math.PI,TAU);g.fill();
+    g.setTransform(1,0,0,1,0,0);g.globalCompositeOperation='destination-out';
+    const cut=g.createLinearGradient(0,96,0,82);cut.addColorStop(0,'rgba(0,0,0,1)');cut.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=cut;g.fillRect(0,82,32,14);
+    return this.muzzleFlame=s;
+  }
+  muzzle(c,x,y,angle,len,width,alpha) {
+    if(alpha<=0)return;
+    const s=this.muzzleSprite(),prior=c.globalAlpha;
+    c.save();c.translate(x,y);c.rotate(angle);c.globalAlpha=prior*alpha;c.globalCompositeOperation='lighter';
+    c.drawImage(s,-width,-len,width*2,len*96/90);c.restore();
+  }
+  steamSprite() {
+    if(this.fleetSteam)return this.fleetSteam;
+    // A neutral steam lobe; its drift follows the storm wind.
+    this.fleetSteam=surface(96,96);const sc=this.fleetSteam.getContext('2d');
+    for(let i=0;i<6;i++){
+      const x=30+hash(i*7)*36,y=28+hash(i*11)*36,rad=21;
+      const g=sc.createRadialGradient(x,y,0,x,y,rad);
+      g.addColorStop(0,'rgba(178,193,181,.32)');g.addColorStop(1,'rgba(121,145,135,0)');
+      sc.fillStyle=g;sc.fillRect(x-rad,y-rad,rad*2,rad*2);
+    }
+    return this.fleetSteam;
+  }
+  // One painterly blast, `age` seconds after ignition, radius ~`size`. Layers: rolling
+  // smoke underneath, billowing fire lobes that cool from orange to deep red, a hot
+  // core flash for the first 0.14 s, falling sparks, and on the sea a soft shock ring,
+  // spray and steam. `mode`: 'sea' | 'deck' (no water) | 'sky' (violet smoke, no water).
+  // `ring` false skips the shock ring (secondary blasts). Reduced effects: calm version.
+  blast(c,x,y,size,age,seed,mode='sea',ring=true) {
+    if(age<0||age>BLAST_LIFE)return;
+    const calm=this.reducedEffects,prior=c.globalAlpha,sky=mode==='sky',wet=mode==='sea';
+    const wx=sky?.25:MONSOON_WIND.x,wy=sky?-.35:MONSOON_WIND.y,k=age/BLAST_LIFE;
+    // Rolling smoke: grows and drifts downwind; darkest once the fire has burned off.
+    const smoke=sky?'skySmoke':'smoke',nSmoke=calm?2:3;
+    for(let i=0;i<nSmoke;i++){
+      const q=age-.05-i*.04;if(q<=0)continue;
+      const a=hash(seed*7+i)*TAU,grow=1-Math.pow(1-Math.min(1,q/1.1),2),d=size*(.15+.55*grow);
+      const r=size*(.55+.62*grow)*(.85+hash(seed+i*3)*.3);
+      const px=x+Math.cos(a)*d*.8+wx*q*size*.9,py=y+Math.sin(a)*d*.5+wy*q*size*.55-q*size*.35;
+      c.globalAlpha=prior*Math.min(1,q/.2)*Math.pow(1-k,1.1)*(calm?.55:.8);
+      c.drawImage(this.blastSprite(smoke,i%3),px-r,py-r*.8,r*2,r*1.6);
+    }
+    // Fire lobes billow out from the core and cool through deep red into the smoke.
+    if(age<.8){
+      const nFire=calm?3:5;
+      for(let i=0;i<nFire;i++){
+        const q=(age-hash(seed*3+i)*.07)/.75;if(q<=0||q>=1)continue;
+        const a=i*TAU/nFire+hash(seed+i*5)*1.2,ease=1-Math.pow(1-q,3);
+        const d=size*(.06+.45*ease),r=size*(.36+.4*ease)*(.8+hash(seed*5+i)*.45);
+        const px=x+Math.cos(a)*d,py=y+Math.sin(a)*d*.72-ease*size*.12;
+        const alpha=Math.min(1,q*9)*Math.pow(1-q,1.4)*(calm?.75:1);
+        // Young lobes burn orange, old ones deep red; they crossfade only around q 0.4.
+        const cool=clamp((q-.3)/.2,0,1);
+        if(cool<1){c.globalAlpha=prior*alpha*(1-cool*.7);c.drawImage(this.blastSprite('fire',i%3),px-r,py-r*.82,r*2,r*1.64);}
+        if(cool>0){c.globalAlpha=prior*alpha*cool*.9;c.drawImage(this.blastSprite('burn',(i+1)%3),px-r*.9,py-r*.74,r*1.8,r*1.48);}
+      }
+    }
+    c.save();c.globalCompositeOperation='lighter';
+    const hot=this.fleetSoftSprite('blastHot',[[0,'rgba(255,250,230,1)'],[.22,'rgba(255,226,160,.85)'],[.55,'rgba(255,150,70,.32)'],[1,'rgba(255,120,50,0)']]);
+    // Each young lobe keeps a hot heart, so the fire has depth instead of one flat tone.
+    if(age<.45){
+      const nFire=calm?3:5;
+      for(let i=0;i<nFire;i+=2){
+        const q=(age-hash(seed*3+i)*.07)/.75;if(q<=0||q>=.6)continue;
+        const a=i*TAU/nFire+hash(seed+i*5)*1.2,ease=1-Math.pow(1-q,3),d=size*(.06+.45*ease)*.85,r=size*(.18+.16*ease);
+        c.globalAlpha=prior*Math.min(1,q*12)*Math.pow(1-q/.6,1.5)*(calm?.3:.5);
+        c.drawImage(hot,x+Math.cos(a)*d-r,y+Math.sin(a)*d*.72-ease*size*.12-r*.8,r*2,r*1.6);
+      }
+    }
+    // Hot core: the only white-hot moment, gone inside 0.14 s.
+    const flash=1-age/.14;
+    if(flash>0){
+      const r=size*(.55+(1-flash)*.7);
+      c.globalAlpha=prior*flash*flash*(calm?.55:1);c.drawImage(hot,x-r,y-r*.85,r*2,r*1.7);
+      if(!calm)bloom(c,x,y,Math.min(96,size*1.5),'rgba(255,226,179,.8)','coreFire',.45*flash);
+    }
+    // Sparks: ballistic streaks with gravity, warm (never white) so rounds stay brightest.
+    if(!calm&&age<.85){
+      c.globalAlpha=prior*Math.pow(1-age/.85,1.2);c.strokeStyle='rgb(255,176,96)';c.lineWidth=1.4;c.beginPath();
+      const n=sky?8:10;
+      for(let i=0;i<n;i++){
+        const a=hash(seed*11+i)*TAU,v=size*(2.2+hash(seed+i*7)*2.6),vx=Math.cos(a)*v,vy=Math.sin(a)*v*.75-size*1.2;
+        const g=size*5,p0=Math.max(0,age-.024);
+        c.moveTo(x+vx*p0,y+vy*p0+g*p0*p0);c.lineTo(x+vx*age,y+vy*age+g*age*age);
+      }
+      c.stroke();
+      // Embers hang in the smoke and flicker out downwind.
+      c.fillStyle='rgb(255,150,80)';
+      for(let i=0;i<5;i++){
+        const q=age-.1;if(q<=0)break;
+        const a=hash(seed*13+i)*TAU,d=size*(.3+q*.6),f=.5+.5*Math.sin(age*23+i*2.7);
+        c.globalAlpha=prior*f*Math.max(0,1-q/1.1)*.8;
+        c.fillRect(x+Math.cos(a)*d+wx*q*size*.7,y+Math.sin(a)*d*.6+wy*q*size*.4-q*size*.3,1.8,1.8);
+      }
+    }
+    c.restore();
+    if(wet){
+      // Spray thrown up off the sea falls back as soft foam; one feathered shock ring.
+      const foam=this.fleetSoftSprite('foam',[[0,'rgba(214,240,230,.85)'],[.55,'rgba(176,214,202,.35)'],[1,'rgba(150,190,180,0)']]);
+      if(ring&&age<.6){
+        const q=age/.6,r=size*(.6+q*2);
+        c.globalAlpha=prior*Math.pow(1-q,1.6)*(calm?.4:.65);c.drawImage(this.blastRing('214,240,230'),x-r,y-r*.5,r*2,r);
+      }
+      for(let i=0;i<(calm?3:5);i++){
+        const q=age-.03-hash(seed*17+i)*.08;if(q<=0||q>1)continue;
+        const a=hash(seed*19+i)*TAU,out=size*(.4+q*1.1),lift=size*(1.8*q-1.6*q*q)*(.7+hash(seed+i)*.6);
+        const r=size*(.14+q*.32);
+        c.globalAlpha=prior*Math.min(1,q*8)*Math.pow(1-q,1.2)*.55;
+        c.drawImage(foam,x+Math.cos(a)*out-r,y+Math.sin(a)*out*.45-lift-r*1.3,r*2,r*2.6);
+      }
+      if(ring&&age>.35){
+        const steam=this.steamSprite();
+        for(let i=0;i<1;i++){
+          const q=(age-.35-i*.15)/1.1;if(q<=0||q>=1)continue;const sz=size*(1.1+q*1.4);
+          c.globalAlpha=prior*Math.sin(q*Math.PI)*.38;
+          c.drawImage(steam,x+wx*q*size-sz/2+(i?size*.3:-size*.2),y-q*size*1.1-sz/2,sz,sz);
+        }
+      }
+    }else if(ring&&age<.5){
+      const q=age/.5,r=size*(.6+q*2);
+      c.globalAlpha=prior*Math.pow(1-q,1.6)*(calm?.3:.5);c.drawImage(this.blastRing(sky?'255,214,190':'255,214,170'),x-r,y-r*.6,r*2,r*1.2);
+    }
+    c.globalAlpha=prior;
+  }
   // Hull wake: a short bow curl on each side and churned foam that widens and fades
   // behind the stern (bow up). `foam` false: a ship lying broadside (LEVIATHAN) only
   // gets its shadow and a faint ring of foam hugging the waterline.
@@ -1851,9 +2029,9 @@ export class Renderer {
     if(!foam){oval(c,x,y+2,w+10,h+8,'rgba(198,232,220,.1)',true,2);c.restore();return;}
     for(const side of [-1,1]){
       c.beginPath();c.moveTo(x+side*w*.2,y-h*.98);c.quadraticCurveTo(x+side*w*.95,y-h*.86,x+side*(w+9),y-h*.6);
-      c.strokeStyle='rgba(206,236,224,.3)';c.lineWidth=2;c.stroke();
+      c.strokeStyle='rgba(206,236,224,.22)';c.lineWidth=1.8;c.stroke();
       c.beginPath();c.moveTo(x+side*w*.62,y-h*.84);c.quadraticCurveTo(x+side*(w+4),y-h*.7,x+side*(w+13),y-h*.42);
-      c.strokeStyle='rgba(206,236,224,.13)';c.lineWidth=1.2;c.stroke();
+      c.strokeStyle='rgba(206,236,224,.095)';c.lineWidth=1.1;c.stroke();
     }
     const puff=this.fleetSoftSprite('foam',[[0,'rgba(214,240,230,.85)'],[.55,'rgba(176,214,202,.35)'],[1,'rgba(150,190,180,0)']]);
     for(let i=0;i<6;i++){
@@ -1999,7 +2177,7 @@ export class Renderer {
         const flick=.85+.15*Math.sin(t*41+(e.id||0));
         line(c,[-5,12,-9,44],'rgba(194,228,208,.5)',2);line(c,[5,12,9,44],'rgba(194,228,208,.5)',2);
         line(c,[0,22,0,34+flick*6],'rgba(194,228,208,.22)',4);
-        bloom(c,0,23,15*flick,'rgba(255,185,103,.25)','hitMissile',.3);
+        if(!this.reducedEffects)bloom(c,0,23,15*flick,'rgba(255,185,103,.25)','hitMissile',.3);
         drawPiece(c,'torpedo',0,0,0,1,1,'outline');
         line(c,[-2.6,22.5,2.6,22.5],'#ffc27a',2.4);
         if(Math.sin(t*9+(e.id||0))>0)oval(c,0,-16,1.3,1.3,'#ff765c');
@@ -2097,9 +2275,7 @@ export class Renderer {
         const tip=y+kick,len=6+shot*7+hash(x+t*60)*3;
         c.save();c.translate(x,tip);c.rotate(a);
         if(!this.reducedEffects)bloom(c,0,-3,8,'rgba(255,178,116,.5)','rimFire',.55*shot);
-        c.globalAlpha*=shot;
-        poly(c,[-2.8,0,-1.2,-len*.55,0,-len,1.2,-len*.55,2.8,0],'#e98a4c');
-        poly(c,[-1.4,0,0,-len*.6,1.4,0],'#fff0b4');
+        this.muzzle(c,0,0,0,len*1.35,3.4,shot*(this.reducedEffects?.65:1));
         c.restore();
       }
     }
@@ -2115,9 +2291,13 @@ export class Renderer {
     drawPiece(c,'turret-head-wreck',0,0);c.restore();
     const ember=.45+.35*Math.sin(t*11+id);
     oval(c,-2,1,2.2,1.6,'rgba(220,96,52,'+ember.toFixed(2)+')');
-    if(smoke)for(let j=0;j<(this.reducedEffects?1:3);j++){
-      const q=(t*.42+j/3+hash(id*3))%1;
-      oval(c,Math.sin(q*3+id)*3+q*7,-4-q*30,4+q*7,3+q*5,'rgba(16,22,25,'+((1-q)*.38).toFixed(3)+')');
+    if(smoke){
+      const soot=this.blastSprite('smoke',id%3),prior=c.globalAlpha;
+      for(let j=0;j<(this.reducedEffects?1:3);j++){
+        const q=(t*.42+j/3+hash(id*3))%1,rx=5+q*9,ry=4+q*7;
+        c.globalAlpha=prior*(1-q)*Math.min(1,q*5)*.6;c.drawImage(soot,Math.sin(q*3+id)*3+q*7-rx,-4-q*30-ry,rx*2,ry*2);
+      }
+      c.globalAlpha=prior;
     }
   }
   // Child mounts ride the parent's roll (render only: the sim keeps ox/oy unrotated).
@@ -2165,7 +2345,7 @@ export class Renderer {
       c.restore();
     }
     // Foam boils up along the break.
-    c.globalAlpha=fade*(1-p)*.55;oval(c,0,cut,spec.w*(1+p*.6),7+p*9,'rgba(206,236,224,.9)',true,1.6);
+    const rx=spec.w*(1.1+p*.8),ry=9+p*12;c.globalAlpha=fade*(1-p)*.8;c.drawImage(this.blastRing('206,236,224'),-rx,cut-ry,rx*2,ry*2);
     c.restore();
   }
   // Art bounding box of a piece, logical px about its pivot. One readback per piece, cached.
@@ -2235,7 +2415,7 @@ export class Renderer {
       const s=side<0?'l':'r',lit=!sink&&extension>0&&litSide===side,recoil=sink?0:this.leviathanRecoil(side);
       const variant=sink?'wreck':undefined;
       for(let i=0;i<5;i++){
-        const y=LEVIATHAN_BATTERY_ROWS[i],x=leviathanBatteryX(side,extension)-side*recoil*2.2;
+        const y=LEVIATHAN_BATTERY_ROWS[i],x=leviathanBatteryX(side,extension)-side*recoil*4.5;
         const len=(9+extension*12)*(1-.42*recoil)*(1-sink*.7);
         const bars=[len/LEVIATHAN_BATTERY_REACH,LEVIATHAN_BATTERY_SCALE],fold=side*sink*.55;
         if(lit&&!this.reducedEffects)bloom(c,x+side*(len+1),y,11,'rgba(255,178,116,.5)','rimFire',.3+.12*Math.sin(t*7+i));
@@ -2263,7 +2443,7 @@ export class Renderer {
     drawPiece(c,'core-bed',0,cy);
     if(core>0){
       c.save();c.globalAlpha*=core;
-      bloom(c,0,cy,65,'rgba(128,253,228,.8)','effectTeal',this.reducedEffects?.5:.75);
+      if(!this.reducedEffects)bloom(c,0,cy,65,'rgba(128,253,228,.8)','effectTeal',.75);
       for(const [id,dir,scale] of [['core-rotor-a',-1,1],['core-rotor-b',1,.84]]){
         const a=t*dir*1.7;
         // Motion blur: two fading ghosts trail each rotor.
@@ -2302,7 +2482,7 @@ export class Renderer {
     oval(c,0,cy,42,34,'#08151d');oval(c,0,cy,42,34,'#bcb897',true,2);
     if(core>0){
       c.save();c.globalAlpha=core;
-      bloom(c,0,cy,65,'rgba(128,253,228,.8)','effectTeal',.8);
+      if(!this.reducedEffects)bloom(c,0,cy,65,'rgba(128,253,228,.8)','effectTeal',.8);
       for(const side of [-1,1]){
         c.save();c.translate(0,cy);c.rotate(t*side*1.7);
         for(let i=0;i<8;i++){const a=i*TAU/8;line(c,[Math.cos(a)*15,Math.sin(a)*15,Math.cos(a+.4*side)*34,Math.sin(a+.4*side)*27],side<0?'#c5fff0':'#dca2ef',2.3);}
@@ -2320,7 +2500,7 @@ export class Renderer {
     c.restore();
     this.fleetTurretWrecks(b,t);
     // Child coordinates are authoritative: no decorative guns that survive a kill.
-    for(const e of this.fleetEnemies||[])if(e.type==='hullTurret'&&e.parentId===b.id&&!e.dead&&e.hp>0)this.enemy(e,t);
+    for(const e of this.fleetEnemies||[])if(e.type==='hullTurret'&&e.parentId===b.id&&!e.dead&&e.hp>0)this.enemy({...e,...this.fleetChildPoint(b,e.ox,e.oy)},t);
   }
   sinkingLeviathan(fx,t) {
     const c=this.ctx,{w,h,angle,broadside,core}=fx.hull,p=fx.age/fx.life;
@@ -2347,11 +2527,13 @@ export class Renderer {
     }
     oval(c,0,18,42+core*12,34,'#0b1519');
     oval(c,0,18,42+core*12,34,'#7d887a',true,2);
+    // Scorched rings where the deck guns stood.
+    for(const m of fx.hull.mounts||[]){oval(c,m.ox,m.oy,14,11,'#101a1c');oval(c,m.ox,m.oy,14,11,'#5d655f',true,1.5);oval(c,m.ox-2,m.oy+1,2,1.5,'rgba(220,96,52,.7)');}
     }
     // Persistent fires stay attached to the deck. Only their small lobes move.
     const soot=this.fleetSoftSprite('soot',[[0,'rgba(6,10,12,.8)'],[.5,'rgba(10,15,17,.45)'],[1,'rgba(14,20,22,0)']]);
-    for(let i=0;i<7;i++){
-      const x=(i/6-.5)*w*1.55,y=(hash(i*17+8)-.5)*h*.8+hy;
+    for(let i=0;i<5;i++){
+      const x=(i/4-.5)*w*1.55,y=(hash(i*17+8)-.5)*h*.8+hy;
       const fire=(9+hash(i+4)*10)*(1+Math.sin(t*19+i*3)*.15)*(1-p*.7);
       const prior=c.globalAlpha;c.globalAlpha=prior*.8;c.drawImage(soot,x-fire*1.6,y-fire*.9,fire*3.2,fire*1.8);c.globalAlpha=prior;
       c.save();c.globalCompositeOperation='lighter';
@@ -2360,38 +2542,68 @@ export class Renderer {
       c.restore();
     }
     c.restore();
-    // A widening waterline and individual spray jets frame the whole wreck.
-    c.save();c.globalAlpha=fade*.65;
-    for(let ring=0;ring<3;ring++){
-      const q=(p+ring*.24)%1;
-      oval(c,fx.x,fx.y+h*.35+sink*.65,w*(.85+q*.5),h*(.6+q*.8),'rgba(198,234,219,'+((1-q)*.7)+')',true,2-q);
+    // A widening feathered waterline and spray plumes frame the whole wreck.
+    c.save();
+    const ring=this.blastRing('198,234,219'),foam=this.fleetSoftSprite('foam',[[0,'rgba(214,240,230,.85)'],[.55,'rgba(176,214,202,.35)'],[1,'rgba(150,190,180,0)']]);
+    for(let r=0;r<1;r++){
+      const q=(p*1.3)%1,rx=w*(.95+q*.55),ry=h*(.75+q*.8);
+      c.globalAlpha=fade*(1-q)*Math.min(1,q*6)*(this.reducedEffects?.35:.55);
+      c.drawImage(ring,fx.x-rx,fx.y+h*.35+sink*.65-ry,rx*2,ry*2);
     }
-    for(let i=0;i<24;i++){
-      const a=i*TAU/24,q=(p*2.2+hash(i*3))%1;
-      const x=fx.x+Math.cos(a)*w*(.92+q*.23),y=fx.y+sink*.7+Math.sin(a)*h*.7;
-      line(c,[x,y,x+Math.cos(a)*q*17,y-Math.sin(q*Math.PI)*24],'rgba(216,245,229,'+((1-q)*.8)+')',1.5);
+    for(let i=0;i<(this.reducedEffects?8:12);i++){
+      const a=i*TAU/(this.reducedEffects?8:12)+hash(i)*.3,q=(p*2.2+hash(i*3))%1;
+      const x=fx.x+Math.cos(a)*w*(.92+q*.25),y=fx.y+sink*.7+Math.sin(a)*h*.7-Math.sin(q*Math.PI)*22,r=5+q*12;
+      c.globalAlpha=fade*(1-q)*Math.min(1,q*8)*.6;c.drawImage(foam,x-r,y-r*1.2,r*2,r*2.4);
     }
-    // Cache a neutral steam lobe; its upward drift follows the storm wind.
-    if(!this.fleetSteam){
-      this.fleetSteam=surface(96,96);const sc=this.fleetSteam.getContext('2d');
-      for(let i=0;i<6;i++){
-        const x=30+hash(i*7)*36,y=28+hash(i*11)*36,rad=21;
-        const g=sc.createRadialGradient(x,y,0,x,y,rad);
-        g.addColorStop(0,'rgba(178,193,181,.32)');g.addColorStop(1,'rgba(121,145,135,0)');
-        sc.fillStyle=g;sc.fillRect(x-rad,y-rad,rad*2,rad*2);
-      }
-    }
-    for(let i=0;i<7;i++){
-      const q=(p*.85+i/7)%1,sz=48+q*76;
+    const steam=this.steamSprite();
+    for(let i=0;i<(this.reducedEffects?3:5);i++){
+      const q=(p*.85+i/5)%1,sz=48+q*76;
       c.globalAlpha=Math.sin(q*Math.PI)*.75*fade;
-      c.drawImage(this.fleetSteam,fx.x+(hash(i*7)-.5)*w*.5+q*48-sz*.5,fx.y+sink*.3-q*130-sz*.5,sz,sz);
+      c.drawImage(steam,fx.x+(hash(i*7)-.5)*w*.5+q*48-sz*.5,fx.y+sink*.3-q*130-sz*.5,sz,sz);
     }
     c.restore();
+  }
+  // Sector 4 hulls and their mounts also send a generic `explode`; their painted
+  // blast (fleetBlasts) replaces it, so only its light pool on the sea is kept.
+  fleetKillExplode(fx) {
+    return fx.type==='explode'&&this.currentStage===4&&(fx.value==='hull'||fx.value==='hullTurret')&&hasSheet(S4_FLEET);
+  }
+  // Kill blasts for hulls, mounts and LEVIATHAN. Drawn under the player and every
+  // round, and they ride the sinking wreck.
+  fleetBlasts() {
+    const c=this.ctx;
+    for(const fx of this.impacts){
+      if(!fx.fleet||!FLEET_KILLS.has(fx.type))continue;
+      const p=fx.age/fx.life;c.save();c.globalAlpha=Math.min(1,(1-p)*4);
+      if(fx.type==='turretDown'){
+        // The painted wreck sits on the mount already; the old procedural one is the fallback.
+        if(!hasSheet(S4_FLEET)){
+          oval(c,fx.x,fx.y,20,14,'#172426');oval(c,fx.x,fx.y,20,14,'#77837b',true,2);
+          line(c,[fx.x-12,fx.y-7,fx.x+8,fx.y+8],'#d78b56',3);
+        }
+        this.blast(c,fx.x,fx.y,30,fx.age,fx.id,'deck',false);
+      }else if(fx.type==='hullDown'){
+        const spec=S4_HULLS[fx.hullClass],len=spec?spec.h*.62:fx.size*.5,beam=spec?spec.w*.45:14;
+        const base=fx.hullClass==='cruiser'?66:58,y=fx.y+(fx.vy||0)*fx.age;
+        HULL_BLASTS.forEach(([at,along,across,k],i)=>this.blast(c,fx.x+across*beam,y+along*len,base*k,fx.age-at,fx.id*7+i,'sea',i===0));
+      }else{
+        // LEVIATHAN: a chain of magazines cooks off along the hull, ending in the engine.
+        const {w,h,angle}=fx.hull,cos=Math.cos(angle),sin=Math.sin(angle);
+        const ox=fx.x+Math.sin(p*2)*8,oy=fx.y+p*p*85;
+        const n=this.reducedEffects?4:7;
+        for(let i=0;i<=n;i++){
+          const last=i===n,at=last?1.05:i*(this.reducedEffects?.24:.14)+hash(fx.id+i)*.05;
+          const lx=last?0:((i%2?1:-1)*(.15+.7*hash(i*7+fx.id)))*w*.8,ly=last?18:(hash(i*13+fx.id)-.5)*h*.55+LEVIATHAN_HULL_DY;
+          this.blast(c,ox+lx*cos-ly*sin,oy+lx*sin+ly*cos,last?120:58+hash(i*3)*26,fx.age-at,fx.id*11+i,'sea',i===0||last);
+        }
+      }
+      c.restore();
+    }
   }
   fleetEffects(t) {
     const c=this.ctx;
     for(const fx of this.impacts){
-      if(!fx.fleet)continue;
+      if(!fx.fleet||FLEET_KILLS.has(fx.type))continue;
       const p=fx.age/fx.life,fade=(1-p)*(1-p);c.save();c.globalAlpha=fade;
       const col=PICKUP_THEMES[fx.value]?.[1]||'#ffe4a2';
       if(fx.type.startsWith('scavenger')){
@@ -2399,33 +2611,6 @@ export class Renderer {
         line(c,[fx.fromX??fx.x-40*(1-p),fx.fromY??fx.y+sign*48*(1-p),fx.x,fx.y],col,3);
         oval(c,fx.x,fx.y,10+p*34,10+p*34,col,true,2);
         for(let i=0;i<5;i++)line(c,[fx.x,fx.y,fx.x+Math.cos(i*TAU/5)*p*45,fx.y+Math.sin(i*TAU/5)*p*45],col,1);
-      }else if(['hullDown','turretDown','bossDown'].includes(fx.type)){
-        // The painted wreck sits on the mount already; the old procedural one is the fallback.
-        if(fx.type==='turretDown'&&!hasSheet(S4_FLEET)){
-          oval(c,fx.x,fx.y,20,14,'#172426');oval(c,fx.x,fx.y,20,14,'#77837b',true,2);
-          line(c,[fx.x-12,fx.y-7,fx.x+8,fx.y+8],'#d78b56',3);
-          poly(c,[fx.x-10,fx.y+7,fx.x+5,fx.y-8,fx.x+13,fx.y+4],'#0b171c');
-        }
-        const n=fx.type==='bossDown'?17:fx.type==='hullDown'?7:3;
-        for(let i=0;i<n;i++){
-          const death=fx.type==='bossDown',age=death?(fx.age-i*.135)/.72:p-i*.045;
-          if(age<0||(death&&age>1))continue;
-          c.globalAlpha=Math.max(.15,1-age*1.4)*Math.min(1,(1-p)*3);
-          const x=fx.x+(death?(i/(n-1)-.5)*fx.hull.w*1.7:(hash(i+fx.id)-.5)*fx.size*1.5),
-            y=fx.y+(hash(i*19+fx.id)-.5)*(death?fx.hull.h:fx.size*.55)+(death?p*p*65:0);
-          const r=(fx.type==='bossDown'?23+age*65:fx.type==='hullDown'?17+age*47:9+age*23)*(1-age*.5);
-          oval(c,x-8*age,y-45*age,r*1.2,r,'rgba(17,25,28,.7)');
-          bloom(c,x,y,Math.min(94,r*2.3),'rgba(255,178,116,.7)','rimFire',.7);
-          oval(c,x,y,r,r*.8,'#b74428');oval(c,x-2,y-3,r*.75,r*.65,'#f28a3f');
-          oval(c,x-3,y-6,r*.45,r*.44,'#fff0b5');
-          for(let j=0;j<3;j++){
-            const a=i*2.3+j*2.1,d=age*(45+j*25),dx=Math.cos(a)*d,dy=Math.sin(a)*d+age*age*25;
-            line(c,[x+dx*.7,y+dy*.7,x+dx,y+dy],'#eab778',1.5);
-            poly(c,[x+dx-3,y+dy,x+dx+2,y+dy-4,x+dx+4,y+dy+3],'#2a3939','#b2ad8d',1);
-          }
-          line(c,[x,y,x+Math.cos(i*3)*age*80,y+Math.sin(i*3)*age*70],'#fff3b7',2);
-        }
-        c.globalAlpha=fade;oval(c,fx.x,fx.y,fx.size*(.2+p),fx.size*(.1+p*.3),'#c7f5e2',true,2);
       }else{
         const radius=fx.size*(.1+p);
         const boss=this.fleetBoss;
@@ -2433,42 +2618,44 @@ export class Renderer {
         if(paintedBroadside){
           // Muzzle blasts at the battery tips that just fired, then gun smoke rolling outward.
           const side=Number(fx.value)||1,extension=clamp(boss.broadside||0,0,1),k=clamp(1-p/.22,0,1);
-          const x=leviathanBatteryX(side,extension),len=9+extension*12;
+          // Flames leave the recoiled barrel tips (leviathanBatteries).
+          const recoil=this.leviathanRecoil(side),x=leviathanBatteryX(side,extension)-side*recoil*4.5,len=(9+extension*12)*(1-.42*recoil);
           c.save();c.translate(boss.x,boss.y);c.rotate(boss.angle||0);
+          const smoke=this.blastSprite('smoke',1);
           for(let i=0;i<5;i++){
             const y=LEVIATHAN_BATTERY_ROWS[i],tip=x+side*len;
-            for(let j=0;j<2;j++){
+            // Gun smoke: feathered lobes rolling outboard and downwind.
+            for(let j=0;j<(this.reducedEffects?1:2);j++){
               const q=clamp((p-j*.08)/.9,0,1);if(q<=0)continue;
-              oval(c,tip+side*(5+q*30+j*6),y-q*10+(j?3:-2),3+q*9,2.5+q*6,'rgba(132,146,140,'+((1-q)*.26).toFixed(3)+')');
+              const r=5+q*15+j*3;c.globalAlpha=fade*(1-q)*Math.min(1,q*10)*.5;
+              c.drawImage(smoke,tip+side*(6+q*30+j*7)-r,y-q*8+(j?3:-2)-r*.7,r*2,r*1.4);
             }
+            c.globalAlpha=fade;
             if(k>0){
               if(!this.reducedEffects)bloom(c,tip+side*5,y,13,'rgba(255,226,179,.8)','coreFire',.55*k);
-              c.globalAlpha=fade*k;
-              poly(c,[tip,y-3.6,tip+side*(9+9*k),y-1.2,tip+side*(13+11*k),y,tip+side*(9+9*k),y+1.2,tip,y+3.6],'#f0a25a');
-              poly(c,[tip,y-1.8,tip+side*(8+7*k),y,tip,y+1.8],'#ffe4a0');
-              c.globalAlpha=fade;
+              this.muzzle(c,tip-side,y,side*Math.PI/2,16+16*k,4.8,k*(this.reducedEffects?.6:1));
             }
           }
           c.restore();
         }else if(fx.type==='broadside'){
-          const side=Number(fx.value)||1;
+          const side=Number(fx.value)||1,k=clamp(1-p/.3,0,1);
           for(let i=0;i<7;i++){
             const x=fx.x,y=fx.y-65+i*20;
-            bloom(c,x,y,25,'rgba(255,226,179,.8)','coreFire',.8);
-            poly(c,[x,y-5,x+side*(25+p*30),y+Math.sin(i)*9,x,y+5],'#ffe4a0');
+            if(!this.reducedEffects)bloom(c,x,y,25,'rgba(255,226,179,.8)','coreFire',.8*k);
+            this.muzzle(c,x,y,side*Math.PI/2+Math.sin(i)*.25,25+p*30,5,k);
           }
         }else if(fx.type==='coreExposed'){
-          bloom(c,fx.x,fx.y,94,'rgba(128,253,228,.8)','effectTeal',.8);
-          line(c,[fx.x-radius,fx.y,fx.x+radius,fx.y],'#d8ffed',3);
+          if(!this.reducedEffects)bloom(c,fx.x,fx.y,94,'rgba(128,253,228,.8)','effectTeal',.8);
+          const r=fx.size*(.2+p*.9);c.globalAlpha=fade*(this.reducedEffects?.45:.8);
+          c.drawImage(this.blastRing('168,255,231'),fx.x-r,fx.y-r*.6,r*2,r*1.2);
         }else if(fx.type==='torpedoLaunch'){
-          for(const side of [-1,1])line(c,[fx.x+side*7,fx.y,fx.x+side*(17+p*25),fx.y+60*p],'#d3eee2',2);
+          const foam=this.fleetSoftSprite('foam',[[0,'rgba(214,240,230,.85)'],[.55,'rgba(176,214,202,.35)'],[1,'rgba(150,190,180,0)']]);
+          for(const side of [-1,1])for(let j=0;j<3;j++){
+            const q=clamp(p*1.4-j*.12,0,1),r=4+q*8;c.globalAlpha=fade*.6*(1-q);
+            c.drawImage(foam,fx.x+side*(9+q*20)-r,fx.y+60*q*(1-j*.2)-r,r*2,r*2);
+          }
         }else if(fx.type==='mineBurst'){
-          for(let i=0;i<12;i++){const a=i*TAU/12,x=fx.x+Math.cos(a)*radius,y=fx.y+Math.sin(a)*radius;oval(c,x,y,3,3,'#fff0bd');}
-        }
-        // Generic shock ring; the painted broadside has its own muzzle blasts and smoke.
-        if(!paintedBroadside){
-          oval(c,fx.x,fx.y,radius,radius*.6,fx.type==='coreExposed'?'#a8ffe7':'#ffe3ad',true,3);
-          for(let i=0;i<10;i++){const a=i*TAU/10;line(c,[fx.x+Math.cos(a)*radius*.6,fx.y+Math.sin(a)*radius*.6,fx.x+Math.cos(a)*radius,fx.y+Math.sin(a)*radius],'#fff0c2',2);}
+          c.globalAlpha=Math.min(1,(1-p)*3);this.blast(c,fx.x,fx.y,36,fx.age,fx.id,'sea');
         }
       }
       c.restore();
@@ -2676,6 +2863,9 @@ export class Renderer {
   // Foundry void battery (hullTurret gun 'void' in sector 5): sky livery, barrels UP.
   skyTurretSprite(e,t) {
     const c=this.ctx,id=e.id||0,rot=(e.aim??Math.PI/2)+Math.PI/2,shot=this.skyShot(e),kick=shot*3.5;
+    // Soft contact shadow on the deck so the battery sits down into it.
+    const shade=this.fleetSoftSprite('skyTurretShade',[[0,'rgba(8,4,16,.6)'],[.55,'rgba(8,4,16,.4)'],[1,'rgba(8,4,16,0)']]);
+    c.drawImage(shade,-25,-21,54,50);
     c.save();c.translate(2,4);c.rotate(rot);drawPiece(c,'sky-turret-head-void',0,0,0,1,.5,{tint:'#0b0716'});c.restore();
     drawPiece(c,'sky-turret-base',0,0);
     c.save();c.rotate(rot);drawPiece(c,'sky-turret-head-void',0,kick);
@@ -2722,7 +2912,12 @@ export class Renderer {
       if(a<=0)continue;
       const ease=1+2.2*Math.pow(a-1,3)+1.2*Math.pow(a-1,2);
       drawPiece(c,'lattice-emitter',x,y+(1-a)*7,0,1.35*Math.max(.01,ease),Math.min(1,a*2));
-      if(this.skyLaserWarning){if(!this.reducedEffects)bloom(c,x,y-2,25,'#d9a1e0','rimViolet',.7);oval(c,x,y-3,3,3.8,'#eac4f4');}
+      if(this.skyLaserWarning||this.skyLaserFiring){
+        // Emitters charge in step with the lattice telegraph, then burn while it fires.
+        const u=this.skyLaserFiring?1:this.skyLaserCharge,pl=this.skyLaserFiring?1:this.skyLaserPulse,pal=this.skyLaserVoid?BEAM_VOID:BEAM_LATTICE;
+        if(!this.reducedEffects)bloom(c,x,y-2,12+16*u,'#fff',pal.bloom,(.25+.55*u)*(.45+.55*pl));
+        oval(c,x,y-3,1.8+1.6*u,2.4+1.8*u,'rgba('+pal.hot+','+(.5+.45*u*pl).toFixed(2)+')');
+      }
     }
     for(const side of SKY_SIDES)oval(c,side*(w-6),-13,2.5,2.5,Math.sin(t*4+side)>0?(side<0?'#ff7888':'#9effc5'):'#49394f');
     // The eye: shut through phases 1-2; in phase 3 it irises open, the tick ring spins
@@ -2735,6 +2930,7 @@ export class Renderer {
       oval(c,0,0,(5+charge*9)*opened,(5+charge*9)*opened,'rgba(8,6,20,.9)');
       c.save();c.globalCompositeOperation='lighter';
       if(!this.reducedEffects){bloom(c,0,0,14+charge*12,'rgba(217,161,224,.6)','rimViolet',(.25+.45*charge)*opened);const wake=clamp(1-(this.time-s.eye)/.75,0,1);if(wake>0)bloom(c,0,0,32+24*(1-wake),'#d9a1e0','rimViolet',wake*.55);}
+      const ring=clamp((this.time-s.eye)/.9,0,1);if(ring<1){const r=30+ring*150,prior=c.globalAlpha;c.globalAlpha=prior*Math.pow(1-ring,1.5)*(this.reducedEffects?.35:.8);c.drawImage(this.blastRing('226,170,255'),-r,-r*.8,r*2,r*1.6);c.globalAlpha=prior;}
       oval(c,0,0,(5+charge*9)*opened,(5+charge*9)*opened,'rgba(230,180,255,'+(.25+.4*charge).toFixed(2)+')',true,1.2);c.restore();
       drawPiece(c,'eye-ring',0,0,t*.7+(1-opened)*1.5,.75+.25*opened,opened);
     }
@@ -2792,8 +2988,80 @@ export class Renderer {
     c.restore();
   }
   skyFire(c,x,y,t,r=25) {
-    if(!this.reducedEffects)for(let j=0;j<4;j++)oval(c,x+Math.sin(j+t)*6,y-j*14-8,8+j*4,12+j*5,'rgba(27,22,39,.3)');
+    if(!this.reducedEffects){const smoke=this.blastSprite('skySmoke',0),prior=c.globalAlpha;c.globalAlpha=prior*.55;for(let j=0;j<4;j++){const rx=10+j*5,ry=14+j*6;c.drawImage(smoke,x+Math.sin(j+t)*6-rx,y-j*14-8-ry,rx*2,ry*2);}c.globalAlpha=prior;}
     c.save();c.globalCompositeOperation='lighter';if(!this.reducedEffects){bloom(c,x,y,r*(.85+Math.sin(t*19)*.15),'#ffb98a','rimFire',.8);bloom(c,x,y-3,r*.45,'#fff0bd','coreFire',.8);}else{oval(c,x,y,r*.18,r*.3,'#d98b65');oval(c,x,y-2,r*.07,r*.15,'#efbc89');}c.restore();
+  }
+  // Cross-section of a beam baked once: a 64x2 strip stretched along the beam.
+  beamProfile(key,stops) {
+    this.beamProfiles ||= new Map();let s=this.beamProfiles.get(key);if(s)return s;
+    s=surface(64,2);const g=s.getContext('2d'),grad=g.createLinearGradient(0,0,64,0);
+    for(const [at,color] of stops)grad.addColorStop(at,color);g.fillStyle=grad;g.fillRect(0,0,64,2);
+    this.beamProfiles.set(key,s);return s;
+  }
+  // Lattice bar, void lance or mirror rail. Live: a soft outer glow, a body exactly the
+  // sim's dangerous width (2 x bar.width, edges kept visible), a shimmering core and
+  // packets running out from the emitter. Warning: a hollow band in the beam colour
+  // that pulses faster and narrows onto the danger edges as it nears firing.
+  laserBar(h,t) {
+    const v=h.orient==='v',a=h.from??0,b=h.to??(v?H:W),len=b-a;if(len<=0)return;
+    const c=this.ctx,hw=h.width||9,pal=h.void?BEAM_VOID:BEAM_LATTICE,calm=this.reducedEffects,warn=h.state==='warn';
+    const u=clamp(h.age/(h.warn||.9),0,1),pulse=laserPulse(h.age,calm);
+    const since=h.age-(h.warn||0),ignite=warn?0:clamp(1-since/.12,0,1),end=warn?1:clamp((h.warn+h.on-h.age)/.12,0,1);
+    const flick=calm?1:.88+.12*Math.sin(t*43+h.id)*Math.sin(t*29+h.pos*.1);
+    c.save();
+    if(v)c.translate(h.pos,a);else{c.translate(a,h.pos);c.rotate(-Math.PI/2);}
+    if(warn){
+      const band=hw*(2.7-1.5*u);
+      c.globalAlpha=.5*(.4+.6*u);c.fillStyle=pal.under;c.fillRect(-hw-1,0,hw*2+2,len);
+      c.globalAlpha=(.32+.45*u)*(.45+.55*pulse);
+      c.drawImage(this.beamProfile(pal.key+'warn',pal.warn),-band,0,band*2,len);
+      // The exact danger edges, hollow between: no core until it fires.
+      c.globalAlpha=Math.min(1,(.35+.5*u)*(.55+.45*pulse));c.fillStyle=pal.edge;
+      c.fillRect(-hw-.8,0,1.6,len);c.fillRect(hw-.8,0,1.6,len);
+    }else{
+      const I=flick*(.78+.22*end)+ignite*.45;
+      c.globalAlpha=.5*end;c.fillStyle=pal.under;c.fillRect(-hw-2,0,hw*2+4,len);
+      c.globalCompositeOperation='lighter';
+      const glow=hw*(calm?2.8:3.4+ignite*2.5);
+      c.globalAlpha=(calm?.3:.45)*I*end;c.drawImage(this.beamProfile(pal.key+'glow',pal.glow),-glow,0,glow*2,len);
+      c.globalCompositeOperation='source-over';
+      c.globalAlpha=Math.min(1,.9*I)*Math.max(end,.35);c.drawImage(this.beamProfile(pal.key+'body',pal.body),-hw,0,hw*2,len);
+      const cw=calm?2.4:2.2+Math.sin(t*43+h.id)*.7;
+      c.globalAlpha=Math.min(1,.8*I)*end;c.fillStyle=pal.core;c.fillRect(-cw/2,0,cw,len);
+      if(!calm){
+        c.globalCompositeOperation='lighter';
+        const packet=this.fleetSoftSprite('packet'+pal.key,[[0,'rgba('+pal.hot+',.9)'],[.45,'rgba('+pal.rgb+',.35)'],[1,'rgba('+pal.rgb+',0)']]);
+        c.globalAlpha=.4*I*end;
+        for(let i=0;i<3;i++){const y=(t*640+i*len/3+h.id*97)%len;c.drawImage(packet,-hw*1.3,y-hw*3.5,hw*2.6,hw*7);}
+      }
+    }
+    c.restore();
+    // Ends: the emitter (v bars: the top; h bars: the screen-edge end) charges and
+    // flares; an end hanging in the open (a lattice gap) gets a terminal node.
+    for(const [at,first] of [[a,true],[b,false]]){
+      const x=v?h.pos:at,y=v?at:h.pos,edge=x<=1||x>=W-1||y<=1||y>=H-1;
+      const emitter=v?first:edge;if(!emitter&&edge)continue;
+      this.laserNode(x,y,pal,warn,u,pulse,ignite,end,flick,emitter,t+h.id);
+    }
+  }
+  laserNode(x,y,pal,warn,u,pulse,ignite,end,flick,emitter,t) {
+    const c=this.ctx,calm=this.reducedEffects;c.save();c.globalCompositeOperation='lighter';
+    const glow=this.fleetSoftSprite('node'+pal.key,[[0,'rgba('+pal.hot+',.95)'],[.3,'rgba('+pal.rgb+',.55)'],[1,'rgba('+pal.rgb+',0)']]);
+    if(warn){
+      const r=(emitter?10:7)+u*(emitter?16:9);
+      c.globalAlpha=(.25+.6*u)*(.5+.5*pulse)*(calm?.7:1);c.drawImage(glow,x-r,y-r,r*2,r*2);
+    }else{
+      const r=(emitter?30:22)*(.9+.1*flick)+ignite*20;
+      c.globalAlpha=Math.min(1,(.75+ignite*.4)*end);c.drawImage(glow,x-r,y-r,r*2,r*2);
+      if(!calm){
+        // A crackle of short sparks where the beam ends or leaves its emitter.
+        c.globalAlpha=.7*end;c.strokeStyle='rgb('+pal.rgb+')';c.lineWidth=1.2;c.beginPath();
+        const f=Math.floor(t*30);
+        for(let i=0;i<4;i++){const a=hash(f*7+i)*TAU,d=6+hash(f+i*3)*12;c.moveTo(x+Math.cos(a)*4,y+Math.sin(a)*4);c.lineTo(x+Math.cos(a)*d,y+Math.sin(a)*d);}
+        c.stroke();
+      }
+    }
+    c.restore();
   }
   skyHazards(game,t) {
     const c=this.ctx;c.save();
@@ -2801,10 +3069,10 @@ export class Renderer {
       if(f.sky){
         const p=f.age/f.life,fade=1-p;c.save();c.globalAlpha=fade;
         if(f.type==='foundryDown'||f.type==='bayDown'){
-          const big=f.type==='foundryDown';for(let i=0;i<(big?7:3);i++){const age=f.age-i*.16;if(age<0||age>.8)continue;this.skyFire(c,f.x+Math.sin(i*7)* (big?65:14),f.y+Math.cos(i*5)*22,age+i,(big?42:22)*(1+age));}
-          oval(c,f.x,f.y,12+p*(big?140:50),6+p*40,'rgba(255,205,142,'+fade*.7+')',true,2);
-        }else if(f.type==='empPulse'){bloom(c,f.x,f.y,85,'#d9a1e0','rimViolet',fade*.6);}
-        else oval(c,f.x,f.y,8+p*32,4+p*12,'rgba(255,211,174,'+fade*.4+')',true,1);
+          const big=f.type==='foundryDown';c.globalAlpha=Math.min(1,(1-p)*4);
+          for(let i=0;i<(big?(this.reducedEffects?4:7):(this.reducedEffects?2:3));i++)this.blast(c,f.x+Math.sin(i*7)*(big?65:14),f.y+Math.cos(i*5)*22,(big?70:42)*(i?.75:1),f.age-i*(big?.16:.12),i*13+Math.round(f.x),'sky',i===0);
+        }else if(f.type==='empPulse'){if(!this.reducedEffects)bloom(c,f.x,f.y,85,'#d9a1e0','rimViolet',fade*.6);else{c.globalAlpha=fade*.4;c.drawImage(this.blastRing('217,161,224'),f.x-70,f.y-70,140,140);}}
+        else{const rx=12+p*40,ry=6+p*16;c.globalAlpha=fade*.45;c.drawImage(this.blastRing('255,211,174'),f.x-rx,f.y-ry,rx*2,ry*2);}
         c.restore();
       }else if(f.type==='boxEnter'){
         const y=game.player?.empTime>=.05&&game.player?.escorts>0?815:845;c.fillStyle='rgba(22,15,36,.48)';c.fillRect(80,y-14,380,27);
@@ -2832,8 +3100,8 @@ export class Renderer {
         }
         // Timed secondary detonations retain the full skin for more than two seconds.
         const beat=Math.floor(f.age/.3),blast=(f.age% .3)/.3;
-        if(p<.88){c.save();c.globalAlpha=1-blast;this.skyFire(c,f.x+Math.sin(beat*13)*150,breakupY,f.age,25+blast*38);c.restore();}
-        if(p>.75){const q=(p-.75)/.25;c.save();c.globalAlpha=1-q;oval(c,f.x,560,40+q*210,10+q*38,'#d9a1e0',true,8*(1-q)+1);if(!this.reducedEffects)bloom(c,f.x,555,90,'#d9a1e0','rimViolet',1-q);c.restore();}
+        if(p<.88){c.save();c.globalAlpha=Math.min(1,(.88-p)*8);for(let j=0;j<(this.reducedEffects?2:4);j++){const k=beat-j;if(k<0)break;this.blast(c,f.x+Math.sin(k*13)*150,breakupY+Math.cos(k*7)*18,58,blast*.3+j*.3,k*29+5,'sky',false);}c.restore();}
+        if(p>.75){const q=(p-.75)/.25;c.save();c.globalAlpha=1-q;const rx=60+q*230,ry=16+q*46;c.drawImage(this.blastRing('217,161,224'),f.x-rx,560-ry,rx*2,ry*2);if(!this.reducedEffects)bloom(c,f.x,555,90,'#d9a1e0','rimViolet',1-q);c.restore();}
       }
     }
     for(const h of game.hazards||[]){
@@ -2850,9 +3118,7 @@ export class Renderer {
         line(c,[0,0,0,1100],warn?'rgba(203,176,255,.55)':'rgba(141,124,255,.35)',warn?2:(h.width||16)*2);
         if(!warn)line(c,[0,0,0,1100],'#e7faff',3);c.restore();
       }else if(h.kind==='laser'||h.type==='laser'){
-        const v=h.orient==='v',a=h.from??0,b=h.to??(v?H:W),pts=v?[h.pos,a,h.pos,b]:[a,h.pos,b,h.pos],fire=h.state==='fire';
-        line(c,pts,'#21142f',fire?22:5);c.setLineDash(fire?[]:[8,6]);line(c,pts,h.void?'#f1c5ff':col,fire?14:3);c.setLineDash([]);if(fire)line(c,pts,'#fff9f5',3+Math.sin(t*43));
-        for(const end of [a,b]){const x=v?h.pos:end,y=v?end:h.pos;oval(c,x,y,8,8,'#20152e',false);oval(c,x,y,fire?10:5,fire?10:5,col,true,2);if(fire)bloom(c,x,y,22,col,'coreViolet',.7);}
+        this.laserBar(h,t);
       }else if(h.kind==='emp'||h.type==='emp'){
         const pulse=h.state==='pulse',r=Math.max(8,h.r||35);oval(c,h.x,h.y,r,r,'#261733',true,7);oval(c,h.x,h.y,r,r,pulse?'#f5d4ff':'#cfa3f2',true,pulse?5:3);
         c.fillStyle='#f2d5ff';c.font='800 15px Arial';c.textAlign='center';c.strokeStyle='#251a37';c.lineWidth=3;const label=pulse?'EMP PULSE':'EMP CHARGE';c.strokeText(label,h.x,h.y-r-12);c.fillText(label,h.x,h.y-r-12);
