@@ -34,6 +34,9 @@ async function prepareArt(progress) {
     c.fillStyle=stage===2?'rgba(22,31,48,.1)':stage===3?'rgba(27,15,55,.1)':'rgba(3,24,37,.1)';
     c.fillRect(0,0,540,1080);coastTiles.push(tile);
   }
+  // Act II sheets are optional: they load after the Act I art and never hold up
+  // the boot bar or artLoaded.
+  setTimeout(loadActTwoArt,0);
   if(!atlas)return false;
   for(const [id,rect] of Object.entries({...regions,...enemyRegions})) {
     const sheet=id in enemyRegions?enemies:atlas;if(!sheet)continue;
@@ -80,6 +83,197 @@ export function drawWreck(c,id,x,y,size,age,angle=0) {
   }
   return true;
 }
+// ---------------------------------------------------------------------------
+// Act II painted pieces (sectors 4-6). Contract: docs/design/act-two-art.md §5.
+// Each piece is a fixed cell of a sheet, painted at S source px per logical px,
+// drawn at 1/S around its pivot. Cells are never alpha-trimmed, so parts stay
+// registered to their parent hulls. Act II sheets load in the background after
+// the Act I art and are optional: hasPiece/drawPiece return false until (and
+// unless) the sheet arrives, and callers keep their procedural draw as fallback.
+// ---------------------------------------------------------------------------
+// Declared sheet sizes (source px). A runtime WebP of another resolution is
+// normalized by its actual size, like enemyRegions.
+export const actTwoSheets=Object.freeze({
+  'act2-s4-fleet':[2048,1024],'act2-leviathan':[2048,1024],'act2-s5-skyforge':[2048,1024],
+  'act2-halcyon':[2048,640],'act2-s6-meridian':[2048,640],'act2-sovereign':[2048,640]
+});
+// id: [sheet, x, y, w, h, S, pivotX=.5, pivotY=.5, optional=false]
+const PIECE_TABLE={
+  // act2-s4-fleet
+  'hull-destroyer':['act2-s4-fleet',0,0,256,640,2],
+  'hull-cruiser':['act2-s4-fleet',256,0,384,896,2],
+  'gunboat':['act2-s4-fleet',640,0,256,256,3,.5,.5,true],
+  'scavenger':['act2-s4-fleet',896,0,256,128,3],
+  'scavenger-open':['act2-s4-fleet',1152,0,256,128,3],
+  'mine':['act2-s4-fleet',1408,0,128,128,3],
+  'torpedo':['act2-s4-fleet',1536,0,128,256,3],
+  'interceptor':['act2-s4-fleet',1664,0,256,256,3,.5,.5,true],
+  'turret-head-triple':['act2-s4-fleet',640,256,256,256,3],
+  'turret-head-fan':['act2-s4-fleet',896,256,256,256,3],
+  'turret-head-flak':['act2-s4-fleet',1152,256,256,256,3],
+  'turret-head-broadside':['act2-s4-fleet',1408,256,256,256,3],
+  'turret-head-void':['act2-s4-fleet',1664,256,256,256,3],
+  'turret-base':['act2-s4-fleet',640,512,128,128,3],
+  'turret-base-wreck':['act2-s4-fleet',768,512,128,128,3],
+  'turret-head-wreck':['act2-s4-fleet',896,512,256,256,3],
+  'scorch-1':['act2-s4-fleet',1152,512,128,128,3,.5,.5,true],
+  'scorch-2':['act2-s4-fleet',1280,512,128,128,3,.5,.5,true],
+  'scorch-3':['act2-s4-fleet',1408,512,128,128,3,.5,.5,true],
+  // act2-leviathan
+  'leviathan-hull':['act2-leviathan',0,0,1024,512,2],
+  'leviathan-wreck':['act2-leviathan',1024,0,1024,512,2],
+  'core-rotor-a':['act2-leviathan',0,512,256,256,2],
+  'core-rotor-b':['act2-leviathan',256,512,256,256,2],
+  'core-armor-l':['act2-leviathan',512,512,128,256,2],
+  'core-armor-r':['act2-leviathan',640,512,128,256,2],
+  'core-bed':['act2-leviathan',768,512,256,256,2],
+  'battery-block-r':['act2-leviathan',1024,512,128,128,4],
+  'battery-barrels-r':['act2-leviathan',1152,512,128,128,4,.1,.5],
+  'battery-block-l':['act2-leviathan',1280,512,128,128,4],
+  'battery-barrels-l':['act2-leviathan',1408,512,128,128,4,.9,.5],
+  // act2-s5-skyforge
+  'foundry-large':['act2-s5-skyforge',0,0,768,384,2],
+  'foundry-small':['act2-s5-skyforge',768,0,640,320,2],
+  'box-bomber':['act2-s5-skyforge',1408,0,512,320,3],
+  'sky-ace':['act2-s5-skyforge',0,384,384,384,3],
+  'drone':['act2-s5-skyforge',384,384,192,192,3],
+  'tail-gunner-base':['act2-s5-skyforge',576,384,128,128,3],
+  'tail-gunner-head':['act2-s5-skyforge',704,384,192,192,3],
+  'bay-closed':['act2-s5-skyforge',896,384,192,192,3],
+  'bay-open':['act2-s5-skyforge',1088,384,192,192,3],
+  'bay-dead':['act2-s5-skyforge',1280,384,192,192,3],
+  'sky-turret-base':['act2-s5-skyforge',1472,384,128,128,3],
+  'sky-turret-head-void':['act2-s5-skyforge',1600,384,256,256,3],
+  // act2-halcyon
+  'halcyon-hull':['act2-halcyon',0,0,1024,384,2],
+  'halcyon-broken':['act2-halcyon',1024,0,1024,384,2],
+  'eye-closed':['act2-halcyon',0,384,192,192,2],
+  'eye-open':['act2-halcyon',192,384,192,192,2],
+  'eye-ring':['act2-halcyon',384,384,256,256,2],
+  'lattice-emitter':['act2-halcyon',640,384,64,64,3],
+  'crack-l':['act2-halcyon',704,384,256,128,2,.5,.5,true],
+  'crack-r':['act2-halcyon',960,384,256,128,2,.5,.5,true],
+  // act2-s6-meridian
+  'gate-ring':['act2-s6-meridian',0,0,768,384,2],
+  'gate-hub':['act2-s6-meridian',768,0,256,256,2],
+  'station-turret-base':['act2-s6-meridian',1024,0,128,128,3],
+  'station-turret-head-mix':['act2-s6-meridian',1152,0,192,192,3],
+  'station-turret-head-shard':['act2-s6-meridian',1344,0,192,192,3],
+  'station-turret-head-void':['act2-s6-meridian',1536,0,192,192,3],
+  'station-turret-wreck':['act2-s6-meridian',1728,0,192,192,3,.5,.5,true],
+  'satellite':['act2-s6-meridian',0,384,384,256,3],
+  'satellite-arm':['act2-s6-meridian',384,384,128,128,3,.5,.75],
+  'tether-node':['act2-s6-meridian',512,384,128,128,3,.5,.5,true],
+  // act2-sovereign
+  'sovereign-hull':['act2-sovereign',0,0,896,384,2],
+  'sovereign-fractured':['act2-sovereign',896,0,896,384,2,.5,.5,true],
+  'sovereign-core':['act2-sovereign',0,384,128,256,2],
+  'pod-socket':['act2-sovereign',128,384,128,192,3,.5,.39],
+  'pod-power':['act2-sovereign',256,384,128,192,3,.5,.39],
+  'pod-escort':['act2-sovereign',384,384,128,192,3,.5,.39],
+  'pod-sidewinder':['act2-sovereign',512,384,128,192,3,.5,.39],
+  'pod-generic':['act2-sovereign',640,384,128,192,3,.5,.39],
+  'pod-shield':['act2-sovereign',768,384,128,192,3,.5,.39,true],
+  'pod-reflector':['act2-sovereign',896,384,128,192,3,.5,.39,true],
+  'pod-signature':['act2-sovereign',1024,384,128,192,3,.5,.39,true],
+};
+// Public, frozen: {sheet,x,y,w,h,s,px,py,optional}. x/y/w/h are declared sheet px.
+export const pieceRegions=Object.freeze(Object.fromEntries(Object.entries(PIECE_TABLE).map(([id,[sheet,x,y,w,h,s,px=.5,py=.5,optional=false]])=>
+  [id,Object.freeze({sheet,x,y,w,h,s,px,py,optional})])));
+const actTwoImages=new Map();   // sheet -> {image,kx,ky}
+const pieceBakes=new Map();     // id -> {flash,wreck,outline,native,logical,tints:Map}
+let actTwoPromise;
+export const PIECE_WRECK_TINT='rgba(15,26,35,.62)';
+function pieceCell(id){
+  const r=pieceRegions[id];if(!r)return null;
+  const sheet=actTwoImages.get(r.sheet);if(!sheet)return null;
+  return {r,image:sheet.image,sx:r.x*sheet.kx,sy:r.y*sheet.ky,sw:r.w*sheet.kx,sh:r.h*sheet.ky};
+}
+// Starts (once) the background load of every Act II sheet. Resolves to the list of
+// sheets that loaded; a missing or broken sheet is simply left out.
+export function loadActTwoArt(){
+  if(actTwoPromise)return actTwoPromise;
+  if(typeof Image==='undefined')return actTwoPromise=Promise.resolve([]);
+  return actTwoPromise=Promise.all(Object.entries(actTwoSheets).map(async([sheet,[w,h]])=>{
+    const image=await imageAt('../assets/'+sheet+'.webp');if(!image)return null;
+    try{await image.decode?.();}catch{}
+    const kx=image.naturalWidth/w,ky=image.naturalHeight/h;
+    if(Math.abs(kx-ky)>.01*Math.max(kx,ky))console.warn('Act II sheet '+sheet+' is '+image.naturalWidth+'x'+image.naturalHeight+', expected the aspect of '+w+'x'+h);
+    actTwoImages.set(sheet,{image,kx,ky});return sheet;
+  })).then(list=>list.filter(Boolean));
+}
+export function hasSheet(sheet){return actTwoImages.has(sheet);}
+export function hasPiece(id){const r=pieceRegions[id];return !!r&&actTwoImages.has(r.sheet);}
+// Logical metrics of a piece (from the table, available even before the sheet loads).
+// w/h are on-screen logical px of the whole cell; px/py the pivot in 0..1 of the cell.
+export function pieceInfo(id){
+  const r=pieceRegions[id];if(!r)return null;
+  return {sheet:r.sheet,w:r.w/r.s,h:r.h/r.s,s:r.s,px:r.px,py:r.py,optional:r.optional,loaded:actTwoImages.has(r.sheet)};
+}
+function bakesFor(id){let b=pieceBakes.get(id);if(!b)pieceBakes.set(id,b={tints:new Map()});return b;}
+function blankCanvas(w,h){const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(w));canvas.height=Math.max(1,Math.round(h));return canvas;}
+// The cell as a standalone canvas. Default: native sheet resolution
+// (width = cell w * S source px). {logical:true}: downsampled once to on-screen size
+// (width = cell w / S), so existing 1:1 tile code (slicing tile.width/cols, drawing at
+// -tile.width/2) works unchanged. Pivot stays at (px*width, py*height) in both.
+export function pieceCanvas(id,{logical=false}={}){
+  const cell=pieceCell(id);if(!cell)return null;
+  const b=bakesFor(id),key=logical?'logical':'native';
+  if(b[key])return b[key];
+  const canvas=logical?blankCanvas(cell.r.w/cell.r.s,cell.r.h/cell.r.s):blankCanvas(cell.sw,cell.sh);
+  const c=canvas.getContext('2d');c.imageSmoothingQuality='high';
+  c.drawImage(cell.image,cell.sx,cell.sy,cell.sw,cell.sh,0,0,canvas.width,canvas.height);
+  return b[key]=canvas;
+}
+// Tinted silhouettes are source-atop fills of the native cell, baked on first use.
+function tintedCell(id,color){
+  const cell=pieceCell(id);if(!cell)return null;
+  const tints=bakesFor(id).tints;let canvas=tints.get(color);
+  if(canvas)return canvas;
+  if(tints.size>=16)tints.delete(tints.keys().next().value);
+  canvas=blankCanvas(cell.sw,cell.sh);const c=canvas.getContext('2d');
+  c.drawImage(cell.image,cell.sx,cell.sy,cell.sw,cell.sh,0,0,canvas.width,canvas.height);
+  c.globalCompositeOperation='source-atop';c.fillStyle=color;c.fillRect(0,0,canvas.width,canvas.height);
+  tints.set(color,canvas);return canvas;
+}
+// Warm glow outline (the Act I `outlined` look) for small craft over dark fields.
+// Blur is ~2.5 logical px; the canvas is padded by `pad` source px on every side.
+function outlinedCell(id){
+  const cell=pieceCell(id);if(!cell)return null;
+  const b=bakesFor(id);if(b.outline)return b.outline;
+  const k=cell.sw/cell.r.w*cell.r.s,blur=Math.round(2.5*k),pad=blur*2;
+  const canvas=blankCanvas(cell.sw+pad*2,cell.sh+pad*2),c=canvas.getContext('2d');
+  c.shadowColor='rgba(255,217,174,.85)';c.shadowBlur=blur;
+  c.drawImage(cell.image,cell.sx,cell.sy,cell.sw,cell.sh,pad,pad,cell.sw,cell.sh);
+  return b.outline={canvas,pad};
+}
+// Draws piece `id` with its pivot at (x,y), rotated by `rot`, at 1/S logical scale
+// times `scaleMul` (a number, or [sx,sy] for non-uniform scaling about the pivot,
+// e.g. battery barrel length). `alpha` multiplies the current globalAlpha.
+// variant: undefined/'clean' | 'flash' (white silhouette) | 'wreck' (Act I wreck tint)
+//          | 'outline' (warm glow bake) | {tint:'css color'} (source-atop tint).
+// Returns false, drawing nothing, when the piece's sheet is not loaded.
+export function drawPiece(c,id,x,y,rot=0,scaleMul=1,alpha=1,variant){
+  const cell=pieceCell(id);if(!cell)return false;
+  const r=cell.r,lw=r.w/r.s,lh=r.h/r.s;
+  let source=cell.image,sx=cell.sx,sy=cell.sy,sw=cell.sw,sh=cell.sh,dx=-r.px*lw,dy=-r.py*lh,dw=lw,dh=lh;
+  if(variant&&variant!=='clean'){
+    if(variant==='outline'){
+      const o=outlinedCell(id),pad=o.pad*lw/cell.sw;
+      source=o.canvas;sx=0;sy=0;sw=o.canvas.width;sh=o.canvas.height;dx-=pad;dy-=pad;dw+=pad*2;dh+=pad*2;
+    }else{
+      const color=variant==='flash'?'#ffffff':variant==='wreck'?PIECE_WRECK_TINT:variant.tint;
+      if(!color)throw new Error('Unknown piece variant: '+variant);
+      source=tintedCell(id,color);sx=0;sy=0;sw=source.width;sh=source.height;
+    }
+  }
+  const [mx,my]=Array.isArray(scaleMul)?scaleMul:[scaleMul,scaleMul];
+  c.save();c.translate(x,y);if(rot)c.rotate(rot);if(mx!==1||my!==1)c.scale(mx,my);if(alpha!==1)c.globalAlpha*=alpha;
+  c.drawImage(source,sx,sy,sw,sh,dx,dy,dw,dh);c.restore();return true;
+}
+export function drawPieceFlash(c,id,x,y,rot=0,scaleMul=1,alpha=1){return drawPiece(c,id,x,y,rot,scaleMul,alpha,'flash');}
+export function drawPieceTinted(c,id,color,x,y,rot=0,scaleMul=1,alpha=1){return drawPiece(c,id,x,y,rot,scaleMul,alpha,{tint:color});}
+
 // Coarse water map of each authored coast tile, so ambient life (boats, glints,
 // foam, debris) only appears over water. 0 land, 1 shallows / foam, 2 open water.
 const WATER_CELL=10,WATER_COLS=54,WATER_ROWS=108;
